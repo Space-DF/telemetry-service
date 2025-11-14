@@ -1,0 +1,76 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.txt
+coverage.html
+
+# Security scan reports
+gosec-report.json
+gosec-report.txt
+
+# Dependency directories
+vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+tmp/
+
+# Debug files
+debug
+*.pprof
+
+# Air hot reload
+tmp/
+
+# Go workspace file
+go.work
+
+# Local database files
+*.sqlite
+*.db
+
+# Config override files (but not examples)
+config.local.yaml
+config.override.yaml
+
+# Kubernetes secrets (if any)
+*.secret.yaml
+*-secret.yaml
+
+# Terraform (if used)
+*.tfstate
+*.tfstate.backup
+.terraform/
+
+# Docker override files
+docker-compose.override.yml
+docker-compose.local.yml
+
+.env
