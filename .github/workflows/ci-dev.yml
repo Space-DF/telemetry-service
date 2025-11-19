@@ -42,7 +42,7 @@ jobs:
           go-version-file: "go.mod"
 
       - name: Build binary
-        run: go build -v ./cmd/bridge
+        run: go build -v ./cmd/telemetry
 
       - name: Build Docker image
         run: docker build -t telemetry-service .
