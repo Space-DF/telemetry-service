@@ -11,6 +11,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 	"github.com/stephenafamo/bob/dialect/psql"
+	"github.com/stephenafamo/bob/dialect/psql/im"
 	"github.com/stephenafamo/bob/dialect/psql/sm"
 	"go.uber.org/zap"
 )
@@ -184,7 +185,10 @@ func (c *Client) insertBatch(ctx context.Context, batch []*dbmodels.DeviceLocati
 	}
 
 	// Insert using Bob's batch insert with ToMods
-	_, err := dbmodels.DeviceLocations.Insert(bob.ToMods(batch...)...).Exec(ctx, c.db)
+	_, err := dbmodels.DeviceLocations.Insert(
+		bob.ToMods(batch...),
+		im.OnConflict("time", "device_id").DoNothing(),
+	).Exec(ctx, c.db)
 	if err != nil {
 		return fmt.Errorf("failed to insert batch: %w", err)
 	}
