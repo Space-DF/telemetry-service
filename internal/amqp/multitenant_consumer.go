@@ -624,6 +624,10 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				c.logger.Info("Message channel closed for organization", zap.String("org", tenant.OrgSlug))
 				return
 			}
+			c.logger.Debug("Received message from organization",
+				zap.String("org", tenant.OrgSlug),
+				zap.String("routing_key", msg.RoutingKey),
+				zap.String("content", string(msg.Body)))
 
 			c.logger.Debug("Received message from organization",
 				zap.String("org", tenant.OrgSlug),
@@ -650,7 +654,7 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 					_ = msg.Nack(false, true) // Requeue
 				}
 			} else {
-				_ = msg.Ack(false)
+				_ = msg.Nack(false, true)
 			}
 		}
 	}
