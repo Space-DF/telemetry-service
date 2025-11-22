@@ -219,6 +219,22 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, organizationS
 	return locations, nil
 }
 
+// GetLastLocation retrieves the most recent location for a device
+func (c *Client) GetLastLocation(ctx context.Context, deviceID, organizationSlug string) (*dbmodels.DeviceLocation, error) {
+	location, err := dbmodels.DeviceLocations.Query(
+		sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
+		sm.Where(dbmodels.DeviceLocations.Columns.OrganizationSlug.EQ(psql.Arg(organizationSlug))),
+		sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Desc(),
+		sm.Limit(1),
+	).One(ctx, c.db)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query last location: %w", err)
+	}
+
+	return location, nil
+}
+
 // HealthCheck checks if Psql is reachable
 func (c *Client) HealthCheck() error {
 	return c.db.Ping()
