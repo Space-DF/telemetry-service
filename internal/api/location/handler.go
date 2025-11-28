@@ -44,12 +44,12 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 		}
 
 		// Query database
-		locations, err := tsClient.GetLocationHistory(c.Request().Context(), req.DeviceID, req.OrganizationSlug, req.Start, req.End, limit)
+		locations, err := tsClient.GetLocationHistory(c.Request().Context(), req.DeviceID, req.SpaceSlug, req.Start, req.End, limit)
 		if err != nil {
 			logger.Error("Failed to query location history",
 				zap.Error(err),
 				zap.String("device_id", req.DeviceID),
-				zap.String("organization_slug", req.OrganizationSlug),
+				zap.String("space_slug", req.SpaceSlug),
 			)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to retrieve location history",
@@ -69,10 +69,10 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 		}
 
 		response := models.LocationHistoryResponse{
-			DeviceID:         req.DeviceID,
-			OrganizationSlug: req.OrganizationSlug,
-			Count:            len(locationResponses),
-			Locations:        locationResponses,
+			DeviceID:  req.DeviceID,
+			SpaceSlug: req.SpaceSlug,
+			Count:     len(locationResponses),
+			Locations: locationResponses,
 			QueryParams: models.QueryParamsResponse{
 				Start: req.Start,
 				End:   req.End,
@@ -102,7 +102,7 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 		}
 
 		// Query database for the last location
-		location, err := tsClient.GetLastLocation(c.Request().Context(), req.DeviceID, req.OrganizationSlug)
+		location, err := tsClient.GetLastLocation(c.Request().Context(), req.DeviceID, req.SpaceSlug)
 		if err != nil {
 			// Check if it's a "not found" error
 			if err.Error() == "sql: no rows in result set" {
@@ -114,7 +114,7 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			logger.Error("Failed to query last location",
 				zap.Error(err),
 				zap.String("device_id", req.DeviceID),
-				zap.String("organization_slug", req.OrganizationSlug),
+				zap.String("space_slug", req.SpaceSlug),
 			)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to retrieve last location",
@@ -123,12 +123,12 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 
 		// Convert to response format
 		response := models.LastLocationResponse{
-			DeviceID:         location.DeviceID,
-			OrganizationSlug: location.OrganizationSlug,
-			Timestamp:        location.Time,
-			Latitude:         location.Latitude,
-			Longitude:        location.Longitude,
-			Accuracy:         location.Accuracy,
+			DeviceID:  location.DeviceID,
+			SpaceSlug: location.SpaceSlug,
+			Timestamp: location.Time,
+			Latitude:  location.Latitude,
+			Longitude: location.Longitude,
+			Accuracy:  location.Accuracy,
 		}
 
 		return c.JSON(http.StatusOK, response)

@@ -40,7 +40,7 @@ func (f *Factory) FromExistingDeviceLocation(m *models.DeviceLocation) *DeviceLo
 
 	o.Time = func() time.Time { return m.Time }
 	o.DeviceID = func() string { return m.DeviceID }
-	o.OrganizationSlug = func() string { return m.OrganizationSlug }
+	o.SpaceSlug = func() string { return m.SpaceSlug }
 	o.Latitude = func() float64 { return m.Latitude }
 	o.Longitude = func() float64 { return m.Longitude }
 	o.Accuracy = func() float64 { return m.Accuracy }
