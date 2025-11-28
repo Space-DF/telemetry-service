@@ -33,7 +33,7 @@ func NewLocationProcessor(tsClient *timescaledb.Client, logger *zap.Logger) *Loc
 func (p *LocationProcessor) ProcessMessage(ctx context.Context, msg *models.DeviceLocationMessage) error {
 	p.logger.Debug("Processing device location message",
 		zap.String("device_id", msg.DeviceID),
-		zap.String("organization", msg.Organization),
+		zap.String("space", msg.Space),
 		zap.Float64("latitude", msg.Location.Latitude),
 		zap.Float64("longitude", msg.Location.Longitude),
 	)
@@ -85,8 +85,8 @@ func (p *LocationProcessor) ProcessMessage(ctx context.Context, msg *models.Devi
 // validateMessage validates a device location message
 func (p *LocationProcessor) validateMessage(msg *models.DeviceLocationMessage) error {
 	// Check required fields
-	if msg.Organization == "" {
-		return fmt.Errorf("missing organization")
+	if msg.Space == "" {
+		return fmt.Errorf("missing space")
 	}
 
 	if msg.Timestamp == "" {

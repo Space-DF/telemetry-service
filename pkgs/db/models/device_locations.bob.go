@@ -20,12 +20,12 @@ import (
 
 // DeviceLocation is an object representing the database table.
 type DeviceLocation struct {
-	Time             time.Time `db:"time,pk" `
-	DeviceID         string    `db:"device_id,pk" `
-	OrganizationSlug string    `db:"organization_slug" `
-	Latitude         float64   `db:"latitude" `
-	Longitude        float64   `db:"longitude" `
-	Accuracy         float64   `db:"accuracy" `
+	Time      time.Time `db:"time,pk" `
+	DeviceID  string    `db:"device_id,pk" `
+	SpaceSlug string    `db:"space_slug" `
+	Latitude  float64   `db:"latitude" `
+	Longitude float64   `db:"longitude" `
+	Accuracy  float64   `db:"accuracy" `
 }
 
 // DeviceLocationSlice is an alias for a slice of pointers to DeviceLocation.
@@ -41,27 +41,27 @@ type DeviceLocationsQuery = *psql.ViewQuery[*DeviceLocation, DeviceLocationSlice
 func buildDeviceLocationColumns(alias string) deviceLocationColumns {
 	return deviceLocationColumns{
 		ColumnsExpr: expr.NewColumnsExpr(
-			"time", "device_id", "organization_slug", "latitude", "longitude", "accuracy",
+			"time", "device_id", "space_slug", "latitude", "longitude", "accuracy",
 		).WithParent("device_locations"),
-		tableAlias:       alias,
-		Time:             psql.Quote(alias, "time"),
-		DeviceID:         psql.Quote(alias, "device_id"),
-		OrganizationSlug: psql.Quote(alias, "organization_slug"),
-		Latitude:         psql.Quote(alias, "latitude"),
-		Longitude:        psql.Quote(alias, "longitude"),
-		Accuracy:         psql.Quote(alias, "accuracy"),
+		tableAlias: alias,
+		Time:       psql.Quote(alias, "time"),
+		DeviceID:   psql.Quote(alias, "device_id"),
+		SpaceSlug:  psql.Quote(alias, "space_slug"),
+		Latitude:   psql.Quote(alias, "latitude"),
+		Longitude:  psql.Quote(alias, "longitude"),
+		Accuracy:   psql.Quote(alias, "accuracy"),
 	}
 }
 
 type deviceLocationColumns struct {
 	expr.ColumnsExpr
-	tableAlias       string
-	Time             psql.Expression
-	DeviceID         psql.Expression
-	OrganizationSlug psql.Expression
-	Latitude         psql.Expression
-	Longitude        psql.Expression
-	Accuracy         psql.Expression
+	tableAlias string
+	Time       psql.Expression
+	DeviceID   psql.Expression
+	SpaceSlug  psql.Expression
+	Latitude   psql.Expression
+	Longitude  psql.Expression
+	Accuracy   psql.Expression
 }
 
 func (c deviceLocationColumns) Alias() string {
@@ -76,12 +76,12 @@ func (deviceLocationColumns) AliasedAs(alias string) deviceLocationColumns {
 // All values are optional, and do not have to be set
 // Generated columns are not included
 type DeviceLocationSetter struct {
-	Time             omit.Val[time.Time] `db:"time,pk" `
-	DeviceID         omit.Val[string]    `db:"device_id,pk" `
-	OrganizationSlug omit.Val[string]    `db:"organization_slug" `
-	Latitude         omit.Val[float64]   `db:"latitude" `
-	Longitude        omit.Val[float64]   `db:"longitude" `
-	Accuracy         omit.Val[float64]   `db:"accuracy" `
+	Time      omit.Val[time.Time] `db:"time,pk" `
+	DeviceID  omit.Val[string]    `db:"device_id,pk" `
+	SpaceSlug omit.Val[string]    `db:"space_slug" `
+	Latitude  omit.Val[float64]   `db:"latitude" `
+	Longitude omit.Val[float64]   `db:"longitude" `
+	Accuracy  omit.Val[float64]   `db:"accuracy" `
 }
 
 func (s DeviceLocationSetter) SetColumns() []string {
@@ -92,8 +92,8 @@ func (s DeviceLocationSetter) SetColumns() []string {
 	if s.DeviceID.IsValue() {
 		vals = append(vals, "device_id")
 	}
-	if s.OrganizationSlug.IsValue() {
-		vals = append(vals, "organization_slug")
+	if s.SpaceSlug.IsValue() {
+		vals = append(vals, "space_slug")
 	}
 	if s.Latitude.IsValue() {
 		vals = append(vals, "latitude")
@@ -114,8 +114,8 @@ func (s DeviceLocationSetter) Overwrite(t *DeviceLocation) {
 	if s.DeviceID.IsValue() {
 		t.DeviceID = s.DeviceID.MustGet()
 	}
-	if s.OrganizationSlug.IsValue() {
-		t.OrganizationSlug = s.OrganizationSlug.MustGet()
+	if s.SpaceSlug.IsValue() {
+		t.SpaceSlug = s.SpaceSlug.MustGet()
 	}
 	if s.Latitude.IsValue() {
 		t.Latitude = s.Latitude.MustGet()
@@ -147,8 +147,8 @@ func (s *DeviceLocationSetter) Apply(q *dialect.InsertQuery) {
 			vals[1] = psql.Raw("DEFAULT")
 		}
 
-		if s.OrganizationSlug.IsValue() {
-			vals[2] = psql.Arg(s.OrganizationSlug.MustGet())
+		if s.SpaceSlug.IsValue() {
+			vals[2] = psql.Arg(s.SpaceSlug.MustGet())
 		} else {
 			vals[2] = psql.Raw("DEFAULT")
 		}
@@ -196,10 +196,10 @@ func (s DeviceLocationSetter) Expressions(prefix ...string) []bob.Expression {
 		}})
 	}
 
-	if s.OrganizationSlug.IsValue() {
+	if s.SpaceSlug.IsValue() {
 		exprs = append(exprs, expr.Join{Sep: " = ", Exprs: []bob.Expression{
-			psql.Quote(append(prefix, "organization_slug")...),
-			psql.Arg(s.OrganizationSlug),
+			psql.Quote(append(prefix, "space_slug")...),
+			psql.Arg(s.SpaceSlug),
 		}})
 	}
 
@@ -460,12 +460,12 @@ func (o DeviceLocationSlice) ReloadAll(ctx context.Context, exec bob.Executor) e
 }
 
 type deviceLocationWhere[Q psql.Filterable] struct {
-	Time             psql.WhereMod[Q, time.Time]
-	DeviceID         psql.WhereMod[Q, string]
-	OrganizationSlug psql.WhereMod[Q, string]
-	Latitude         psql.WhereMod[Q, float64]
-	Longitude        psql.WhereMod[Q, float64]
-	Accuracy         psql.WhereMod[Q, float64]
+	Time      psql.WhereMod[Q, time.Time]
+	DeviceID  psql.WhereMod[Q, string]
+	SpaceSlug psql.WhereMod[Q, string]
+	Latitude  psql.WhereMod[Q, float64]
+	Longitude psql.WhereMod[Q, float64]
+	Accuracy  psql.WhereMod[Q, float64]
 }
 
 func (deviceLocationWhere[Q]) AliasedAs(alias string) deviceLocationWhere[Q] {
@@ -474,11 +474,11 @@ func (deviceLocationWhere[Q]) AliasedAs(alias string) deviceLocationWhere[Q] {
 
 func buildDeviceLocationWhere[Q psql.Filterable](cols deviceLocationColumns) deviceLocationWhere[Q] {
 	return deviceLocationWhere[Q]{
-		Time:             psql.Where[Q, time.Time](cols.Time),
-		DeviceID:         psql.Where[Q, string](cols.DeviceID),
-		OrganizationSlug: psql.Where[Q, string](cols.OrganizationSlug),
-		Latitude:         psql.Where[Q, float64](cols.Latitude),
-		Longitude:        psql.Where[Q, float64](cols.Longitude),
-		Accuracy:         psql.Where[Q, float64](cols.Accuracy),
+		Time:      psql.Where[Q, time.Time](cols.Time),
+		DeviceID:  psql.Where[Q, string](cols.DeviceID),
+		SpaceSlug: psql.Where[Q, string](cols.SpaceSlug),
+		Latitude:  psql.Where[Q, float64](cols.Latitude),
+		Longitude: psql.Where[Q, float64](cols.Longitude),
+		Accuracy:  psql.Where[Q, float64](cols.Accuracy),
 	}
 }

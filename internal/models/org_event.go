@@ -55,11 +55,11 @@ type OrgDiscoveryRequest struct {
 
 // OrgDiscoveryResponse contains all active organizations
 type OrgDiscoveryResponse struct {
-	EventType     OrgEventType `json:"event_type"`
-	EventID       string       `json:"event_id"`
-	Timestamp     time.Time    `json:"timestamp"`
-	Organizations []OrgInfo    `json:"organizations"`
-	TotalCount    int          `json:"total_count"`
+	EventType  OrgEventType `json:"event_type"`
+	EventID    string       `json:"event_id"`
+	Timestamp  time.Time    `json:"timestamp"`
+	Spaces     []OrgInfo    `json:"spaces"`
+	TotalCount int          `json:"total_count"`
 }
 
 // OrgInfo contains basic organization information

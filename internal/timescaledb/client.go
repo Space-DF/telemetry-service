@@ -201,11 +201,11 @@ func (c *Client) insertBatch(ctx context.Context, batch []*dbmodels.DeviceLocati
 }
 
 // GetLocationHistory retrieves location history for a device
-func (c *Client) GetLocationHistory(ctx context.Context, deviceID, organizationSlug string, start, end time.Time, limit int) ([]*dbmodels.DeviceLocation, error) {
+func (c *Client) GetLocationHistory(ctx context.Context, deviceID, SpaceSlug string, start, end time.Time, limit int) ([]*dbmodels.DeviceLocation, error) {
 	// Query using Bob ORM
 	locations, err := dbmodels.DeviceLocations.Query(
 		sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
-		sm.Where(dbmodels.DeviceLocations.Columns.OrganizationSlug.EQ(psql.Arg(organizationSlug))),
+		sm.Where(dbmodels.DeviceLocations.Columns.SpaceSlug.EQ(psql.Arg(SpaceSlug))),
 		sm.Where(dbmodels.DeviceLocations.Columns.Time.GTE(psql.Arg(start))),
 		sm.Where(dbmodels.DeviceLocations.Columns.Time.LTE(psql.Arg(end))),
 		sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Asc(),
@@ -220,10 +220,10 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, organizationS
 }
 
 // GetLastLocation retrieves the most recent location for a device
-func (c *Client) GetLastLocation(ctx context.Context, deviceID, organizationSlug string) (*dbmodels.DeviceLocation, error) {
+func (c *Client) GetLastLocation(ctx context.Context, deviceID, SpaceSlug string) (*dbmodels.DeviceLocation, error) {
 	location, err := dbmodels.DeviceLocations.Query(
 		sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
-		sm.Where(dbmodels.DeviceLocations.Columns.OrganizationSlug.EQ(psql.Arg(organizationSlug))),
+		sm.Where(dbmodels.DeviceLocations.Columns.SpaceSlug.EQ(psql.Arg(SpaceSlug))),
 		sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Desc(),
 		sm.Limit(1),
 	).One(ctx, c.db)

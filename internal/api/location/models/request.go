@@ -7,11 +7,11 @@ import (
 
 // LocationHistoryRequest represents query parameters for location history
 type LocationHistoryRequest struct {
-	DeviceID         string    `query:"device_id" validate:"required"`
-	OrganizationSlug string    `query:"organization_slug" validate:"required"`
-	Start            time.Time `query:"start"`
-	End              time.Time `query:"end"`
-	Limit            int       `query:"limit"`
+	DeviceID  string    `query:"device_id" validate:"required"`
+	SpaceSlug string    `query:"space_slug" validate:"required"`
+	Start     time.Time `query:"start"`
+	End       time.Time `query:"end"`
+	Limit     int       `query:"limit"`
 }
 
 func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
@@ -19,8 +19,8 @@ func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
 		return nil, fmt.Errorf("device_id is required")
 	}
 
-	if r.OrganizationSlug == "" {
-		return nil, fmt.Errorf("organization_slug is required")
+	if r.SpaceSlug == "" {
+		return nil, fmt.Errorf("space_slug is required")
 	}
 	if r.Start.IsZero() {
 		return nil, fmt.Errorf("start time is required")
@@ -37,8 +37,8 @@ func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
 
 // LastLocationRequest represents query parameters for getting the last location
 type LastLocationRequest struct {
-	DeviceID         string `query:"device_id" validate:"required"`
-	OrganizationSlug string `query:"organization_slug" validate:"required"`
+	DeviceID  string `query:"device_id" validate:"required"`
+	SpaceSlug string `query:"space_slug" validate:"required"`
 }
 
 func (r LastLocationRequest) Validate() (*LastLocationRequest, error) {
@@ -46,8 +46,8 @@ func (r LastLocationRequest) Validate() (*LastLocationRequest, error) {
 		return nil, fmt.Errorf("device_id is required")
 	}
 
-	if r.OrganizationSlug == "" {
-		return nil, fmt.Errorf("organization_slug is required")
+	if r.SpaceSlug == "" {
+		return nil, fmt.Errorf("space_slug is required")
 	}
 
 	return &r, nil

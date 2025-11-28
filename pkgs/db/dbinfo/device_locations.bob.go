@@ -33,8 +33,8 @@ var DeviceLocations = Table[
 			Generated: false,
 			AutoIncr:  false,
 		},
-		OrganizationSlug: column{
-			Name:      "organization_slug",
+		SpaceSlug: column{
+			Name:      "space_slug",
 			DBType:    "character varying",
 			Default:   "",
 			Comment:   "",
@@ -115,7 +115,7 @@ var DeviceLocations = Table[
 			Name: "idx_device_locations_org_device_time",
 			Columns: []indexColumn{
 				{
-					Name:         "organization_slug",
+					Name:         "space_slug",
 					Desc:         null.FromCond(false, true),
 					IsExpression: false,
 				},
@@ -148,17 +148,17 @@ var DeviceLocations = Table[
 }
 
 type deviceLocationColumns struct {
-	Time             column
-	DeviceID         column
-	OrganizationSlug column
-	Latitude         column
-	Longitude        column
-	Accuracy         column
+	Time      column
+	DeviceID  column
+	SpaceSlug column
+	Latitude  column
+	Longitude column
+	Accuracy  column
 }
 
 func (c deviceLocationColumns) AsSlice() []column {
 	return []column{
-		c.Time, c.DeviceID, c.OrganizationSlug, c.Latitude, c.Longitude, c.Accuracy,
+		c.Time, c.DeviceID, c.SpaceSlug, c.Latitude, c.Longitude, c.Accuracy,
 	}
 }
 

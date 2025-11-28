@@ -4,11 +4,11 @@ import "time"
 
 // LocationHistoryResponse represents the response for location history
 type LocationHistoryResponse struct {
-	DeviceID         string              `json:"device_id"`
-	OrganizationSlug string              `json:"organization_slug_id"`
-	Count            int                 `json:"count"`
-	Locations        []LocationResponse  `json:"locations"`
-	QueryParams      QueryParamsResponse `json:"query_params"`
+	DeviceID    string              `json:"device_id"`
+	SpaceSlug   string              `json:"space_slug_id"`
+	Count       int                 `json:"count"`
+	Locations   []LocationResponse  `json:"locations"`
+	QueryParams QueryParamsResponse `json:"query_params"`
 }
 
 // LocationResponse represents a single location
@@ -29,10 +29,10 @@ type QueryParamsResponse struct {
 
 // LastLocationResponse represents the response for the last location
 type LastLocationResponse struct {
-	DeviceID         string    `json:"device_id"`
-	OrganizationSlug string    `json:"organization_slug"`
-	Timestamp        time.Time `json:"timestamp"`
-	Latitude         float64   `json:"latitude"`
-	Longitude        float64   `json:"longitude"`
-	Accuracy         float64   `json:"accuracy"`
+	DeviceID  string    `json:"device_id"`
+	SpaceSlug string    `json:"space_slug"`
+	Timestamp time.Time `json:"timestamp"`
+	Latitude  float64   `json:"latitude"`
+	Longitude float64   `json:"longitude"`
+	Accuracy  float64   `json:"accuracy"`
 }

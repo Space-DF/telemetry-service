@@ -35,12 +35,12 @@ func (mods DeviceLocationModSlice) Apply(ctx context.Context, n *DeviceLocationT
 // DeviceLocationTemplate is an object representing the database table.
 // all columns are optional and should be set by mods
 type DeviceLocationTemplate struct {
-	Time             func() time.Time
-	DeviceID         func() string
-	OrganizationSlug func() string
-	Latitude         func() float64
-	Longitude        func() float64
-	Accuracy         func() float64
+	Time      func() time.Time
+	DeviceID  func() string
+	SpaceSlug func() string
+	Latitude  func() float64
+	Longitude func() float64
+	Accuracy  func() float64
 
 	f *Factory
 
@@ -71,9 +71,9 @@ func (o DeviceLocationTemplate) BuildSetter() *models.DeviceLocationSetter {
 		val := o.DeviceID()
 		m.DeviceID = omit.From(val)
 	}
-	if o.OrganizationSlug != nil {
-		val := o.OrganizationSlug()
-		m.OrganizationSlug = omit.From(val)
+	if o.SpaceSlug != nil {
+		val := o.SpaceSlug()
+		m.SpaceSlug = omit.From(val)
 	}
 	if o.Latitude != nil {
 		val := o.Latitude()
@@ -115,8 +115,8 @@ func (o DeviceLocationTemplate) Build() *models.DeviceLocation {
 	if o.DeviceID != nil {
 		m.DeviceID = o.DeviceID()
 	}
-	if o.OrganizationSlug != nil {
-		m.OrganizationSlug = o.OrganizationSlug()
+	if o.SpaceSlug != nil {
+		m.SpaceSlug = o.SpaceSlug()
 	}
 	if o.Latitude != nil {
 		m.Latitude = o.Latitude()
@@ -155,9 +155,9 @@ func ensureCreatableDeviceLocation(m *models.DeviceLocationSetter) {
 		val := random_string(nil, "255")
 		m.DeviceID = omit.From(val)
 	}
-	if !(m.OrganizationSlug.IsValue()) {
+	if !(m.SpaceSlug.IsValue()) {
 		val := random_string(nil, "255")
-		m.OrganizationSlug = omit.From(val)
+		m.SpaceSlug = omit.From(val)
 	}
 	if !(m.Latitude.IsValue()) {
 		val := random_float64(nil)
@@ -273,7 +273,7 @@ func (m deviceLocationMods) RandomizeAllColumns(f *faker.Faker) DeviceLocationMo
 	return DeviceLocationModSlice{
 		DeviceLocationMods.RandomTime(f),
 		DeviceLocationMods.RandomDeviceID(f),
-		DeviceLocationMods.RandomOrganizationSlug(f),
+		DeviceLocationMods.RandomSpaceSlug(f),
 		DeviceLocationMods.RandomLatitude(f),
 		DeviceLocationMods.RandomLongitude(f),
 		DeviceLocationMods.RandomAccuracy(f),
@@ -343,31 +343,31 @@ func (m deviceLocationMods) RandomDeviceID(f *faker.Faker) DeviceLocationMod {
 }
 
 // Set the model columns to this value
-func (m deviceLocationMods) OrganizationSlug(val string) DeviceLocationMod {
+func (m deviceLocationMods) SpaceSlug(val string) DeviceLocationMod {
 	return DeviceLocationModFunc(func(_ context.Context, o *DeviceLocationTemplate) {
-		o.OrganizationSlug = func() string { return val }
+		o.SpaceSlug = func() string { return val }
 	})
 }
 
 // Set the Column from the function
-func (m deviceLocationMods) OrganizationSlugFunc(f func() string) DeviceLocationMod {
+func (m deviceLocationMods) SpaceSlugFunc(f func() string) DeviceLocationMod {
 	return DeviceLocationModFunc(func(_ context.Context, o *DeviceLocationTemplate) {
-		o.OrganizationSlug = f
+		o.SpaceSlug = f
 	})
 }
 
 // Clear any values for the column
-func (m deviceLocationMods) UnsetOrganizationSlug() DeviceLocationMod {
+func (m deviceLocationMods) UnsetSpaceSlug() DeviceLocationMod {
 	return DeviceLocationModFunc(func(_ context.Context, o *DeviceLocationTemplate) {
-		o.OrganizationSlug = nil
+		o.SpaceSlug = nil
 	})
 }
 
 // Generates a random value for the column using the given faker
 // if faker is nil, a default faker is used
-func (m deviceLocationMods) RandomOrganizationSlug(f *faker.Faker) DeviceLocationMod {
+func (m deviceLocationMods) RandomSpaceSlug(f *faker.Faker) DeviceLocationMod {
 	return DeviceLocationModFunc(func(_ context.Context, o *DeviceLocationTemplate) {
-		o.OrganizationSlug = func() string {
+		o.SpaceSlug = func() string {
 			return random_string(f, "255")
 		}
 	})

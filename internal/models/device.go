@@ -9,12 +9,12 @@ import (
 
 // DeviceLocationMessage represents the transformed device location message from RabbitMQ
 type DeviceLocationMessage struct {
-	DeviceID     string              `json:"device_id"`
-	Location     LocationCoordinates `json:"location"`
-	Timestamp    string              `json:"timestamp"`
-	Organization string              `json:"organization"`
-	Source       string              `json:"source"`
-	Metadata     map[string]any      `json:"metadata"`
+	DeviceID  string              `json:"device_id"`
+	Location  LocationCoordinates `json:"location"`
+	Timestamp string              `json:"timestamp"`
+	Space     string              `json:"space"`
+	Source    string              `json:"source"`
+	Metadata  map[string]any      `json:"metadata"`
 }
 
 // LocationCoordinates represents geographic coordinates with accuracy
@@ -43,11 +43,11 @@ func (m *DeviceLocationMessage) ToLocationSetter() *dbmodels.DeviceLocationSette
 	}
 
 	return &dbmodels.DeviceLocationSetter{
-		Time:             omit.From(ts),
-		DeviceID:         omit.From(m.DeviceID),
-		OrganizationSlug: omit.From(m.Organization),
-		Latitude:         omit.From(m.Location.Latitude),
-		Longitude:        omit.From(m.Location.Longitude),
-		Accuracy:         omit.From(m.Location.Accuracy),
+		Time:      omit.From(ts),
+		DeviceID:  omit.From(m.DeviceID),
+		SpaceSlug: omit.From(m.Space),
+		Latitude:  omit.From(m.Location.Latitude),
+		Longitude: omit.From(m.Location.Longitude),
+		Accuracy:  omit.From(m.Location.Accuracy),
 	}
 }
