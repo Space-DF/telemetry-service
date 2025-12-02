@@ -12,7 +12,7 @@ type DeviceLocationMessage struct {
 	DeviceID  string              `json:"device_id"`
 	Location  LocationCoordinates `json:"location"`
 	Timestamp string              `json:"timestamp"`
-	Space     string              `json:"space"`
+	Space     string              `json:"space_slug"`
 	Source    string              `json:"source"`
 	Metadata  map[string]any      `json:"metadata"`
 }
