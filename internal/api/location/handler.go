@@ -2,6 +2,7 @@ package location
 
 import (
 	"net/http"
+	"strings"
 
 	models "github.com/Space-DF/telemetry-service/internal/api/location/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -13,6 +14,36 @@ const (
 	DefaultLimit = 100
 	MaxLimit     = 24 * 3600 / 30 * 7 // one week
 )
+
+// resolveOrgFromRequest determines which organization slug to use for DB scoping.
+// Precedence:
+// 1) X-Organization header (explicit)
+// 2) Host subdomain (e.g. old-org-ok.telemetry)
+// 3) fallback (e.g. space_slug query parameter)
+// Returns the chosen org and a source label ("header", "host", "space_slug", or "unknown").
+func resolveOrgFromRequest(c echo.Context, fallback string) (string, string) {
+	host := c.Request().Host
+	if host != "" {
+		if idx := strings.Index(host, ":"); idx != -1 {
+			host = host[:idx]
+		}
+	}
+	hostOrg := ""
+	if host != "" {
+		parts := strings.Split(host, ".")
+		if len(parts) > 0 {
+			hostOrg = parts[0]
+		}
+	}
+
+	if hostOrg != "" {
+		return hostOrg, "host"
+	}
+	if fallback != "" {
+		return fallback, "space_slug"
+	}
+	return "", "unknown"
+}
 
 func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -43,8 +74,21 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 			limit = MaxLimit
 		}
 
+		// Resolve organization to use for DB search_path (reusable helper)
+		orgToUse, orgSource := resolveOrgFromRequest(c, req.SpaceSlug)
+
+		// Log which org will be used for DB scoping
+		logger.Info("Selecting DB schema for request",
+			zap.String("org_used", orgToUse),
+			zap.String("org_source", orgSource),
+			zap.String("space_slug", req.SpaceSlug),
+		)
+
+		// Build context with org for DB search_path
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+
 		// Query database
-		locations, err := tsClient.GetLocationHistory(c.Request().Context(), req.DeviceID, req.SpaceSlug, req.Start, req.End, limit)
+		locations, err := tsClient.GetLocationHistory(ctx, req.DeviceID, req.SpaceSlug, req.Start, req.End, limit)
 		if err != nil {
 			logger.Error("Failed to query location history",
 				zap.Error(err),
@@ -101,8 +145,20 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
+		// Resolve organization to use for DB search_path (reusable helper)
+		orgToUse, orgSource := resolveOrgFromRequest(c, req.SpaceSlug)
+
+		// Log which org will be used for DB scoping
+		logger.Info("Selecting DB schema for request",
+			zap.String("org_used", orgToUse),
+			zap.String("org_source", orgSource),
+			zap.String("space_slug", req.SpaceSlug),
+		)
+
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+
 		// Query database for the last location
-		location, err := tsClient.GetLastLocation(c.Request().Context(), req.DeviceID, req.SpaceSlug)
+		location, err := tsClient.GetLastLocation(ctx, req.DeviceID, req.SpaceSlug)
 		if err != nil {
 			// Check if it's a "not found" error
 			if err.Error() == "sql: no rows in result set" {
