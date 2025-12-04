@@ -639,7 +639,6 @@ func (c *MultiTenantConsumer) handleOrgEvent(ctx context.Context, msg amqp.Deliv
 }
 
 // processTenantMessages processes messages for a specific tenant
-// processTenantMessages processes messages for a specific tenant
 func (c *MultiTenantConsumer) processTenantMessages(
 	ctx context.Context,
 	tenant *TenantConsumer,

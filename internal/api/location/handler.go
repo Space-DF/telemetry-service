@@ -17,11 +17,8 @@ const (
 
 // resolveOrgFromRequest determines which organization slug to use for DB scoping.
 // Precedence:
-// 1) X-Organization header (explicit)
-// 2) Host subdomain (e.g. old-org-ok.telemetry)
-// 3) fallback (e.g. space_slug query parameter)
-// Returns the chosen org and a source label ("header", "host", "space_slug", or "unknown").
-func resolveOrgFromRequest(c echo.Context, fallback string) (string, string) {
+// Host subdomain (e.g. test-org.telemetry)
+func resolveOrgFromRequest(c echo.Context) (string, string) {
 	host := c.Request().Host
 	if host != "" {
 		if idx := strings.Index(host, ":"); idx != -1 {
@@ -38,9 +35,6 @@ func resolveOrgFromRequest(c echo.Context, fallback string) (string, string) {
 
 	if hostOrg != "" {
 		return hostOrg, "host"
-	}
-	if fallback != "" {
-		return fallback, "space_slug"
 	}
 	return "", "unknown"
 }
@@ -75,7 +69,7 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 		}
 
 		// Resolve organization to use for DB search_path (reusable helper)
-		orgToUse, orgSource := resolveOrgFromRequest(c, req.SpaceSlug)
+		orgToUse, orgSource := resolveOrgFromRequest(c)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
@@ -146,7 +140,7 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 		}
 
 		// Resolve organization to use for DB search_path (reusable helper)
-		orgToUse, orgSource := resolveOrgFromRequest(c, req.SpaceSlug)
+		orgToUse, orgSource := resolveOrgFromRequest(c)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
