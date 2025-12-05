@@ -2,7 +2,6 @@ package location
 
 import (
 	"net/http"
-	"strings"
 
 	models "github.com/Space-DF/telemetry-service/internal/api/location/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -16,25 +15,9 @@ const (
 )
 
 // resolveOrgFromRequest determines which organization slug to use for DB scoping.
-// Precedence:
-// Host subdomain (e.g. test-org.telemetry)
 func resolveOrgFromRequest(c echo.Context) (string, string) {
-	host := c.Request().Host
-	if host != "" {
-		if idx := strings.Index(host, ":"); idx != -1 {
-			host = host[:idx]
-		}
-	}
-	hostOrg := ""
-	if host != "" {
-		parts := strings.Split(host, ".")
-		if len(parts) > 0 {
-			hostOrg = parts[0]
-		}
-	}
-
-	if hostOrg != "" {
-		return hostOrg, "host"
+	if orgHeader := c.Request().Header.Get("X-Organization"); orgHeader != "" {
+		return orgHeader, "header"
 	}
 	return "", "unknown"
 }
