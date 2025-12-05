@@ -14,6 +14,14 @@ const (
 	MaxLimit     = 24 * 3600 / 30 * 7 // one week
 )
 
+// resolveOrgFromRequest determines which organization slug to use for DB scoping.
+func resolveOrgFromRequest(c echo.Context) (string, string) {
+	if orgHeader := c.Request().Header.Get("X-Organization"); orgHeader != "" {
+		return orgHeader, "header"
+	}
+	return "", "unknown"
+}
+
 func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var r models.LocationHistoryRequest
@@ -43,8 +51,21 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 			limit = MaxLimit
 		}
 
+		// Resolve organization to use for DB search_path (reusable helper)
+		orgToUse, orgSource := resolveOrgFromRequest(c)
+
+		// Log which org will be used for DB scoping
+		logger.Info("Selecting DB schema for request",
+			zap.String("org_used", orgToUse),
+			zap.String("org_source", orgSource),
+			zap.String("space_slug", req.SpaceSlug),
+		)
+
+		// Build context with org for DB search_path
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+
 		// Query database
-		locations, err := tsClient.GetLocationHistory(c.Request().Context(), req.DeviceID, req.SpaceSlug, req.Start, req.End, limit)
+		locations, err := tsClient.GetLocationHistory(ctx, req.DeviceID, req.SpaceSlug, req.Start, req.End, limit)
 		if err != nil {
 			logger.Error("Failed to query location history",
 				zap.Error(err),
@@ -101,8 +122,20 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
+		// Resolve organization to use for DB search_path (reusable helper)
+		orgToUse, orgSource := resolveOrgFromRequest(c)
+
+		// Log which org will be used for DB scoping
+		logger.Info("Selecting DB schema for request",
+			zap.String("org_used", orgToUse),
+			zap.String("org_source", orgSource),
+			zap.String("space_slug", req.SpaceSlug),
+		)
+
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+
 		// Query database for the last location
-		location, err := tsClient.GetLastLocation(c.Request().Context(), req.DeviceID, req.SpaceSlug)
+		location, err := tsClient.GetLastLocation(ctx, req.DeviceID, req.SpaceSlug)
 		if err != nil {
 			// Check if it's a "not found" error
 			if err.Error() == "sql: no rows in result set" {

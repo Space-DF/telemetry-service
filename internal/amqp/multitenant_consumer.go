@@ -23,6 +23,8 @@ import (
 // MessageProcessor processes device location messages
 type MessageProcessor interface {
 	ProcessMessage(context context.Context, msg *models.DeviceLocationMessage) error
+	OnOrgCreated(ctx context.Context, orgSlug string) error
+	OnOrgDeleted(ctx context.Context, orgSlug string) error
 }
 
 // TenantConsumer represents a consumer for a specific tenant
@@ -596,11 +598,38 @@ func (c *MultiTenantConsumer) handleOrgEvent(ctx context.Context, msg amqp.Deliv
 			return nil
 		}
 		// Use empty strings to let subscribeToOrganization create default names
-		return c.subscribeToOrganization(ctx, orgSlug, vhost, "", "")
+		if err := c.subscribeToOrganization(ctx, orgSlug, vhost, "", ""); err != nil {
+			return err
+		}
+
+		// Ask processor to ensure any per-organization setup (e.g., DB schema)
+		if c.processor != nil {
+			if err := c.processor.OnOrgCreated(ctx, orgSlug); err != nil {
+				c.logger.Error("Processor failed to handle org creation",
+					zap.String("org", orgSlug),
+					zap.Error(err))
+				return err
+			}
+		}
+
+		return nil
 
 	case models.OrgDeactivated, models.OrgDeleted:
 		// Org deleted/deactivated - unsubscribe
 		c.unsubscribeFromOrganization(orgSlug)
+
+		// If this is a deletion event, notify processor to perform cleanup
+		if event.EventType == models.OrgDeleted {
+			if c.processor != nil {
+				if err := c.processor.OnOrgDeleted(ctx, orgSlug); err != nil {
+					c.logger.Error("Processor failed to handle org deletion",
+						zap.String("org", orgSlug),
+						zap.Error(err))
+					return err
+				}
+			}
+		}
+
 		return nil
 
 	default:
@@ -610,7 +639,11 @@ func (c *MultiTenantConsumer) handleOrgEvent(ctx context.Context, msg amqp.Deliv
 }
 
 // processTenantMessages processes messages for a specific tenant
-func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant *TenantConsumer, messages <-chan amqp.Delivery) {
+func (c *MultiTenantConsumer) processTenantMessages(
+	ctx context.Context,
+	tenant *TenantConsumer,
+	messages <-chan amqp.Delivery,
+) {
 	c.logger.Info("Processing messages for organization", zap.String("org", tenant.OrgSlug))
 
 	for {
@@ -627,7 +660,9 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 
 			c.logger.Debug("Received message from organization",
 				zap.String("org", tenant.OrgSlug),
-				zap.String("routing_key", msg.RoutingKey))
+				zap.String("routing_key", msg.RoutingKey),
+				zap.ByteString("body", msg.Body),
+			)
 
 			// Parse the message
 			var deviceMsg models.DeviceLocationMessage
@@ -639,8 +674,11 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				continue
 			}
 
+			// Attach org slug to context so DB operations target the correct schema
+			msgCtx := timescaledb.ContextWithOrg(ctx, tenant.OrgSlug)
+
 			// Process the message
-			if err := c.processor.ProcessMessage(ctx, &deviceMsg); err != nil {
+			if err := c.processor.ProcessMessage(msgCtx, &deviceMsg); err != nil {
 				c.logger.Error("Failed to process message",
 					zap.Error(err),
 					zap.String("org", tenant.OrgSlug))

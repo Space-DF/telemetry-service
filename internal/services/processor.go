@@ -121,3 +121,49 @@ func (p *LocationProcessor) GetStats() map[string]interface{} {
 		"dropped_count":   p.droppedCount.Load(),
 	}
 }
+
+// OnOrgCreated is invoked when a new organization is created. It ensures any
+// organization-specific setup is performed, such as creating a dedicated DB schema.
+func (p *LocationProcessor) OnOrgCreated(ctx context.Context, orgSlug string) error {
+	p.logger.Info("Handling org created in processor", zap.String("org", orgSlug))
+
+	if orgSlug == "" {
+		return fmt.Errorf("empty org slug")
+	}
+
+	if p.tsClient == nil {
+		return fmt.Errorf("timescaledb client is not initialized")
+	}
+
+	if err := p.tsClient.CreateSchemaAndTables(ctx, orgSlug); err != nil {
+		p.logger.Error("Failed to create org schema/tables", zap.String("org", orgSlug), zap.Error(err))
+		return err
+	}
+
+	p.logger.Info("Organization schema created/ensured", zap.String("org", orgSlug))
+	return nil
+}
+
+// OnOrgDeleted is invoked when an organization is deleted. It performs
+// cleanup for organization-specific resources such as dropping the DB schema.
+func (p *LocationProcessor) OnOrgDeleted(ctx context.Context, orgSlug string) error {
+	p.logger.Info("Handling org deleted in processor", zap.String("org", orgSlug))
+
+	if orgSlug == "" {
+		return fmt.Errorf("empty org slug")
+	}
+
+	if p.tsClient == nil {
+		return fmt.Errorf("timescaledb client is not initialized")
+	}
+
+	// Attempt to drop the schema. This is destructive and should only be
+	// called after ensuring no active processing remains for the org.
+	if err := p.tsClient.DropSchema(ctx, orgSlug); err != nil {
+		p.logger.Error("Failed to drop org schema", zap.String("org", orgSlug), zap.Error(err))
+		return err
+	}
+
+	p.logger.Info("Organization schema dropped", zap.String("org", orgSlug))
+	return nil
+}
