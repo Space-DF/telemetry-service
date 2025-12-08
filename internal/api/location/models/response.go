@@ -18,6 +18,11 @@ type LocationResponse struct {
 	Longitude float64   `json:"longitude"`
 	Accuracy  float64   `json:"accuracy"`
 	DeviceID  string    `json:"device_id"`
+	// Attributes contains the shared attributes recorded for the device
+	// at (or before) this timestamp, if any. It is returned as a
+	// map[string]interface{} so JSON will marshal arbitrary attribute
+	// objects produced by devices/transformer.
+	Attributes map[string]interface{} `json:"attributes,omitempty"`
 }
 
 // QueryParamsResponse shows the actual query parameters used
