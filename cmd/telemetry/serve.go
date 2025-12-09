@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Space-DF/telemetry-service/internal/amqp"
+	amqp "github.com/Space-DF/telemetry-service/internal/amqp/multi-tenant"
 	"github.com/Space-DF/telemetry-service/internal/api"
 	"github.com/Space-DF/telemetry-service/internal/health"
 	"github.com/Space-DF/telemetry-service/internal/services"
@@ -70,8 +70,8 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	// Initialize location processor
 	processor := services.NewLocationProcessor(tsClient, logger)
 
-	// Initialize multi-tenant AMQP consumer
-	consumer := amqp.NewMultiTenantConsumer(appConfig.AMQP, appConfig.OrgEvents, processor, logger)
+	// Initialize multi-tenant AMQP consumer with schema initializer
+	consumer := amqp.NewMultiTenantConsumer(appConfig.AMQP, appConfig.OrgEvents, processor, tsClient, logger)
 
 	// Connect to RabbitMQ
 	if err := consumer.Connect(); err != nil {

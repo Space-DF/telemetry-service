@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/aarondl/opt v0.0.0-20250607033636-982744e1bd65
 	github.com/amacneil/dbmate/v2 v2.28.0
+	github.com/google/uuid v1.6.0
 	github.com/jaswdr/faker/v2 v2.9.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.13.4

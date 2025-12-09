@@ -113,6 +113,30 @@ func (p *LocationProcessor) validateMessage(msg *models.DeviceLocationMessage) e
 	return nil
 }
 
+// ProcessTelemetry processes the entity-centric telemetry payload and stores it in the entities schema.
+func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *models.TelemetryPayload) error {
+	if payload == nil {
+		return fmt.Errorf("nil telemetry payload")
+	}
+
+	if p.tsClient == nil {
+		return fmt.Errorf("timescaledb client is not initialized")
+	}
+
+	p.logger.Info("Processing telemetry payload",
+		zap.String("org", payload.Organization),
+		zap.String("device_id", payload.DeviceID),
+		zap.Int("entities", len(payload.Entities)),
+	)
+
+	if err := p.tsClient.SaveTelemetryPayload(ctx, payload); err != nil {
+		p.logger.Error("Failed to persist telemetry payload", zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
 // GetStats returns processor statistics
 func (p *LocationProcessor) GetStats() map[string]interface{} {
 	return map[string]interface{}{

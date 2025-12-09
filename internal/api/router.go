@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/Space-DF/telemetry-service/internal/api/entities"
 	"github.com/Space-DF/telemetry-service/internal/api/location"
 	"github.com/Space-DF/telemetry-service/internal/config"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -11,4 +12,5 @@ import (
 func Setup(cfg *config.Config, e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
 	group := e.Group("/v1")
 	location.RegisterRoutes(group, logger, tsClient)
+	entities.RegisterRoutes(group, logger, tsClient)
 }
