@@ -60,7 +60,7 @@ func (m modAs[Q, C]) AliasedAs(alias string) bob.Mod[Q] {
 }
 
 func randInt() int64 {
-	out := int64(new(maphash.Hash).Sum64())
+	out := int64(new(maphash.Hash).Sum64()) // #nosec G115
 
 	if out < 0 {
 		return -out % 10000

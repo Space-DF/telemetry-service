@@ -358,7 +358,9 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 			if err != nil {
 				return err
 			}
-			defer rows.Close()
+			defer func() {
+				_ = rows.Close()
+			}()
 
 			for rows.Next() {
 				var id, deviceIDCol, name, uniqueKey sql.NullString
@@ -406,7 +408,9 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to query entities: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			_ = rows.Close()
+		}()
 
 		for rows.Next() {
 			var id, deviceIDCol, name, uniqueKey sql.NullString
@@ -473,7 +477,9 @@ func (c *Client) GetLatestAttributesForDeviceAt(ctx context.Context, deviceID st
 			if err != nil {
 				return err
 			}
-			defer rows.Close()
+			defer func() {
+				_ = rows.Close()
+			}()
 			if rows.Next() {
 				return rows.Scan(&rawAttrs)
 			}
@@ -486,7 +492,9 @@ func (c *Client) GetLatestAttributesForDeviceAt(ctx context.Context, deviceID st
 		if err != nil {
 			return nil, fmt.Errorf("failed to query attributes: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			_ = rows.Close()
+		}()
 		if rows.Next() {
 			if err := rows.Scan(&rawAttrs); err != nil {
 				return nil, err
