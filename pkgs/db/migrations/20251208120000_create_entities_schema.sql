@@ -51,8 +51,7 @@ CREATE TABLE IF NOT EXISTS entity_states (
     attributes_id UUID REFERENCES entity_state_attributes(id),
     old_state_id UUID REFERENCES entity_states(id),
     reported_at TIMESTAMPTZ NOT NULL,
-    last_changed_at TIMESTAMPTZ NOT NULL,
-    context_id UUID
+    last_changed_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_entity_states_entity_reported_at ON entity_states (entity_id, reported_at DESC);
