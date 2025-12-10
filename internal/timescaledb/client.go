@@ -500,7 +500,8 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 			for rows.Next() {
 				var id, deviceIDCol, name, uniqueKey sql.NullString
 				var etID, etName, etUnique, etImage sql.NullString
-				var categoryCol, unit, displayType, imageURL sql.NullString
+				var categoryCol, unit, imageURL sql.NullString
+				var displayType pq.StringArray
 				var isEnabled bool
 				var createdAt, updatedAt pq.NullTime
 				var timeStart, timeEnd pq.NullTime
@@ -523,7 +524,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 					"name":                name.String,
 					"category":            categoryCol.String,
 					"unit_of_measurement": unit.String,
-					"display_type":        displayType.String,
+					"display_type":        []string(displayType),
 					"image_url":           imageURL.String,
 					"is_enabled":          isEnabled,
 					"created_at":          createdAt.Time,
@@ -550,7 +551,8 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		for rows.Next() {
 			var id, deviceIDCol, name, uniqueKey sql.NullString
 			var etID, etName, etUnique, etImage sql.NullString
-			var categoryCol, unit, displayType, imageURL sql.NullString
+			var categoryCol, unit, imageURL sql.NullString
+			var displayType pq.StringArray
 			var isEnabled bool
 			var createdAt, updatedAt pq.NullTime
 			var timeStart, timeEnd pq.NullTime
@@ -573,7 +575,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 				"name":                name.String,
 				"category":            categoryCol.String,
 				"unit_of_measurement": unit.String,
-				"display_type":        displayType.String,
+				"display_type":        []string(displayType),
 				"image_url":           imageURL.String,
 				"is_enabled":          isEnabled,
 				"created_at":          createdAt.Time,

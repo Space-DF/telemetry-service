@@ -30,6 +30,7 @@ type TelemetryEntity struct {
 	DeviceClass string         `json:"device_class,omitempty"`
 	Name        string         `json:"name"`
 	State       any            `json:"state"`
+	DisplayType []string       `json:"display_type,omitempty"`
 	Attributes  map[string]any `json:"attributes,omitempty"`
 	UnitOfMeas  string         `json:"unit_of_measurement,omitempty"`
 	Icon        string         `json:"icon,omitempty"`
