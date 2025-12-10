@@ -3,6 +3,7 @@ package location
 import (
 	"net/http"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	models "github.com/Space-DF/telemetry-service/internal/api/location/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
@@ -13,14 +14,6 @@ const (
 	DefaultLimit = 100
 	MaxLimit     = 24 * 3600 / 30 * 7 // one week
 )
-
-// resolveOrgFromRequest determines which organization slug to use for DB scoping.
-func resolveOrgFromRequest(c echo.Context) (string, string) {
-	if orgHeader := c.Request().Header.Get("X-Organization"); orgHeader != "" {
-		return orgHeader, "header"
-	}
-	return "", "unknown"
-}
 
 func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -51,13 +44,12 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 			limit = MaxLimit
 		}
 
-		// Resolve organization to use for DB search_path (reusable helper)
-		orgToUse, orgSource := resolveOrgFromRequest(c)
+		// Resolve organization from hostname or X-Organization header
+		orgToUse := common.ResolveOrgFromRequest(c)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
 			zap.String("org_used", orgToUse),
-			zap.String("org_source", orgSource),
 			zap.String("space_slug", req.SpaceSlug),
 		)
 
@@ -80,39 +72,17 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 		// Convert to response format
 		locationResponses := make([]models.LocationResponse, len(locations))
 		for i, loc := range locations {
-			// Populate basic fields
-			lr := models.LocationResponse{
+			locationResponses[i] = models.LocationResponse{
 				Timestamp: loc.Time,
 				Latitude:  loc.Latitude,
 				Longitude: loc.Longitude,
-				Accuracy:  loc.Accuracy,
 				DeviceID:  loc.DeviceID,
 			}
-
-			// Try to load shared attributes for this device at (or before) this timestamp.
-			attrs, aerr := tsClient.GetLatestAttributesForDeviceAt(ctx, loc.DeviceID, loc.Time)
-			if aerr != nil {
-				logger.Error("failed to load attributes for location",
-					zap.Error(aerr),
-					zap.String("device_id", loc.DeviceID),
-				)
-			} else {
-				lr.Attributes = attrs
-			}
-
-			locationResponses[i] = lr
 		}
 
 		response := models.LocationHistoryResponse{
-			DeviceID:  req.DeviceID,
-			SpaceSlug: req.SpaceSlug,
 			Count:     len(locationResponses),
 			Locations: locationResponses,
-			QueryParams: models.QueryParamsResponse{
-				Start: req.Start,
-				End:   req.End,
-				Limit: limit,
-			},
 		}
 
 		return c.JSON(http.StatusOK, response)
@@ -136,13 +106,12 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
-		// Resolve organization to use for DB search_path (reusable helper)
-		orgToUse, orgSource := resolveOrgFromRequest(c)
+		// Resolve organization from hostname or X-Organization header
+		orgToUse := common.ResolveOrgFromRequest(c)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
 			zap.String("org_used", orgToUse),
-			zap.String("org_source", orgSource),
 			zap.String("space_slug", req.SpaceSlug),
 		)
 
@@ -175,34 +144,8 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			Timestamp: location.Time,
 			Latitude:  location.Latitude,
 			Longitude: location.Longitude,
-			Accuracy:  location.Accuracy,
-		}
-
-		// Attach attributes for last location if available
-		if attrs, aerr := tsClient.GetLatestAttributesForDeviceAt(ctx, location.DeviceID, location.Time); aerr == nil {
-			// update response to include attributes map - extend LastLocationResponse if desired
-			// For now we append into a small response wrapper by returning same fields plus attributes
-			// We'll include attributes by using a map response instead of strict struct if needed.
-			// To keep compatibility, we will return the response with attributes embedded via an inline map here.
-			out := map[string]interface{}{
-				"device_id":  response.DeviceID,
-				"space_slug": response.SpaceSlug,
-				"timestamp":  response.Timestamp,
-				"latitude":   response.Latitude,
-				"longitude":  response.Longitude,
-				"accuracy":   response.Accuracy,
-				"attributes": attrs,
-			}
-
-			return c.JSON(http.StatusOK, out)
-		} else {
-			logger.Error("failed to load attributes for last location",
-				zap.Error(aerr),
-				zap.String("device_id", location.DeviceID),
-			)
 		}
 
 		return c.JSON(http.StatusOK, response)
 	}
 }
-
