@@ -16,7 +16,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		// Parse query params
 		category := c.QueryParam("category")
 		deviceID := c.QueryParam("device_id")
-		displayTypes := strings.FieldsFunc(c.QueryParam("display_type"), func(r rune) bool { return r == ',' })
+		displayTypes := parseDisplayTypes(c.QueryParam("display_type"))
 		search := strings.TrimSpace(c.QueryParam("j"))
 		pageStr := c.QueryParam("page")
 		pageSizeStr := c.QueryParam("page_size")
@@ -66,4 +66,24 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 			"results": entities,
 		})
 	}
+}
+
+func parseDisplayTypes(param string) []string {
+	if param == "" {
+		return nil
+	}
+	
+	parts := strings.Split(param, ",")
+	j := 0
+	for i := range parts {
+		if trimmed := strings.TrimSpace(parts[i]); trimmed != "" {
+			parts[j] = trimmed
+			j++
+		}
+	}
+	
+	if j == 0 {
+		return nil
+	}
+	return parts[:j]
 }
