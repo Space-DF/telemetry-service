@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS entities (
     entity_type_id UUID NOT NULL REFERENCES entity_types(id) ON DELETE CASCADE,
     name TEXT,
     unit_of_measurement TEXT,
-    display_type TEXT NOT NULL DEFAULT 'unknown',
+    display_type TEXT[] NOT NULL DEFAULT ARRAY['unknown'],
     image_url TEXT,
     is_enabled BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),

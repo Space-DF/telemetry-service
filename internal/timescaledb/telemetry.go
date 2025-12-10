@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
-	"strings"
 	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 )
 
@@ -42,9 +42,9 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		return fmt.Errorf("nil telemetry entity")
 	}
 
-	displayType := "unknown"
-	if len(ent.DisplayType) > 0 && strings.TrimSpace(ent.DisplayType[0]) != "" {
-		displayType = ent.DisplayType[0]
+	displayType := ent.DisplayType
+	if len(displayType) == 0 {
+		displayType = []string{"unknown"}
 	}
 
 	// Ensure entity type exists (unique by unique_key).
@@ -102,7 +102,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		entityTypeID,
 		ent.Name,
 		ent.UnitOfMeas,
-		displayType,
+		pq.Array(displayType),
 	).Scan(&entityID); err != nil {
 		return fmt.Errorf("upsert entity '%s': %w", ent.UniqueID, err)
 	}
