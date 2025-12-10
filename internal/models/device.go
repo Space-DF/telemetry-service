@@ -31,31 +31,11 @@ func (m *DeviceLocationMessage) ToTelemetryPayload() *TelemetryPayload {
 		return nil
 	}
 
-	// Create location entity with attributes containing coordinates
-	locationEntity := TelemetryEntity{
-		UniqueID:   "location",
-		EntityType: "location",
-		Name:       "Device Location",
-		State:      "available",
-		Attributes: map[string]any{
-			"latitude":     m.Location.Latitude,
-			"longitude":    m.Location.Longitude,
-			"gps_accuracy": m.Location.Accuracy,
-			"source":       m.Source,
-		},
-		Timestamp: m.Timestamp,
-	}
-
-	// If accuracy is zero, remove it from attributes
-	if m.Location.Accuracy == 0 {
-		delete(locationEntity.Attributes, "gps_accuracy")
-	}
-
 	return &TelemetryPayload{
 		DeviceID:     m.DeviceID,
 		Organization: m.Organization,
 		SpaceSlug:    m.Space,
-		Entities:     []TelemetryEntity{locationEntity},
+		Entities:     []TelemetryEntity{},
 		Timestamp:    m.Timestamp,
 		Source:       m.Source,
 		Metadata:     m.Metadata,

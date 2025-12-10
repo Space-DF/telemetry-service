@@ -83,7 +83,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			id, space_slug, device_id, unique_key, category, entity_type_id,
 			name, unit_of_measurement, display_type, is_enabled, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, now(), now())
 		ON CONFLICT (unique_key) DO UPDATE SET
 			space_slug = EXCLUDED.space_slug,
 			device_id = EXCLUDED.device_id,
