@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
+	"strings"
 	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
@@ -39,6 +40,11 @@ func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.Telem
 func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *models.TelemetryEntity, payload *models.TelemetryPayload) error {
 	if ent == nil {
 		return fmt.Errorf("nil telemetry entity")
+	}
+
+	displayType := "unknown"
+	if len(ent.DisplayType) > 0 && strings.TrimSpace(ent.DisplayType[0]) != "" {
+		displayType = ent.DisplayType[0]
 	}
 
 	// Ensure entity type exists (unique by unique_key).
@@ -75,7 +81,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			id, organization, space_slug, device_id, unique_key, category, entity_type_id,
 			name, unit_of_measurement, display_type, is_enabled, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'chart', true, now(), now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now())
 		ON CONFLICT (unique_key) DO UPDATE SET
 			organization = EXCLUDED.organization,
 			space_slug = EXCLUDED.space_slug,
@@ -84,6 +90,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			unit_of_measurement = EXCLUDED.unit_of_measurement,
 			category = EXCLUDED.category,
 			entity_type_id = EXCLUDED.entity_type_id,
+			display_type = EXCLUDED.display_type,
 			updated_at = now()
 		RETURNING id`,
 		uuid.New(),
@@ -95,6 +102,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		entityTypeID,
 		ent.Name,
 		ent.UnitOfMeas,
+		displayType,
 	).Scan(&entityID); err != nil {
 		return fmt.Errorf("upsert entity '%s': %w", ent.UniqueID, err)
 	}
