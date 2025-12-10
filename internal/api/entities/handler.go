@@ -4,18 +4,11 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
-
-// resolveOrgFromRequest copied from other handlers: prefer X-Organization header
-func resolveOrgFromRequest(c echo.Context) (string, string) {
-	if orgHeader := c.Request().Header.Get("X-Organization"); orgHeader != "" {
-		return orgHeader, "header"
-	}
-	return "", "unknown"
-}
 
 func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -24,7 +17,12 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		deviceID := c.QueryParam("device_id")
 		pageStr := c.QueryParam("page")
 		pageSizeStr := c.QueryParam("page_size")
-		spaceSlug := c.QueryParam("space_slug")
+
+		// Resolve space slug from X-Space header (required)
+		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+		if err != nil {
+			return err
+		}
 
 		// defaults
 		page := 1
@@ -40,9 +38,16 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 			}
 		}
 
-		// Resolve organization for DB scoping
-		orgToUse, orgSource := resolveOrgFromRequest(c)
-		logger.Info("Selecting DB schema for entities request", zap.String("org_used", orgToUse), zap.String("org_source", orgSource), zap.String("space_slug", spaceSlug))
+		// Resolve organization from hostname or X-Organization header
+		orgToUse := common.ResolveOrgFromRequest(c)
+		if orgToUse == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Could not determine organization from hostname or X-Organization header",
+			})
+		}
+
+		logger.Info("Selecting DB schema for entities request",
+			zap.String("org_used", orgToUse))
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 

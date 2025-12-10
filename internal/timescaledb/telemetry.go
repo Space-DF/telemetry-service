@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
+	"log"
 	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
@@ -20,18 +21,19 @@ func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.Telem
 
 	org := payload.Organization
 	if org == "" {
-		org = payload.SpaceSlug
-	}
-	if org == "" {
 		return fmt.Errorf("missing organization in telemetry payload")
 	}
 
+	log.Printf("[Telemetry] SaveTelemetryPayload: org=%s, device_id=%s, entities=%d", org, payload.DeviceID, len(payload.Entities))
 	return c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		for _, ent := range payload.Entities {
 			if err := c.upsertTelemetryEntity(txCtx, tx, &ent, payload); err != nil {
+				log.Printf("[Telemetry] ERROR upserting entity: %v", err)
 				return err
 			}
+			log.Printf("[Telemetry] Entity upserted: org=%s, device_id=%s, entity_id=%s", org, payload.DeviceID, ent.UniqueID)
 		}
+		log.Printf("[Telemetry] Successfully saved payload: org=%s, device_id=%s", org, payload.DeviceID)
 		return nil
 	})
 }
@@ -72,12 +74,11 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	var entityID uuid.UUID
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO entities (
-			id, organization, space_slug, device_id, unique_key, category, entity_type_id,
+			id, space_slug, device_id, unique_key, category, entity_type_id,
 			name, unit_of_measurement, display_type, is_enabled, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'chart', true, now(), now())
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'chart', true, now(), now())
 		ON CONFLICT (unique_key) DO UPDATE SET
-			organization = EXCLUDED.organization,
 			space_slug = EXCLUDED.space_slug,
 			device_id = EXCLUDED.device_id,
 			name = EXCLUDED.name,
@@ -87,7 +88,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			updated_at = now()
 		RETURNING id`,
 		uuid.New(),
-		payload.Organization,
 		payload.SpaceSlug,
 		deviceUUID,
 		ent.UniqueID,

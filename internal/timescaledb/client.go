@@ -40,8 +40,6 @@ func (e *ErrDroppedBatch) Error() string {
 }
 
 // Client represents a Psql client
-// locationWithOrg wraps a location with its organization context
-
 type Client struct {
 	db            bob.DB
 	logger        *zap.Logger
@@ -49,8 +47,7 @@ type Client struct {
 	flushInterval time.Duration
 	connStr       string
 
-	batchCh chan *locationWithOrg
-	wg      sync.WaitGroup
+	wg sync.WaitGroup
 }
 
 // NewClient creates a new Psql client
@@ -76,8 +73,6 @@ func NewClient(connStr string, batchSize int, flushInterval time.Duration, logge
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
 		connStr:       connStr,
-
-		batchCh: make(chan *locationWithOrg, batchSize*BatchChannelBufferSize),
 	}, nil
 }
 

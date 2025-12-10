@@ -3,6 +3,7 @@ package location
 import (
 	"net/http"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	models "github.com/Space-DF/telemetry-service/internal/api/location/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
@@ -13,14 +14,6 @@ const (
 	DefaultLimit = 100
 	MaxLimit     = 24 * 3600 / 30 * 7 // one week
 )
-
-// resolveOrgFromRequest determines which organization slug to use for DB scoping.
-func resolveOrgFromRequest(c echo.Context) (string, string) {
-	if orgHeader := c.Request().Header.Get("X-Organization"); orgHeader != "" {
-		return orgHeader, "header"
-	}
-	return "", "unknown"
-}
 
 func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -51,13 +44,12 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 			limit = MaxLimit
 		}
 
-		// Resolve organization to use for DB search_path (reusable helper)
-		orgToUse, orgSource := resolveOrgFromRequest(c)
+		// Resolve organization from hostname or X-Organization header
+		orgToUse := common.ResolveOrgFromRequest(c)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
 			zap.String("org_used", orgToUse),
-			zap.String("org_source", orgSource),
 			zap.String("space_slug", req.SpaceSlug),
 		)
 
@@ -114,13 +106,12 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
-		// Resolve organization to use for DB search_path (reusable helper)
-		orgToUse, orgSource := resolveOrgFromRequest(c)
+		// Resolve organization from hostname or X-Organization header
+		orgToUse := common.ResolveOrgFromRequest(c)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
 			zap.String("org_used", orgToUse),
-			zap.String("org_source", orgSource),
 			zap.String("space_slug", req.SpaceSlug),
 		)
 
@@ -148,11 +139,11 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 
 		// Convert to response format
 		response := models.LastLocationResponse{
-			DeviceID:   location.DeviceID,
-			SpaceSlug:  location.SpaceSlug,
-			Timestamp:  location.Time,
-			Latitude:   location.Latitude,
-			Longitude:  location.Longitude,
+			DeviceID:  location.DeviceID,
+			SpaceSlug: location.SpaceSlug,
+			Timestamp: location.Time,
+			Latitude:  location.Latitude,
+			Longitude: location.Longitude,
 		}
 
 		return c.JSON(http.StatusOK, response)
