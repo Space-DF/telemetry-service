@@ -144,14 +144,16 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	var lastStateID sql.NullString
 	var lastState sql.NullString
 	var lastChangedAt time.Time
+	var lastReportedAt time.Time
 	err := tx.QueryRowContext(ctx, `
-		SELECT id, state, last_changed_at
+		SELECT id, state, last_changed_at, reported_at
 		FROM entity_states
-		WHERE entity_id = $1
+		WHERE entity_id = $1 AND reported_at < $2
 		ORDER BY reported_at DESC
 		LIMIT 1`,
 		entityID,
-	).Scan(&lastStateID, &lastState, &lastChangedAt)
+		reportedAt,
+	).Scan(&lastStateID, &lastState, &lastChangedAt, &lastReportedAt)
 
 	// Determine last_changed_at: if state value changed, use reportedAt; otherwise keep old timestamp
 	changedAt := reportedAt
@@ -169,7 +171,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	}
 
 	stateID := uuid.New()
-	if _, err := tx.ExecContext(ctx, `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO entity_states (
 			id, entity_id, state, attributes_id, old_state_id, reported_at, last_changed_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -180,7 +182,8 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		oldStateUUID,
 		reportedAt,
 		changedAt,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("insert entity_state for '%s': %w", ent.UniqueID, err)
 	}
 

@@ -137,6 +137,13 @@ func getLastLocation(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
+		// Check if location was found
+		if location == nil {
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "no location found for device",
+			})
+		}
+
 		// Convert to response format
 		response := models.LastLocationResponse{
 			DeviceID:  location.DeviceID,

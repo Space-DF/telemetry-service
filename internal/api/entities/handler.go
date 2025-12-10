@@ -3,6 +3,7 @@ package entities
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -15,6 +16,8 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		// Parse query params
 		category := c.QueryParam("category")
 		deviceID := c.QueryParam("device_id")
+		displayTypes := strings.FieldsFunc(c.QueryParam("display_type"), func(r rune) bool { return r == ',' })
+		search := strings.TrimSpace(c.QueryParam("j"))
 		pageStr := c.QueryParam("page")
 		pageSizeStr := c.QueryParam("page_size")
 
@@ -52,7 +55,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
 		// Query DB
-		entities, count, err := tsClient.GetEntities(ctx, spaceSlug, category, deviceID, page, pageSize)
+		entities, count, err := tsClient.GetEntities(ctx, spaceSlug, category, deviceID, displayTypes, search, page, pageSize)
 		if err != nil {
 			logger.Error("failed to query entities", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query entities"})
