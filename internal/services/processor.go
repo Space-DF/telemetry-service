@@ -47,20 +47,33 @@ func (p *LocationProcessor) ProcessMessage(ctx context.Context, msg *models.Devi
 		return nil // Don't retry invalid messages
 	}
 
-	// Convert to location record
-	location := msg.ToLocationSetter()
-	if location == nil {
-		p.logger.Debug("No location generated from message (unknown device or no coordinates)",
+	// Skip if we don't have valid coordinates
+	if msg.Location.Latitude == 0 && msg.Location.Longitude == 0 {
+		p.logger.Debug("Skipping message with no coordinates",
 			zap.String("device_id", msg.DeviceID),
 		)
 		p.droppedCount.Add(1)
 		return nil
 	}
 
-	// Add location to batch
-	if err := p.tsClient.AddLocation(ctx, location); err != nil {
+	// Convert to telemetry payload and save to entity_states
+	payload := msg.ToTelemetryPayload()
+	if payload == nil {
+		p.logger.Debug("No payload generated from message (unknown device or no coordinates)",
+			zap.String("device_id", msg.DeviceID),
+		)
+		p.droppedCount.Add(1)
+		return nil
+	}
+
+	// Save telemetry payload to entity_states
+	if err := p.tsClient.SaveTelemetryPayload(ctx, payload); err != nil {
 		p.errorCount.Add(1)
-		return fmt.Errorf("failed to add location to batch: %w", err)
+		p.logger.Error("Failed to save telemetry payload",
+			zap.Error(err),
+			zap.String("device_id", msg.DeviceID),
+		)
+		return fmt.Errorf("failed to save telemetry payload: %w", err)
 	}
 
 	p.processedCount.Add(1)

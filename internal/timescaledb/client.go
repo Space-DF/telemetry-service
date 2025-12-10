@@ -12,13 +12,19 @@ import (
 	"time"
 
 	dbpkg "github.com/Space-DF/telemetry-service/pkgs/db"
-	dbmodels "github.com/Space-DF/telemetry-service/pkgs/db/models"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
-	"github.com/stephenafamo/bob/dialect/psql"
-	"github.com/stephenafamo/bob/dialect/psql/sm"
 	"go.uber.org/zap"
 )
+
+type Location struct {
+	Time       time.Time
+	DeviceID   string
+	SpaceSlug  string
+	Latitude   float64
+	Longitude  float64
+	Attributes map[string]interface{}
+}
 
 const BatchChannelBufferSize = 10
 const DropTimeout = 1 * time.Second
@@ -34,8 +40,6 @@ func (e *ErrDroppedBatch) Error() string {
 }
 
 // Client represents a Psql client
-// locationWithOrg wraps a location with its organization context
-
 type Client struct {
 	db            bob.DB
 	logger        *zap.Logger
@@ -43,8 +47,7 @@ type Client struct {
 	flushInterval time.Duration
 	connStr       string
 
-	batchCh chan *locationWithOrg
-	wg      sync.WaitGroup
+	wg sync.WaitGroup
 }
 
 // NewClient creates a new Psql client
@@ -70,15 +73,13 @@ func NewClient(connStr string, batchSize int, flushInterval time.Duration, logge
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
 		connStr:       connStr,
-
-		batchCh: make(chan *locationWithOrg, batchSize*BatchChannelBufferSize),
 	}, nil
 }
 
 // AddLocation adds a location to the batch
 
 // GetLocationHistory retrieves location history for a device
-func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug string, start, end time.Time, limit int) ([]*dbmodels.DeviceLocation, error) {
+func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug string, start, end time.Time, limit int) ([]*Location, error) {
 	// Extract org from context and set search_path in transaction if provided
 	org := orgFromContext(ctx)
 
@@ -98,56 +99,126 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 	log.Printf("GetLocationHistory called - org='%s' space_slug='%s' device_id='%s' start='%s' end='%s' limit=%d",
 		org, spaceSlug, deviceID, start.String(), end.String(), limit)
 
+	// SQL to reconstruct locations from the entities schema
+	// Filter by category='location' to only get location entities
+	query := `SELECT s.reported_at, e.device_id::text, e.space_slug, a.shared_attrs
+		FROM entity_states s
+		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
+		WHERE e.device_id::text = $1 AND e.space_slug = $2 
+			AND e.category = 'location'
+			AND s.reported_at >= $3 AND s.reported_at <= $4
+			AND a.shared_attrs IS NOT NULL
+			AND a.shared_attrs ? 'latitude' AND a.shared_attrs ? 'longitude'
+		ORDER BY s.reported_at ASC
+		LIMIT $5`
+
+	locations := make([]*Location, 0)
+	var err error
 	if org != "" {
-		var locations []*dbmodels.DeviceLocation
-		err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-			var qerr error
-			locations, qerr = dbmodels.DeviceLocations.Query(
-				sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
-				sm.Where(dbmodels.DeviceLocations.Columns.SpaceSlug.EQ(psql.Arg(spaceSlug))),
-				sm.Where(dbmodels.DeviceLocations.Columns.Time.GTE(psql.Arg(start))),
-				sm.Where(dbmodels.DeviceLocations.Columns.Time.LTE(psql.Arg(end))),
-				sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Asc(),
-				sm.Limit(limit),
-			).All(txCtx, tx)
-			return qerr
+		err = c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+			rows, qerr := tx.QueryContext(txCtx, query, deviceID, spaceSlug, start, end, limit)
+			if qerr != nil {
+				return qerr
+			}
+			defer func() { _ = rows.Close() }()
+
+			for rows.Next() {
+				var t pq.NullTime
+				var did sql.NullString
+				var sslug sql.NullString
+				var rawAttrs []byte
+				if err := rows.Scan(&t, &did, &sslug, &rawAttrs); err != nil {
+					return err
+				}
+				attrs := map[string]interface{}(nil)
+				if len(rawAttrs) > 0 {
+					var m map[string]interface{}
+					if jerr := json.Unmarshal(rawAttrs, &m); jerr == nil {
+						attrs = m
+					}
+				}
+				var lat, lon float64
+				if attrs != nil {
+					if l, ok := attrs["latitude"].(float64); ok {
+						lat = l
+					}
+					if l, ok := attrs["longitude"].(float64); ok {
+						lon = l
+					}
+				}
+				loc := &Location{
+					Time:       t.Time,
+					DeviceID:   did.String,
+					SpaceSlug:  sslug.String,
+					Latitude:   lat,
+					Longitude:  lon,
+					Attributes: attrs,
+				}
+				locations = append(locations, loc)
+			}
+			return rows.Err()
 		})
+	} else {
+		rows, err := c.db.QueryContext(ctx, query, deviceID, spaceSlug, start, end, limit)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query location history: %w", err)
+			return nil, err
 		}
+		defer func() { _ = rows.Close() }()
 
-		if c.logger != nil {
-			c.logger.Info("GetLocationHistory result", zap.Int("rows", len(locations)), zap.String("org", org))
+		for rows.Next() {
+			var t pq.NullTime
+			var did sql.NullString
+			var sslug sql.NullString
+			var rawAttrs []byte
+			if err := rows.Scan(&t, &did, &sslug, &rawAttrs); err != nil {
+				return nil, err
+			}
+			attrs := map[string]interface{}(nil)
+			if len(rawAttrs) > 0 {
+				var m map[string]interface{}
+				if jerr := json.Unmarshal(rawAttrs, &m); jerr == nil {
+					attrs = m
+				}
+			}
+			var lat, lon float64
+			if attrs != nil {
+				if l, ok := attrs["latitude"].(float64); ok {
+					lat = l
+				}
+				if l, ok := attrs["longitude"].(float64); ok {
+					lon = l
+				}
+			}
+			loc := &Location{
+				Time:       t.Time,
+				DeviceID:   did.String,
+				SpaceSlug:  sslug.String,
+				Latitude:   lat,
+				Longitude:  lon,
+				Attributes: attrs,
+			}
+			locations = append(locations, loc)
 		}
-		log.Printf("GetLocationHistory result - org='%s' rows=%d", org, len(locations))
-
-		return locations, nil
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 	}
-
-	// Query using Bob ORM without transaction (uses default search_path)
-	locations, err := dbmodels.DeviceLocations.Query(
-		sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
-		sm.Where(dbmodels.DeviceLocations.Columns.SpaceSlug.EQ(psql.Arg(spaceSlug))),
-		sm.Where(dbmodels.DeviceLocations.Columns.Time.GTE(psql.Arg(start))),
-		sm.Where(dbmodels.DeviceLocations.Columns.Time.LTE(psql.Arg(end))),
-		sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Asc(),
-		sm.Limit(limit),
-	).All(ctx, c.db)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query location history: %w", err)
 	}
 
 	if c.logger != nil {
-		c.logger.Info("GetLocationHistory result (no-org)", zap.Int("rows", len(locations)), zap.String("org", ""))
+		c.logger.Info("GetLocationHistory result", zap.Int("rows", len(locations)), zap.String("org", org))
 	}
-	log.Printf("GetLocationHistory result (no-org) - rows=%d", len(locations))
+	log.Printf("GetLocationHistory result - org='%s' rows=%d", org, len(locations))
 
 	return locations, nil
 }
 
 // GetLastLocation retrieves the most recent location for a device
-func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string) (*dbmodels.DeviceLocation, error) {
+func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string) (*Location, error) {
 	// Extract org from context and set search_path in transaction if provided
 	org := orgFromContext(ctx)
 
@@ -160,41 +231,105 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 	}
 	log.Printf("GetLastLocation called - org='%s' space_slug='%s' device_id='%s'", org, spaceSlug, deviceID)
 
+	// Filter by category='location' to only get location entities
+	query := `SELECT s.reported_at, e.device_id::text, e.space_slug, a.shared_attrs
+		FROM entity_states s
+		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
+		WHERE e.device_id::text = $1 AND e.space_slug = $2
+			AND e.category = 'location'
+			AND a.shared_attrs IS NOT NULL
+			AND a.shared_attrs ? 'latitude' AND a.shared_attrs ? 'longitude'
+		ORDER BY s.reported_at DESC
+		LIMIT 1`
+
+	var location *Location
+	var err error
 	if org != "" {
-		var location *dbmodels.DeviceLocation
-		err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-			var qerr error
-			location, qerr = dbmodels.DeviceLocations.Query(
-				sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
-				sm.Where(dbmodels.DeviceLocations.Columns.SpaceSlug.EQ(psql.Arg(spaceSlug))),
-				sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Desc(),
-				sm.Limit(1),
-			).One(txCtx, tx)
-			return qerr
+		err = c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+			row := tx.QueryRowContext(txCtx, query, deviceID, spaceSlug)
+			var t pq.NullTime
+			var did sql.NullString
+			var sslug sql.NullString
+			var rawAttrs []byte
+			if err := row.Scan(&t, &did, &sslug, &rawAttrs); err != nil {
+				if err == sql.ErrNoRows {
+					return nil
+				}
+				return err
+			}
+			attrs := map[string]interface{}(nil)
+			if len(rawAttrs) > 0 {
+				var m map[string]interface{}
+				if jerr := json.Unmarshal(rawAttrs, &m); jerr == nil {
+					attrs = m
+				}
+			}
+			var lat, lon float64
+			if attrs != nil {
+				if l, ok := attrs["latitude"].(float64); ok {
+					lat = l
+				}
+				if l, ok := attrs["longitude"].(float64); ok {
+					lon = l
+				}
+			}
+			location = &Location{
+				Time:       t.Time,
+				DeviceID:   did.String,
+				SpaceSlug:  sslug.String,
+				Latitude:   lat,
+				Longitude:  lon,
+				Attributes: attrs,
+			}
+			return nil
 		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to query last location: %w", err)
+	} else {
+		row := c.db.QueryRowContext(ctx, query, deviceID, spaceSlug)
+		var t pq.NullTime
+		var did sql.NullString
+		var sslug sql.NullString
+		var rawAttrs []byte
+		if err := row.Scan(&t, &did, &sslug, &rawAttrs); err != nil {
+			if err == sql.ErrNoRows {
+				return nil, nil
+			}
+			return nil, err
 		}
-
-		if c.logger != nil {
-			c.logger.Info("GetLastLocation result", zap.Bool("found", location != nil), zap.String("org", org))
+		attrs := map[string]interface{}(nil)
+		if len(rawAttrs) > 0 {
+			var m map[string]interface{}
+			if jerr := json.Unmarshal(rawAttrs, &m); jerr == nil {
+				attrs = m
+			}
 		}
-		log.Printf("GetLastLocation result - org='%s' found=%t", org, location != nil)
-
-		return location, nil
+		var lat, lon float64
+		if attrs != nil {
+			if l, ok := attrs["latitude"].(float64); ok {
+				lat = l
+			}
+			if l, ok := attrs["longitude"].(float64); ok {
+				lon = l
+			}
+		}
+		location = &Location{
+			Time:       t.Time,
+			DeviceID:   did.String,
+			SpaceSlug:  sslug.String,
+			Latitude:   lat,
+			Longitude:  lon,
+			Attributes: attrs,
+		}
 	}
-
-	// Query using Bob ORM without transaction (uses default search_path)
-	location, err := dbmodels.DeviceLocations.Query(
-		sm.Where(dbmodels.DeviceLocations.Columns.DeviceID.EQ(psql.Arg(deviceID))),
-		sm.Where(dbmodels.DeviceLocations.Columns.SpaceSlug.EQ(psql.Arg(spaceSlug))),
-		sm.OrderBy(dbmodels.DeviceLocations.Columns.Time).Desc(),
-		sm.Limit(1),
-	).One(ctx, c.db)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query last location: %w", err)
 	}
+
+	if c.logger != nil {
+		c.logger.Info("GetLastLocation result", zap.Bool("found", location != nil), zap.String("org", org))
+	}
+	log.Printf("GetLastLocation result - org='%s' found=%t", org, location != nil)
 
 	return location, nil
 }

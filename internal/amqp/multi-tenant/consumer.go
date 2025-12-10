@@ -679,21 +679,21 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 					telemetry.SpaceSlug = tenant.OrgSlug
 				}
 
-			if err := c.processor.ProcessTelemetry(orgCtx, &telemetry); err != nil {
-				c.logger.Error("Failed to process telemetry payload",
-					zap.Error(err),
-					zap.String("org", tenant.OrgSlug))
-				if nackErr := msg.Nack(false, true); nackErr != nil {
-					c.logger.Error("Failed to nack message", zap.Error(nackErr))
+				if err := c.processor.ProcessTelemetry(orgCtx, &telemetry); err != nil {
+					c.logger.Error("Failed to process telemetry payload",
+						zap.Error(err),
+						zap.String("org", tenant.OrgSlug))
+					if nackErr := msg.Nack(false, true); nackErr != nil {
+						c.logger.Error("Failed to nack message", zap.Error(nackErr))
+					}
+					continue
+				}
+
+				if ackErr := msg.Ack(false); ackErr != nil {
+					c.logger.Error("Failed to ack message", zap.Error(ackErr))
 				}
 				continue
 			}
-
-			if ackErr := msg.Ack(false); ackErr != nil {
-				c.logger.Error("Failed to ack message", zap.Error(ackErr))
-			}
-			continue
-		}
 
 			// Fallback to legacy device location message.
 			var deviceMsg models.DeviceLocationMessage
@@ -705,9 +705,6 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 					c.logger.Error("Failed to nack bad message", zap.Error(nackErr))
 				}
 				continue
-			}			// Fill space_slug if missing - use org slug as default
-			if deviceMsg.Space == "" {
-				deviceMsg.Space = tenant.OrgSlug
 			}
 
 			if err := c.processor.ProcessMessage(orgCtx, &deviceMsg); err != nil {

@@ -1,20 +1,14 @@
 package models
 
-import (
-	"time"
-
-	dbmodels "github.com/Space-DF/telemetry-service/pkgs/db/models"
-	"github.com/aarondl/opt/omit"
-)
-
 // DeviceLocationMessage represents the transformed device location message from RabbitMQ
 type DeviceLocationMessage struct {
-	DeviceID  string              `json:"device_id"`
-	Location  LocationCoordinates `json:"location"`
-	Timestamp string              `json:"timestamp"`
-	Space     string              `json:"space_slug"`
-	Source    string              `json:"source"`
-	Metadata  map[string]any      `json:"metadata"`
+	DeviceID     string              `json:"device_id"`
+	Location     LocationCoordinates `json:"location"`
+	Timestamp    string              `json:"timestamp"`
+	Space        string              `json:"space_slug"`
+	Organization string              `json:"organization"`
+	Source       string              `json:"source"`
+	Metadata     map[string]any      `json:"metadata"`
 }
 
 // LocationCoordinates represents geographic coordinates with accuracy
@@ -25,8 +19,9 @@ type LocationCoordinates struct {
 	Direction *string `json:"direction,omitempty"`
 }
 
-func (m *DeviceLocationMessage) ToLocationSetter() *dbmodels.DeviceLocationSetter {
-	// Skip if device_id is unknown or empty - we can't store locations without proper device identification
+// ToTelemetryPayload converts DeviceLocationMessage to TelemetryPayload for entity_states storage
+func (m *DeviceLocationMessage) ToTelemetryPayload() *TelemetryPayload {
+	// Skip if device_id is unknown or empty
 	if m.DeviceID == "" || m.DeviceID == "unknown" {
 		return nil
 	}
@@ -36,18 +31,33 @@ func (m *DeviceLocationMessage) ToLocationSetter() *dbmodels.DeviceLocationSette
 		return nil
 	}
 
-	// Parse timestamp
-	ts, err := time.Parse(time.RFC3339, m.Timestamp)
-	if err != nil {
-		ts = time.Now()
+	// Create location entity with attributes containing coordinates
+	locationEntity := TelemetryEntity{
+		UniqueID:   "location",
+		EntityType: "location",
+		Name:       "Device Location",
+		State:      "available",
+		Attributes: map[string]any{
+			"latitude":     m.Location.Latitude,
+			"longitude":    m.Location.Longitude,
+			"gps_accuracy": m.Location.Accuracy,
+			"source":       m.Source,
+		},
+		Timestamp: m.Timestamp,
 	}
 
-	return &dbmodels.DeviceLocationSetter{
-		Time:      omit.From(ts),
-		DeviceID:  omit.From(m.DeviceID),
-		SpaceSlug: omit.From(m.Space),
-		Latitude:  omit.From(m.Location.Latitude),
-		Longitude: omit.From(m.Location.Longitude),
-		Accuracy:  omit.From(m.Location.Accuracy),
+	// If accuracy is zero, remove it from attributes
+	if m.Location.Accuracy == 0 {
+		delete(locationEntity.Attributes, "gps_accuracy")
+	}
+
+	return &TelemetryPayload{
+		DeviceID:     m.DeviceID,
+		Organization: m.Organization,
+		SpaceSlug:    m.Space,
+		Entities:     []TelemetryEntity{locationEntity},
+		Timestamp:    m.Timestamp,
+		Source:       m.Source,
+		Metadata:     m.Metadata,
 	}
 }

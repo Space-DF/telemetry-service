@@ -16,7 +16,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_entity_types_unique_key ON entity_types (u
 
 CREATE TABLE IF NOT EXISTS entities (
     id UUID PRIMARY KEY,
-    organization TEXT,
     space_slug TEXT,
     device_id UUID NOT NULL,
     unique_key TEXT NOT NULL,
@@ -32,7 +31,6 @@ CREATE TABLE IF NOT EXISTS entities (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_unique_key ON entities (unique_key);
-CREATE INDEX IF NOT EXISTS idx_entities_organization ON entities (organization);
 CREATE INDEX IF NOT EXISTS idx_entities_space_slug ON entities (space_slug);
 CREATE INDEX IF NOT EXISTS idx_entities_device_id ON entities (device_id);
 

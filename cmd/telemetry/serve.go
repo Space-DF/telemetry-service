@@ -114,12 +114,6 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		}
 	}()
 
-	// Start Psql batch writer
-	go func() {
-		logger.Info("Starting Psql batch writer")
-		tsClient.StartBatchWriter(srvCtx)
-	}()
-
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
