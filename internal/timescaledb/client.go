@@ -126,7 +126,7 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 			if qerr != nil {
 				return qerr
 			}
-			defer rows.Close()
+			defer func() { _ = rows.Close() }()
 
 			for rows.Next() {
 				var t pq.NullTime
@@ -169,7 +169,7 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 		if err != nil {
 			return nil, err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
 			var t pq.NullTime
@@ -205,7 +205,9 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 			}
 			locations = append(locations, loc)
 		}
-		err = rows.Err()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
 	}
 
 	if err != nil {
