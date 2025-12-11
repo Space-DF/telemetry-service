@@ -17,7 +17,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		category := c.QueryParam("category")
 		deviceID := c.QueryParam("device_id")
 		displayTypes := parseDisplayTypes(c.QueryParam("display_type"))
-		search := strings.TrimSpace(c.QueryParam("j"))
+		search := strings.TrimSpace(c.QueryParam("search"))
 		pageStr := c.QueryParam("page")
 		pageSizeStr := c.QueryParam("page_size")
 
