@@ -429,7 +429,7 @@ func (c *Client) DropSchema(ctx context.Context, orgSlug string) error {
 }
 
 // GetEntities returns entities for a given space with optional filters and pagination.
-func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, page, pageSize int) ([]map[string]interface{}, int, error) {
+func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, page, pageSize int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
 
 	if page < 1 {
@@ -454,9 +454,20 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		args = append(args, deviceID)
 		idx++
 	}
+	if len(displayTypes) > 0 {
+		where += fmt.Sprintf(" AND e.display_type && $%d", idx)
+		args = append(args, pq.Array(displayTypes))
+		idx++
+	}
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		where += fmt.Sprintf(" AND (e.name ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx)
+		args = append(args, searchPattern)
+		idx++
+	}
 
 	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e WHERE %s", where)
+	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e LEFT JOIN entity_types et ON e.entity_type_id = et.id WHERE %s", where)
 	var total int
 	if org != "" {
 		if err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
