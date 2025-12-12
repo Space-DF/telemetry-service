@@ -698,7 +698,9 @@ func (c *Client) GetWaterLevelAlerts(ctx context.Context, orgSlug, spaceSlug, de
 		if err != nil {
 			return fmt.Errorf("failed to query alerts: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			_ = rows.Close()
+		}()
 
 		for rows.Next() {
 			var entityID, entityName, deviceIDVal, spaceSlugVal, state, alertLevel string
@@ -770,12 +772,14 @@ func determineAlertType(waterLevel, warningThreshold, criticalThreshold float64)
 }
 
 func generateAlertMessage(level string, waterLevel float64) string {
-	if level == "critical" {
+	switch level {
+	case "critical":
 		return fmt.Sprintf("Critical flood risk detected. Water level at %.0f cm", waterLevel)
-	} else if level == "warning" {
+	case "warning":
 		return fmt.Sprintf("Water is rising quickly. Current level: %.0f cm", waterLevel)
+	default:
+		return fmt.Sprintf("Water level monitoring: %.0f cm", waterLevel)
 	}
-	return fmt.Sprintf("Water level monitoring: %.0f cm", waterLevel)
 }
 
 func getAttributesByID(ctx context.Context, tx bob.Tx, attributesID string) (map[string]interface{}, error) {
