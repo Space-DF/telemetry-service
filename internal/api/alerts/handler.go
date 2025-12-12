@@ -71,13 +71,16 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 	h.logger.Info("Getting alerts", zap.String("org", orgSlug))
 
 	// Parse query parameters
-	spaceSlug := c.QueryParam("space_slug")
+	spaceSlug, spaceErr := common.ResolveSpaceSlugFromRequest(c)
+	if spaceErr != nil {
+		return spaceErr
+	}
 	deviceID := c.QueryParam("device_id")
 	level := c.QueryParam("level") // "critical", "warning", or empty for all
 
-	if spaceSlug == "" || deviceID == "" {
+	if deviceID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "space_slug and device_id are required",
+			"error": "device_id is required",
 		})
 	}
 
