@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -455,7 +456,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		idx++
 	}
 	if len(displayTypes) > 0 {
-		where += fmt.Sprintf(" AND e.display_type @> $%d", idx)
+		where += fmt.Sprintf(" AND e.display_type @> $%d::text[]", idx)
 		args = append(args, pq.Array(displayTypes))
 		idx++
 	}
@@ -661,3 +662,207 @@ func (c *Client) GetLatestAttributesForDeviceAt(ctx context.Context, deviceID st
 
 	return attrs, nil
 }
+
+// GetWaterLevelAlerts retrieves water level alerts based on thresholds
+func (c *Client) GetWaterLevelAlerts(ctx context.Context, orgSlug, spaceSlug, deviceID, level string, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
+	org := orgSlug
+	if org == "" {
+		org = orgFromContext(ctx)
+	}
+	if org == "" || spaceSlug == "" || deviceID == "" {
+		return nil, 0, fmt.Errorf("org, space_slug, and device_id are required")
+	}
+
+	offset := (page - 1) * pageSize
+
+	args := []interface{}{spaceSlug, deviceID, warningThreshold, criticalThreshold, pageSize, offset}
+	countArgs := args[:3] // count only needs space, device, warning threshold
+
+	query := fmt.Sprintf(waterLevelAlertsQuery, waterLevelWhereClause)
+
+	// Count query
+	countQuery := fmt.Sprintf(waterLevelCountQuery, waterLevelWhereClause)
+
+	var totalCount int
+	var results []interface{}
+
+	if err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		// Get total count
+		row := tx.QueryRowContext(txCtx, countQuery, countArgs...)
+		if err := row.Scan(&totalCount); err != nil {
+			return fmt.Errorf("failed to count alerts: %w", err)
+		}
+
+		// Get alerts
+		rows, err := tx.QueryContext(txCtx, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to query alerts: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var entityID, entityName, deviceIDVal, spaceSlugVal, state, alertLevel string
+			var reportedAt time.Time
+			var attributesID sql.NullString
+			var latitude, longitude sql.NullFloat64
+
+			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &alertLevel, &attributesID, &latitude, &longitude); err != nil {
+				return fmt.Errorf("failed to scan alert row: %w", err)
+			}
+
+			waterLevel := 0.0
+			if wl, err := strconv.ParseFloat(state, 64); err == nil {
+				waterLevel = wl
+			}
+
+			alert := map[string]interface{}{
+				"id":          entityID,
+				"type":        determineAlertType(waterLevel, warningThreshold, criticalThreshold),
+				"level":       alertLevel,
+				"message":     generateAlertMessage(alertLevel, waterLevel),
+				"entity_id":   entityID,
+				"entity_name": entityName,
+				"device_id":   deviceIDVal,
+				"space_slug":  spaceSlugVal,
+				"water_level": waterLevel,
+				"unit":        "cm",
+				"threshold": map[string]interface{}{
+					"warning":  warningThreshold,
+					"critical": criticalThreshold,
+				},
+				"reported_at": reportedAt,
+			}
+
+			// Add location if available
+			if latitude.Valid && longitude.Valid {
+				alert["location"] = map[string]interface{}{
+					"latitude":  latitude.Float64,
+					"longitude": longitude.Float64,
+				}
+			}
+
+			// Add attributes if available
+			if attributesID.Valid {
+				attrs, err := getAttributesByID(txCtx, tx, attributesID.String)
+				if err == nil && attrs != nil {
+					alert["attributes"] = attrs
+				}
+			}
+
+			results = append(results, alert)
+		}
+
+		return rows.Err()
+	}); err != nil {
+		return nil, 0, err
+	}
+
+	return results, totalCount, nil
+}
+
+func determineAlertType(waterLevel, warningThreshold, criticalThreshold float64) string {
+	if waterLevel >= criticalThreshold {
+		return "flood_risk"
+	} else if waterLevel >= warningThreshold {
+		return "water_rising"
+	}
+	return "normal"
+}
+
+func generateAlertMessage(level string, waterLevel float64) string {
+	if level == "critical" {
+		return fmt.Sprintf("Critical flood risk detected. Water level at %.0f cm", waterLevel)
+	} else if level == "warning" {
+		return fmt.Sprintf("Water is rising quickly. Current level: %.0f cm", waterLevel)
+	}
+	return fmt.Sprintf("Water level monitoring: %.0f cm", waterLevel)
+}
+
+func getAttributesByID(ctx context.Context, tx bob.Tx, attributesID string) (map[string]interface{}, error) {
+	query := `SELECT shared_attrs FROM entity_state_attributes WHERE id = $1`
+	var rawAttrs []byte
+
+	row := tx.QueryRowContext(ctx, query, attributesID)
+	if err := row.Scan(&rawAttrs); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if len(rawAttrs) == 0 {
+		return nil, nil
+	}
+
+	var attrs map[string]interface{}
+	if err := json.Unmarshal(rawAttrs, &attrs); err != nil {
+		return nil, err
+	}
+
+	return attrs, nil
+}
+
+const waterLevelWhereClause = `
+	e.category = 'water_level'
+	AND e.is_enabled = true
+	AND e.space_slug = $1
+	AND e.device_id = $2
+	AND s.state ~ '^-?[0-9]+(\.[0-9]+)?$'
+`
+
+const waterLevelAlertsQuery = `
+	SELECT 
+		e.id as entity_id,
+		e.name as entity_name,
+		e.device_id,
+		e.space_slug,
+		s.state,
+		s.reported_at,
+		CASE 
+			WHEN (s.state::numeric) >= $4::numeric THEN 'critical'
+			WHEN (s.state::numeric) >= $3::numeric THEN 'warning'
+			ELSE 'normal'
+		END as alert_level,
+		s.attributes_id,
+		loc.latitude,
+		loc.longitude
+	FROM entities e
+	INNER JOIN entity_states s ON s.entity_id = e.id
+	LEFT JOIN LATERAL (
+		SELECT e2.id, s2.state
+		FROM entities e2
+		INNER JOIN entity_states s2 ON s2.entity_id = e2.id
+		WHERE e2.device_id = e.device_id
+			AND e2.category = 'location'
+			AND e2.is_enabled = true
+		ORDER BY s2.reported_at DESC
+		LIMIT 1
+	) loc_entity ON true
+	LEFT JOIN LATERAL (
+		SELECT 
+			CASE 
+				WHEN loc_entity.state ~ '^\s*\{.*\}\s*$' 
+					AND loc_entity.state ~ '\"latitude\"' 
+					AND loc_entity.state ~ '\"longitude\"'
+				THEN (loc_entity.state::jsonb->>'latitude')::float 
+			END as latitude,
+			CASE 
+				WHEN loc_entity.state ~ '^\s*\{.*\}\s*$' 
+					AND loc_entity.state ~ '\"latitude\"' 
+					AND loc_entity.state ~ '\"longitude\"'
+				THEN (loc_entity.state::jsonb->>'longitude')::float 
+			END as longitude
+	) loc ON true
+	WHERE %s
+		AND (s.state::numeric) >= $3::numeric
+	ORDER BY s.reported_at DESC
+	LIMIT $5 OFFSET $6
+`
+
+const waterLevelCountQuery = `
+	SELECT COUNT(*) 
+	FROM entities e
+	INNER JOIN entity_states s ON s.entity_id = e.id
+	WHERE %s
+		AND (s.state::numeric) >= $3::numeric
+`
