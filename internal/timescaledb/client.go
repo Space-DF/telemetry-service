@@ -455,7 +455,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		idx++
 	}
 	if len(displayTypes) > 0 {
-		where += fmt.Sprintf(" AND e.display_type && $%d", idx)
+		where += fmt.Sprintf(" AND e.display_type @> $%d", idx)
 		args = append(args, pq.Array(displayTypes))
 		idx++
 	}
