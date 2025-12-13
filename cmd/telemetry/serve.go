@@ -6,9 +6,11 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	amqp "github.com/Space-DF/telemetry-service/internal/amqp/multi-tenant"
 	"github.com/Space-DF/telemetry-service/internal/api"
 	"github.com/Space-DF/telemetry-service/internal/health"
@@ -35,6 +37,9 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		zap.String("mode", "multi-tenant"),
 		zap.Any("config", appConfig),
 	)
+
+	// Load alert processors from config (if provided)
+	loadAlertProcessors(logger, appConfig.Server.AlertsProcessorsCfg)
 
 	// Run database migrations
 	logger.Info("Running database migrations...")
@@ -114,6 +119,15 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		}
 	}()
 
+	// Setup reload signal for alert processors
+	reloadChan := make(chan os.Signal, 1)
+	signal.Notify(reloadChan, syscall.SIGHUP)
+	go func() {
+		for range reloadChan {
+			loadAlertProcessors(logger, appConfig.Server.AlertsProcessorsCfg)
+		}
+	}()
+
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -155,4 +169,19 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 
 	logger.Info("Service shutdown complete")
 	return nil
+}
+
+func loadAlertProcessors(logger *zap.Logger, path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+
+	processors, err := alertregistry.LoadFromConfig(path)
+	if err != nil {
+		logger.Warn("Failed to load alert processors from config", zap.Error(err), zap.String("path", path))
+		return
+	}
+
+	alertregistry.ReplaceAll(processors)
+	logger.Info("Loaded alert processors from config", zap.String("path", path), zap.Int("count", len(processors)))
 }
