@@ -13,7 +13,7 @@ func (waterLevelProcessor) Category() string { return "water_level" }
 func (waterLevelProcessor) DefaultWarningThreshold() float64  { return 50.0 }
 func (waterLevelProcessor) DefaultCriticalThreshold() float64 { return 200.0 }
 func (waterLevelProcessor) Unit() string                      { return "cm" }
-func (waterLevelProcessor) ValueKey() string                  { return "value" }
+func (waterLevelProcessor) ValueKey() string                  { return "water_level" }
 func (waterLevelProcessor) StatePredicate() string            { return "s.state ~ '^-?[0-9]+(\\.[0-9]+)?$'" }
 
 func (waterLevelProcessor) DetermineType(value, warningThreshold, criticalThreshold float64) string {
