@@ -365,7 +365,7 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 		rows, err := tx.QueryContext(txCtx, `
 			SELECT DISTINCT e.category
 			FROM entities e
-			WHERE e.device_id::text = $1 AND e.space_slug = $2
+			WHERE e.device_id::text = $1 AND e.space_slug = $2 AND e.category != 'location'
 			ORDER BY e.category
 		`, deviceID, spaceSlug)
 		if err != nil {
