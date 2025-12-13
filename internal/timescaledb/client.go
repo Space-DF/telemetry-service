@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	dbpkg "github.com/Space-DF/telemetry-service/pkgs/db"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
@@ -38,6 +40,11 @@ type ErrDroppedBatch struct {
 func (e *ErrDroppedBatch) Error() string {
 	return fmt.Sprintf("batch dropped due to timeout, size: %d", e.Size)
 }
+
+var (
+	ErrDateRequired      = errors.New("date is required")
+	ErrInvalidDateFormat = errors.New("invalid date format, expected YYYY-MM-DD")
+)
 
 // Client represents a Psql client
 type Client struct {
@@ -455,7 +462,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		idx++
 	}
 	if len(displayTypes) > 0 {
-		where += fmt.Sprintf(" AND e.display_type @> $%d", idx)
+		where += fmt.Sprintf(" AND e.display_type @> $%d::text[]", idx)
 		args = append(args, pq.Array(displayTypes))
 		idx++
 	}
@@ -661,3 +668,227 @@ func (c *Client) GetLatestAttributesForDeviceAt(ctx context.Context, deviceID st
 
 	return attrs, nil
 }
+
+// GetAlerts retrieves alerts for a device/category within a single day.
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, dateStr string, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
+	org := orgSlug
+	if org == "" {
+		org = orgFromContext(ctx)
+	}
+	if org == "" || spaceSlug == "" || deviceID == "" {
+		return nil, 0, fmt.Errorf("org, space_slug, and device_id are required")
+	}
+
+	offset := (page - 1) * pageSize
+
+	processor, ok := alertregistry.Get(category)
+	if !ok {
+		return nil, 0, fmt.Errorf("unsupported category: %s", category)
+	}
+
+	// Apply processor defaults if not provided
+	if warningThreshold <= 0 {
+		warningThreshold = processor.DefaultWarningThreshold()
+	}
+	if criticalThreshold <= 0 {
+		criticalThreshold = processor.DefaultCriticalThreshold()
+	}
+
+	startAt, endAt, err := buildDateRange(dateStr)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	args := []interface{}{category, spaceSlug, deviceID, startAt, endAt, pageSize, offset}
+	countArgs := args[:5]
+
+	statePredicate := processor.StatePredicate()
+	if strings.TrimSpace(statePredicate) == "" {
+		statePredicate = "TRUE"
+	}
+	whereClause := fmt.Sprintf(`
+		e.is_enabled = true
+		AND e.category = $1
+		AND e.space_slug = $2
+		AND e.device_id = $3
+		AND %s
+		AND s.reported_at >= $4
+		AND s.reported_at < $5
+	`, statePredicate)
+
+	query := fmt.Sprintf(alertsQueryTemplate, whereClause)
+
+	// Count query
+	countQuery := fmt.Sprintf(alertsCountQueryTemplate, whereClause)
+
+	var totalCount int
+	var results []interface{}
+
+	if err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		// Get total count
+		row := tx.QueryRowContext(txCtx, countQuery, countArgs...)
+		if err := row.Scan(&totalCount); err != nil {
+			return fmt.Errorf("failed to count alerts: %w", err)
+		}
+
+		// Get alerts
+		rows, err := tx.QueryContext(txCtx, query, args...)
+		if err != nil {
+			return fmt.Errorf("failed to query alerts: %w", err)
+		}
+		defer func() {
+			_ = rows.Close()
+		}()
+
+		for rows.Next() {
+			var entityID, entityName, deviceIDVal, spaceSlugVal, state string
+			var reportedAt time.Time
+			var attributesID sql.NullString
+			var latitude, longitude sql.NullFloat64
+
+			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &attributesID, &latitude, &longitude); err != nil {
+				return fmt.Errorf("failed to scan alert row: %w", err)
+			}
+
+			value := 0.0
+			if parsed, err := processor.ParseValue(state); err == nil {
+				value = parsed
+			}
+
+			levelComputed := processor.DetermineLevel(value, warningThreshold, criticalThreshold)
+			alert := map[string]interface{}{
+				"id":                 entityID,
+				"type":               processor.DetermineType(value, warningThreshold, criticalThreshold),
+				"level":              levelComputed,
+				"message":            processor.GenerateMessage(levelComputed, value),
+				"entity_id":          entityID,
+				"entity_name":        entityName,
+				"device_id":          deviceIDVal,
+				"space_slug":         spaceSlugVal,
+				processor.ValueKey(): value,
+				"unit":               processor.Unit(),
+				"threshold": map[string]interface{}{
+					"warning":  warningThreshold,
+					"critical": criticalThreshold,
+				},
+				"reported_at": reportedAt,
+			}
+
+			// Add location if available
+			if latitude.Valid && longitude.Valid {
+				alert["location"] = map[string]interface{}{
+					"latitude":  latitude.Float64,
+					"longitude": longitude.Float64,
+				}
+			}
+
+			// Add attributes if available
+			if attributesID.Valid {
+				attrs, err := getAttributesByID(txCtx, tx, attributesID.String)
+				if err == nil && attrs != nil {
+					alert["attributes"] = attrs
+				}
+			}
+
+			results = append(results, alert)
+		}
+
+		return rows.Err()
+	}); err != nil {
+		return nil, 0, err
+	}
+
+	return results, totalCount, nil
+}
+
+// buildDateRange converts a required YYYY-MM-DD string into a single-day [start, end) window.
+func buildDateRange(dateStr string) (time.Time, time.Time, error) {
+	const layout = "2006-01-02" // Go's reference layout meaning YYYY-MM-DD
+	trimmed := strings.TrimSpace(dateStr)
+	if trimmed == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrDateRequired)
+	}
+
+	parsed, err := time.Parse(layout, trimmed)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrInvalidDateFormat)
+	}
+
+	start := parsed.UTC()
+	end := start.Add(24 * time.Hour)
+	return start, end, nil
+}
+
+func getAttributesByID(ctx context.Context, tx bob.Tx, attributesID string) (map[string]interface{}, error) {
+	query := `SELECT shared_attrs FROM entity_state_attributes WHERE id = $1`
+	var rawAttrs []byte
+
+	row := tx.QueryRowContext(ctx, query, attributesID)
+	if err := row.Scan(&rawAttrs); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if len(rawAttrs) == 0 {
+		return nil, nil
+	}
+
+	var attrs map[string]interface{}
+	if err := json.Unmarshal(rawAttrs, &attrs); err != nil {
+		return nil, err
+	}
+
+	return attrs, nil
+}
+
+const alertsQueryTemplate = `
+	SELECT 
+		e.id as entity_id,
+		e.name as entity_name,
+		e.device_id,
+		e.space_slug,
+		s.state,
+		s.reported_at,
+		s.attributes_id,
+		loc.latitude,
+		loc.longitude
+	FROM entities e
+	INNER JOIN entity_states s ON s.entity_id = e.id
+	LEFT JOIN LATERAL (
+		SELECT e2.id, s2.state
+		FROM entities e2
+		INNER JOIN entity_states s2 ON s2.entity_id = e2.id
+		WHERE e2.device_id = e.device_id
+			AND e2.category = 'location'
+			AND e2.is_enabled = true
+		ORDER BY s2.reported_at DESC
+		LIMIT 1
+	) loc_entity ON true
+	LEFT JOIN LATERAL (
+		SELECT 
+			CASE 
+				WHEN loc_entity.state ~ '^\\s*\\{.*\\}\\s*$' 
+					AND loc_entity.state ~ '\"latitude\"' 
+					AND loc_entity.state ~ '\"longitude\"'
+				THEN (loc_entity.state::jsonb->>'latitude')::float 
+			END as latitude,
+			CASE 
+				WHEN loc_entity.state ~ '^\\s*\\{.*\\}\\s*$' 
+					AND loc_entity.state ~ '\"latitude\"' 
+					AND loc_entity.state ~ '\"longitude\"'
+				THEN (loc_entity.state::jsonb->>'longitude')::float 
+			END as longitude
+	) loc ON true
+	WHERE %s
+	ORDER BY s.reported_at DESC
+	LIMIT $6 OFFSET $7
+`
+
+const alertsCountQueryTemplate = `
+	SELECT COUNT(*) 
+	FROM entities e
+	INNER JOIN entity_states s ON s.entity_id = e.id
+	WHERE %s
+`

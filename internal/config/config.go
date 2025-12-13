@@ -29,8 +29,9 @@ type OrgEvents struct {
 
 // Server contains server configuration
 type Server struct {
-	LogLevel string `mapstructure:"log_level"`
-	APIPort  int    `mapstructure:"api_port"`
+	LogLevel            string `mapstructure:"log_level"`
+	APIPort             int    `mapstructure:"api_port"`
+	AlertsProcessorsCfg string `mapstructure:"alerts_processors_path"`
 }
 
 // AMQP contains RabbitMQ configuration
