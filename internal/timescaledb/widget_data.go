@@ -3,6 +3,7 @@ package timescaledb
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/stephenafamo/bob"
@@ -148,7 +149,11 @@ func (c *Client) GetAggregatedEntityData(
 		if err != nil {
 			return fmt.Errorf("query aggregated data: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				log.Printf("error closing rows: %v", err)
+			}
+		}()
 
 		for rows.Next() {
 			var bucketTime time.Time
@@ -207,7 +212,11 @@ func (c *Client) GetHistogramData(
 		if err != nil {
 			return fmt.Errorf("query histogram data: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				log.Printf("error closing rows: %v", err)
+			}
+		}()
 
 		for rows.Next() {
 			var value float64
@@ -315,7 +324,11 @@ func (c *Client) GetTableData(
 		if err != nil {
 			return fmt.Errorf("query table data: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				log.Printf("error closing rows: %v", err)
+			}
+		}()
 
 		for rows.Next() {
 			var timestamp time.Time
