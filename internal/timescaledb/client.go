@@ -364,7 +364,7 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		var entityCategories []string
 		for rows.Next() {
