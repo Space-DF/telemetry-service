@@ -3,6 +3,7 @@ package registry
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -25,7 +26,7 @@ type processorsConfig struct {
 
 // LoadFromConfig loads processors from a YAML file and returns them keyed by lowercased category.
 func LoadFromConfig(path string) (map[string]Processor, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, fmt.Errorf("read processors config: %w", err)
 	}
