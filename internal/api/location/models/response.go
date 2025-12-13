@@ -22,12 +22,3 @@ type QueryParamsResponse struct {
 	End   time.Time `json:"end"`
 	Limit int       `json:"limit"`
 }
-
-// LastLocationResponse represents the response for the last location
-type LastLocationResponse struct {
-	DeviceID  string    `json:"device_id"`
-	SpaceSlug string    `json:"space_slug"`
-	Timestamp time.Time `json:"timestamp"`
-	Latitude  float64   `json:"latitude"`
-	Longitude float64   `json:"longitude"`
-}

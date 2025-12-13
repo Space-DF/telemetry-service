@@ -1,4 +1,4 @@
-package widget
+package data
 
 import (
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -7,6 +7,6 @@ import (
 )
 
 func RegisterRoutes(e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
-	group := e.Group("/widget")
-	group.GET("/data/:entity_id", getWidgetData(logger, tsClient))
+	group := e.Group("/data")
+	group.GET("/latest", getDeviceProperties(logger, tsClient))
 }

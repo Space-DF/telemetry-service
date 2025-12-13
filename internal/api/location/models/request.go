@@ -34,21 +34,3 @@ func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
 
 	return &r, nil
 }
-
-// LastLocationRequest represents query parameters for getting the last location
-type LastLocationRequest struct {
-	DeviceID  string `query:"device_id" validate:"required"`
-	SpaceSlug string `query:"space_slug" validate:"required"`
-}
-
-func (r LastLocationRequest) Validate() (*LastLocationRequest, error) {
-	if r.DeviceID == "" {
-		return nil, fmt.Errorf("device_id is required")
-	}
-
-	if r.SpaceSlug == "" {
-		return nil, fmt.Errorf("space_slug is required")
-	}
-
-	return &r, nil
-}

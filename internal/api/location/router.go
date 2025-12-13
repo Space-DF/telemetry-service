@@ -9,5 +9,4 @@ import (
 func RegisterRoutes(e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
 	group := e.Group("/location") // Device location routes
 	group.GET("/history", getLocationHistory(logger, tsClient))
-	group.GET("/last", getLastLocation(logger, tsClient))
 }

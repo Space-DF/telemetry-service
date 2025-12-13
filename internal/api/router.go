@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/Space-DF/telemetry-service/internal/api/data"
 	"github.com/Space-DF/telemetry-service/internal/api/alerts"
 	"github.com/Space-DF/telemetry-service/internal/api/entities"
 	"github.com/Space-DF/telemetry-service/internal/api/location"
@@ -17,4 +18,5 @@ func Setup(cfg *config.Config, e *echo.Group, logger *zap.Logger, tsClient *time
 	entities.RegisterRoutes(group, logger, tsClient)
 	alerts.RegisterRoutes(group, logger, tsClient)
 	widget.RegisterRoutes(group, logger, tsClient)
+	data.RegisterRoutes(group, logger, tsClient)
 }
