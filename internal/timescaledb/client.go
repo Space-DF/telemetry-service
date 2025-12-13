@@ -4,14 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	dbpkg "github.com/Space-DF/telemetry-service/pkgs/db"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
@@ -39,6 +40,11 @@ type ErrDroppedBatch struct {
 func (e *ErrDroppedBatch) Error() string {
 	return fmt.Sprintf("batch dropped due to timeout, size: %d", e.Size)
 }
+
+var (
+	ErrDateRequired      = errors.New("date is required")
+	ErrInvalidDateFormat = errors.New("invalid date format, expected YYYY-MM-DD")
+)
 
 // Client represents a Psql client
 type Client struct {
@@ -663,8 +669,8 @@ func (c *Client) GetLatestAttributesForDeviceAt(ctx context.Context, deviceID st
 	return attrs, nil
 }
 
-// GetWaterLevelAlerts retrieves water level alerts based on thresholds
-func (c *Client) GetWaterLevelAlerts(ctx context.Context, orgSlug, spaceSlug, deviceID, level string, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
+// GetAlerts retrieves alerts for a device/category within a single day.
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, dateStr string, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
@@ -675,13 +681,45 @@ func (c *Client) GetWaterLevelAlerts(ctx context.Context, orgSlug, spaceSlug, de
 
 	offset := (page - 1) * pageSize
 
-	args := []interface{}{spaceSlug, deviceID, warningThreshold, criticalThreshold, pageSize, offset}
-	countArgs := args[:3] // count only needs space, device, warning threshold
+	processor, ok := alertregistry.Get(category)
+	if !ok {
+		return nil, 0, fmt.Errorf("unsupported category: %s", category)
+	}
 
-	query := fmt.Sprintf(waterLevelAlertsQuery, waterLevelWhereClause)
+	// Apply processor defaults if not provided
+	if warningThreshold <= 0 {
+		warningThreshold = processor.DefaultWarningThreshold()
+	}
+	if criticalThreshold <= 0 {
+		criticalThreshold = processor.DefaultCriticalThreshold()
+	}
+
+	startAt, endAt, err := buildDateRange(dateStr)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	args := []interface{}{category, spaceSlug, deviceID, startAt, endAt, pageSize, offset}
+	countArgs := args[:5]
+
+	statePredicate := processor.StatePredicate()
+	if strings.TrimSpace(statePredicate) == "" {
+		statePredicate = "TRUE"
+	}
+	whereClause := fmt.Sprintf(`
+		e.is_enabled = true
+		AND e.category = $1
+		AND e.space_slug = $2
+		AND e.device_id = $3
+		AND %s
+		AND s.reported_at >= $4
+		AND s.reported_at < $5
+	`, statePredicate)
+
+	query := fmt.Sprintf(alertsQueryTemplate, whereClause)
 
 	// Count query
-	countQuery := fmt.Sprintf(waterLevelCountQuery, waterLevelWhereClause)
+	countQuery := fmt.Sprintf(alertsCountQueryTemplate, whereClause)
 
 	var totalCount int
 	var results []interface{}
@@ -703,31 +741,32 @@ func (c *Client) GetWaterLevelAlerts(ctx context.Context, orgSlug, spaceSlug, de
 		}()
 
 		for rows.Next() {
-			var entityID, entityName, deviceIDVal, spaceSlugVal, state, alertLevel string
+			var entityID, entityName, deviceIDVal, spaceSlugVal, state string
 			var reportedAt time.Time
 			var attributesID sql.NullString
 			var latitude, longitude sql.NullFloat64
 
-			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &alertLevel, &attributesID, &latitude, &longitude); err != nil {
+			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &attributesID, &latitude, &longitude); err != nil {
 				return fmt.Errorf("failed to scan alert row: %w", err)
 			}
 
-			waterLevel := 0.0
-			if wl, err := strconv.ParseFloat(state, 64); err == nil {
-				waterLevel = wl
+			value := 0.0
+			if parsed, err := processor.ParseValue(state); err == nil {
+				value = parsed
 			}
 
+			levelComputed := processor.DetermineLevel(value, warningThreshold, criticalThreshold)
 			alert := map[string]interface{}{
-				"id":          entityID,
-				"type":        determineAlertType(waterLevel, warningThreshold, criticalThreshold),
-				"level":       alertLevel,
-				"message":     generateAlertMessage(alertLevel, waterLevel),
-				"entity_id":   entityID,
-				"entity_name": entityName,
-				"device_id":   deviceIDVal,
-				"space_slug":  spaceSlugVal,
-				"water_level": waterLevel,
-				"unit":        "cm",
+				"id":                 entityID,
+				"type":               processor.DetermineType(value, warningThreshold, criticalThreshold),
+				"level":              levelComputed,
+				"message":            processor.GenerateMessage(levelComputed, value),
+				"entity_id":          entityID,
+				"entity_name":        entityName,
+				"device_id":          deviceIDVal,
+				"space_slug":         spaceSlugVal,
+				processor.ValueKey(): value,
+				"unit":               processor.Unit(),
 				"threshold": map[string]interface{}{
 					"warning":  warningThreshold,
 					"critical": criticalThreshold,
@@ -762,24 +801,22 @@ func (c *Client) GetWaterLevelAlerts(ctx context.Context, orgSlug, spaceSlug, de
 	return results, totalCount, nil
 }
 
-func determineAlertType(waterLevel, warningThreshold, criticalThreshold float64) string {
-	if waterLevel >= criticalThreshold {
-		return "flood_risk"
-	} else if waterLevel >= warningThreshold {
-		return "water_rising"
+// buildDateRange converts a required YYYY-MM-DD string into a single-day [start, end) window.
+func buildDateRange(dateStr string) (time.Time, time.Time, error) {
+	const layout = "2006-01-02" // Go's reference layout meaning YYYY-MM-DD
+	trimmed := strings.TrimSpace(dateStr)
+	if trimmed == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrDateRequired)
 	}
-	return "normal"
-}
 
-func generateAlertMessage(level string, waterLevel float64) string {
-	switch level {
-	case "critical":
-		return fmt.Sprintf("Critical flood risk detected. Water level at %.0f cm", waterLevel)
-	case "warning":
-		return fmt.Sprintf("Water is rising quickly. Current level: %.0f cm", waterLevel)
-	default:
-		return fmt.Sprintf("Water level monitoring: %.0f cm", waterLevel)
+	parsed, err := time.Parse(layout, trimmed)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrInvalidDateFormat)
 	}
+
+	start := parsed.UTC()
+	end := start.Add(24 * time.Hour)
+	return start, end, nil
 }
 
 func getAttributesByID(ctx context.Context, tx bob.Tx, attributesID string) (map[string]interface{}, error) {
@@ -806,15 +843,7 @@ func getAttributesByID(ctx context.Context, tx bob.Tx, attributesID string) (map
 	return attrs, nil
 }
 
-const waterLevelWhereClause = `
-	e.category = 'water_level'
-	AND e.is_enabled = true
-	AND e.space_slug = $1
-	AND e.device_id = $2
-	AND s.state ~ '^-?[0-9]+(\.[0-9]+)?$'
-`
-
-const waterLevelAlertsQuery = `
+const alertsQueryTemplate = `
 	SELECT 
 		e.id as entity_id,
 		e.name as entity_name,
@@ -822,11 +851,6 @@ const waterLevelAlertsQuery = `
 		e.space_slug,
 		s.state,
 		s.reported_at,
-		CASE 
-			WHEN (s.state::numeric) >= $4::numeric THEN 'critical'
-			WHEN (s.state::numeric) >= $3::numeric THEN 'warning'
-			ELSE 'normal'
-		END as alert_level,
 		s.attributes_id,
 		loc.latitude,
 		loc.longitude
@@ -845,28 +869,26 @@ const waterLevelAlertsQuery = `
 	LEFT JOIN LATERAL (
 		SELECT 
 			CASE 
-				WHEN loc_entity.state ~ '^\s*\{.*\}\s*$' 
+				WHEN loc_entity.state ~ '^\\s*\\{.*\\}\\s*$' 
 					AND loc_entity.state ~ '\"latitude\"' 
 					AND loc_entity.state ~ '\"longitude\"'
 				THEN (loc_entity.state::jsonb->>'latitude')::float 
 			END as latitude,
 			CASE 
-				WHEN loc_entity.state ~ '^\s*\{.*\}\s*$' 
+				WHEN loc_entity.state ~ '^\\s*\\{.*\\}\\s*$' 
 					AND loc_entity.state ~ '\"latitude\"' 
 					AND loc_entity.state ~ '\"longitude\"'
 				THEN (loc_entity.state::jsonb->>'longitude')::float 
 			END as longitude
 	) loc ON true
 	WHERE %s
-		AND (s.state::numeric) >= $3::numeric
 	ORDER BY s.reported_at DESC
-	LIMIT $5 OFFSET $6
+	LIMIT $6 OFFSET $7
 `
 
-const waterLevelCountQuery = `
+const alertsCountQueryTemplate = `
 	SELECT COUNT(*) 
 	FROM entities e
 	INNER JOIN entity_states s ON s.entity_id = e.id
 	WHERE %s
-		AND (s.state::numeric) >= $3::numeric
 `

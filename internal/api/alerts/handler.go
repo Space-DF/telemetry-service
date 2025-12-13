@@ -1,10 +1,13 @@
 package alerts
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
@@ -76,14 +79,21 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		return spaceErr
 	}
 	deviceID := c.QueryParam("device_id")
-	level := c.QueryParam("level") // "critical", "warning", or empty for all
+	category := c.QueryParam("category")
+
+	processor, ok := alertregistry.Get(category)
+	if !ok {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "unsupported category",
+		})
+	}
+	dateFilter := strings.TrimSpace(c.QueryParam("date"))
 
 	if deviceID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "device_id is required",
 		})
 	}
-
 	// Pagination
 	page, _ := strconv.Atoi(c.QueryParam("page"))
 	if page < 1 {
@@ -94,8 +104,8 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		pageSize = 20
 	}
 
-	warningThreshold := 50.0   // 0.5m - 1m = warning
-	criticalThreshold := 200.0 // > 2m = critical
+	warningThreshold := processor.DefaultWarningThreshold()
+	criticalThreshold := processor.DefaultCriticalThreshold()
 
 	if wt := c.QueryParam("warning_threshold"); wt != "" {
 		if val, err := strconv.ParseFloat(wt, 64); err == nil {
@@ -108,12 +118,13 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		}
 	}
 
-	alerts, totalCount, err := h.tsClient.GetWaterLevelAlerts(
+	alerts, totalCount, err := h.tsClient.GetAlerts(
 		c.Request().Context(),
 		orgSlug,
+		category,
 		spaceSlug,
 		deviceID,
-		level,
+		dateFilter,
 		warningThreshold,
 		criticalThreshold,
 		page,
@@ -121,6 +132,12 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 	)
 
 	if err != nil {
+		switch {
+		case errors.Is(err, timescaledb.ErrDateRequired):
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "date is required (YYYY-MM-DD)"})
+		case errors.Is(err, timescaledb.ErrInvalidDateFormat):
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid date format, expected YYYY-MM-DD"})
+		}
 		h.logger.Error("Failed to get alerts", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to retrieve alerts"})
 	}
