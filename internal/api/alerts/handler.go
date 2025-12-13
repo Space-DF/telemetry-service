@@ -36,7 +36,7 @@ type Alert struct {
 	DeviceID   string                 `json:"device_id"`
 	SpaceSlug  string                 `json:"space_slug"`
 	Location   *LocationInfo          `json:"location,omitempty"`
-	WaterLevel float64                `json:"water_level"`
+	WaterDepth float64                `json:"water_depth"`
 	Unit       string                 `json:"unit"`
 	Threshold  *ThresholdInfo         `json:"threshold"`
 	ReportedAt time.Time              `json:"reported_at"`
