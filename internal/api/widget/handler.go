@@ -41,11 +41,6 @@ func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 					"error": fmt.Sprintf("%s requires start_time and end_time", req.DisplayType),
 				})
 			}
-			if req.GroupBy == "" {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": fmt.Sprintf("%s requires group_by parameter", req.DisplayType),
-				})
-			}
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgSlug)

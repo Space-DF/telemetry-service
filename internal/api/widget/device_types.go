@@ -34,7 +34,7 @@ func switchHandler(c echo.Context, logger *zap.Logger, tsClient *timescaledb.Cli
 
 func chartHandler(c echo.Context, logger *zap.Logger, tsClient *timescaledb.Client, ctx context.Context, req WidgetDataRequest) error {
 	dataPoints, err := tsClient.GetAggregatedEntityData(
-		ctx, req.EntityID, *req.StartTime, *req.EndTime, req.GroupBy,
+		ctx, req.EntityID, *req.StartTime, *req.EndTime,
 	)
 	if err != nil {
 		logger.Error("failed to get aggregated data", zap.Error(err))
@@ -51,7 +51,7 @@ func chartHandler(c echo.Context, logger *zap.Logger, tsClient *timescaledb.Clie
 
 func histogramHandler(c echo.Context, logger *zap.Logger, tsClient *timescaledb.Client, ctx context.Context, req WidgetDataRequest) error {
 	buckets, err := tsClient.GetHistogramData(
-		ctx, req.EntityID, *req.StartTime, *req.EndTime, req.GroupBy,
+		ctx, req.EntityID, *req.StartTime, *req.EndTime,
 	)
 	if err != nil {
 		logger.Error("failed to get histogram data", zap.Error(err))

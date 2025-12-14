@@ -21,7 +21,6 @@ type WidgetDataRequest struct {
 	DeviceID    string     `query:"device_id"`
 	StartTime   *time.Time `query:"start_time"`
 	EndTime     *time.Time `query:"end_time"`
-	GroupBy     string     `query:"group_by"`
 	DisplayType string     `query:"display_type"`
 }
 
