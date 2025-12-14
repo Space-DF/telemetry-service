@@ -11,6 +11,7 @@ const (
 	DisplayTypeHistogram = "histogram"
 	DisplayTypeTable     = "table"
 	DisplayTypeSwitch    = "switch"
+	DisplayTypeMap       = "map"
 )
 
 // WidgetDataRequest represents widget data fetch request
@@ -69,3 +70,15 @@ type HistogramBucket struct {
 type HistogramDataResponse struct {
 	Data []HistogramBucket `json:"data"`
 }
+
+// Coordinate for map type
+type Coordinate struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+// MapDataResponse for map type
+type MapDataResponse struct {
+	Coordinate Coordinate `json:"coordinate"`
+}
+

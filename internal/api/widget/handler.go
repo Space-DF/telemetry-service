@@ -56,6 +56,8 @@ func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 			return histogramHandler(c, logger, tsClient, ctx, req)
 		case DisplayTypeTable:
 			return tableHandler(c, logger, tsClient, ctx, req)
+		case DisplayTypeMap:
+			return mapHandler(c, logger, tsClient, ctx, req)
 		default:
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": fmt.Sprintf("unknown display_type: %s", req.DisplayType),
