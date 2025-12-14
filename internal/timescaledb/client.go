@@ -544,7 +544,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		idx++
 	}
 	if len(displayTypes) > 0 {
-		where += fmt.Sprintf(" AND e.display_type @> $%d::text[]", idx)
+		where += fmt.Sprintf(" AND e.display_type::text[] && $%d::text[]", idx)
 		args = append(args, pq.Array(displayTypes))
 		idx++
 	}
