@@ -93,7 +93,7 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
-	group := e.Group("/telemetry")
+	group := e.Group("/api/telemetry")
 	api.Setup(appConfig, group, logger, tsClient)
 	health.Setup(group, consumer, tsClient, logger)
 
