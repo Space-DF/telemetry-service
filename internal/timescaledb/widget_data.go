@@ -102,7 +102,7 @@ func (c *Client) GetLatestEntityBoolValue(ctx context.Context, entityID string) 
 	return state == "true" || state == "on" || state == "1", nil
 }
 
-// GetAggregatedEntityData gets aggregated data for a time range
+// GetAggregatedEntityData gets all raw data points for a time range (not aggregated)
 func (c *Client) GetAggregatedEntityData(
 	ctx context.Context,
 	entityID string,
@@ -115,24 +115,22 @@ func (c *Client) GetAggregatedEntityData(
 		return nil, fmt.Errorf("organization not found in context")
 	}
 
-	const timeBucket = "1 day"
-
 	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		query := fmt.Sprintf(`
+		query := `
 			SELECT 
-				time_bucket('%s', es.reported_at) as bucket_time,
-				AVG(COALESCE(es.state::float8, 0)) as avg_value
+				es.reported_at,
+				COALESCE(es.state::float8, 0) as value
 			FROM entity_states es
 			JOIN entities e ON es.entity_id = e.id
 			WHERE e.unique_key = $1 
 				AND es.reported_at BETWEEN $2 AND $3
-			GROUP BY bucket_time
-			ORDER BY bucket_time ASC
-		`, timeBucket)
+			ORDER BY es.reported_at ASC
+			LIMIT 10000
+		`
 
 		rows, err := tx.QueryContext(txCtx, query, entityID, startTime, endTime)
 		if err != nil {
-			return fmt.Errorf("query aggregated data: %w", err)
+			return fmt.Errorf("query entity data: %w", err)
 		}
 		defer func() {
 			if err := rows.Close(); err != nil {
@@ -141,15 +139,15 @@ func (c *Client) GetAggregatedEntityData(
 		}()
 
 		for rows.Next() {
-			var bucketTime time.Time
+			var timestamp time.Time
 			var value float64
 
-			if err := rows.Scan(&bucketTime, &value); err != nil {
-				return fmt.Errorf("scan aggregated row: %w", err)
+			if err := rows.Scan(&timestamp, &value); err != nil {
+				return fmt.Errorf("scan entity row: %w", err)
 			}
 
 			dataPoints = append(dataPoints, EntityDataPoint{
-				Timestamp: bucketTime,
+				Timestamp: timestamp,
 				Value:     value,
 			})
 		}
