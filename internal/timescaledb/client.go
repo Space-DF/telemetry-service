@@ -752,7 +752,7 @@ func (c *Client) GetLatestAttributesForDeviceAt(ctx context.Context, deviceID st
 }
 
 // GetAlerts retrieves alerts for a device/category within a single day.
-func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, dateStr string, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, dateStr string, cautionThreshold, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
@@ -769,6 +769,9 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 	}
 
 	// Apply processor defaults if not provided
+	if cautionThreshold <= 0 {
+		cautionThreshold = processor.DefaultCautionThreshold()
+	}
 	if warningThreshold <= 0 {
 		warningThreshold = processor.DefaultWarningThreshold()
 	}
@@ -836,16 +839,16 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 				value = parsed
 			}
 
-			levelComputed := processor.DetermineLevel(value, warningThreshold, criticalThreshold)
+			levelComputed := processor.DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold)
 			
-			// Skip normal alerts, only return warning and critical
-			if levelComputed == "normal" {
+			// Skip safe alerts, only return caution, warning and critical
+			if levelComputed == "safe" {
 				continue
 			}
 
 			alert := map[string]interface{}{
 				"id":                 entityID,
-				"type":               processor.DetermineType(value, warningThreshold, criticalThreshold),
+				"type":               processor.DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold),
 				"level":              levelComputed,
 				"message":            processor.GenerateMessage(levelComputed, value),
 				"entity_id":          entityID,
@@ -855,6 +858,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 				processor.ValueKey(): value,
 				"unit":               processor.Unit(),
 				"threshold": map[string]interface{}{
+					"caution":  cautionThreshold,
 					"warning":  warningThreshold,
 					"critical": criticalThreshold,
 				},

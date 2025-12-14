@@ -104,16 +104,22 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		pageSize = 20
 	}
 
+	cautionThreshold := processor.DefaultCautionThreshold()
 	warningThreshold := processor.DefaultWarningThreshold()
 	criticalThreshold := processor.DefaultCriticalThreshold()
 
+	if ct := c.QueryParam("caution_threshold"); ct != "" {
+		if val, err := strconv.ParseFloat(ct, 64); err == nil {
+			cautionThreshold = val
+		}
+	}
 	if wt := c.QueryParam("warning_threshold"); wt != "" {
 		if val, err := strconv.ParseFloat(wt, 64); err == nil {
 			warningThreshold = val
 		}
 	}
-	if ct := c.QueryParam("critical_threshold"); ct != "" {
-		if val, err := strconv.ParseFloat(ct, 64); err == nil {
+	if crt := c.QueryParam("critical_threshold"); crt != "" {
+		if val, err := strconv.ParseFloat(crt, 64); err == nil {
 			criticalThreshold = val
 		}
 	}
@@ -125,6 +131,7 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		spaceSlug,
 		deviceID,
 		dateFilter,
+		cautionThreshold,
 		warningThreshold,
 		criticalThreshold,
 		page,
