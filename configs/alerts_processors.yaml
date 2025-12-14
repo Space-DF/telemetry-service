@@ -3,9 +3,9 @@ processors:
     value_key: water_depth
     unit: cm
     state_predicate: "s.state ~ '^-?[0-9]+(\\\\.[0-9]+)?$'"
-    default_warning: 50
+    default_warning: 25
     default_critical: 200
     messages:
-      critical: "Critical flood risk detected. Water level at %.0f cm"
-      warning: "Water is rising quickly. Current level: %.0f cm"
+      critical: "Flood risk"
+      warning: "Water is rising quickly"
       normal: "Water level monitoring: %.0f cm"
