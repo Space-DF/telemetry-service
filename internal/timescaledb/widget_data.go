@@ -102,12 +102,11 @@ func (c *Client) GetLatestEntityBoolValue(ctx context.Context, entityID string) 
 	return state == "true" || state == "on" || state == "1", nil
 }
 
-// GetAggregatedEntityData gets aggregated data for a time range grouped by the specified period
+// GetAggregatedEntityData gets aggregated data for a time range
 func (c *Client) GetAggregatedEntityData(
 	ctx context.Context,
 	entityID string,
 	startTime, endTime time.Time,
-	groupBy string,
 ) ([]EntityDataPoint, error) {
 	var dataPoints []EntityDataPoint
 
@@ -116,21 +115,7 @@ func (c *Client) GetAggregatedEntityData(
 		return nil, fmt.Errorf("organization not found in context")
 	}
 
-	var timeBucket string
-
-	// Determine time bucket based on groupBy parameter
-	switch groupBy {
-	case "hour":
-		timeBucket = "1 hour"
-	case "day":
-		timeBucket = "1 day"
-	case "week":
-		timeBucket = "1 week"
-	case "month":
-		timeBucket = "1 month"
-	default:
-		timeBucket = "1 day"
-	}
+	const timeBucket = "1 day"
 
 	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := fmt.Sprintf(`
@@ -188,7 +173,6 @@ func (c *Client) GetHistogramData(
 	ctx context.Context,
 	entityID string,
 	startTime, endTime time.Time,
-	groupBy string,
 ) ([]HistogramBucketData, error) {
 	var values []float64
 
