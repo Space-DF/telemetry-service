@@ -792,7 +792,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		e.is_enabled = true
 		AND e.category = $1
 		AND e.space_slug = $2
-		AND e.device_id = $3
+		AND e.device_id::text = $3
 		AND %s
 		AND s.reported_at >= $4
 		AND s.reported_at < $5
@@ -825,10 +825,8 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		for rows.Next() {
 			var entityID, entityName, deviceIDVal, spaceSlugVal, state string
 			var reportedAt time.Time
-			var attributesID sql.NullString
-			var latitude, longitude sql.NullFloat64
 
-			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &attributesID, &latitude, &longitude); err != nil {
+			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt); err != nil {
 				return fmt.Errorf("failed to scan alert row: %w", err)
 			}
 
@@ -838,6 +836,12 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 			}
 
 			levelComputed := processor.DetermineLevel(value, warningThreshold, criticalThreshold)
+			
+			// Skip normal alerts, only return warning and critical
+			if levelComputed == "normal" {
+				continue
+			}
+
 			alert := map[string]interface{}{
 				"id":                 entityID,
 				"type":               processor.DetermineType(value, warningThreshold, criticalThreshold),
@@ -855,27 +859,15 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 				},
 				"reported_at": reportedAt,
 			}
-
-			// Add location if available
-			if latitude.Valid && longitude.Valid {
-				alert["location"] = map[string]interface{}{
-					"latitude":  latitude.Float64,
-					"longitude": longitude.Float64,
-				}
-			}
-
-			// Add attributes if available
-			if attributesID.Valid {
-				attrs, err := getAttributesByID(txCtx, tx, attributesID.String)
-				if err == nil && attrs != nil {
-					alert["attributes"] = attrs
-				}
-			}
-
+			
 			results = append(results, alert)
 		}
 
-		return rows.Err()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("error iterating alert rows: %w", err)
+		}
+
+		return nil
 	}); err != nil {
 		return nil, 0, err
 	}
@@ -901,30 +893,6 @@ func buildDateRange(dateStr string) (time.Time, time.Time, error) {
 	return start, end, nil
 }
 
-func getAttributesByID(ctx context.Context, tx bob.Tx, attributesID string) (map[string]interface{}, error) {
-	query := `SELECT shared_attrs FROM entity_state_attributes WHERE id = $1`
-	var rawAttrs []byte
-
-	row := tx.QueryRowContext(ctx, query, attributesID)
-	if err := row.Scan(&rawAttrs); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	if len(rawAttrs) == 0 {
-		return nil, nil
-	}
-
-	var attrs map[string]interface{}
-	if err := json.Unmarshal(rawAttrs, &attrs); err != nil {
-		return nil, err
-	}
-
-	return attrs, nil
-}
-
 const alertsQueryTemplate = `
 	SELECT 
 		e.id as entity_id,
@@ -932,37 +900,9 @@ const alertsQueryTemplate = `
 		e.device_id,
 		e.space_slug,
 		s.state,
-		s.reported_at,
-		s.attributes_id,
-		loc.latitude,
-		loc.longitude
+		s.reported_at
 	FROM entities e
 	INNER JOIN entity_states s ON s.entity_id = e.id
-	LEFT JOIN LATERAL (
-		SELECT e2.id, s2.state
-		FROM entities e2
-		INNER JOIN entity_states s2 ON s2.entity_id = e2.id
-		WHERE e2.device_id = e.device_id
-			AND e2.category = 'location'
-			AND e2.is_enabled = true
-		ORDER BY s2.reported_at DESC
-		LIMIT 1
-	) loc_entity ON true
-	LEFT JOIN LATERAL (
-		SELECT 
-			CASE 
-				WHEN loc_entity.state ~ '^\\s*\\{.*\\}\\s*$' 
-					AND loc_entity.state ~ '\"latitude\"' 
-					AND loc_entity.state ~ '\"longitude\"'
-				THEN (loc_entity.state::jsonb->>'latitude')::float 
-			END as latitude,
-			CASE 
-				WHEN loc_entity.state ~ '^\\s*\\{.*\\}\\s*$' 
-					AND loc_entity.state ~ '\"latitude\"' 
-					AND loc_entity.state ~ '\"longitude\"'
-				THEN (loc_entity.state::jsonb->>'longitude')::float 
-			END as longitude
-	) loc ON true
 	WHERE %s
 	ORDER BY s.reported_at DESC
 	LIMIT $6 OFFSET $7
