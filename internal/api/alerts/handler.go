@@ -55,7 +55,7 @@ type ThresholdInfo struct {
 }
 
 type AlertsResponse struct {
-	Alerts     []interface{} `json:"alerts"`
+	Results    []interface{} `json:"results"`
 	TotalCount int           `json:"total_count"`
 	Page       int           `json:"page"`
 	PageSize   int           `json:"page_size"`
@@ -143,7 +143,7 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 	}
 
 	response := AlertsResponse{
-		Alerts:     alerts,
+		Results:    alerts,
 		TotalCount: totalCount,
 		Page:       page,
 		PageSize:   pageSize,
