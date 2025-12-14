@@ -9,14 +9,15 @@ import (
 // Processor defines behavior for building alerts for a given category/device type.
 type Processor interface {
 	Category() string
+	DefaultCautionThreshold() float64
 	DefaultWarningThreshold() float64
 	DefaultCriticalThreshold() float64
 	Unit() string
 	ValueKey() string
 	StatePredicate() string
 	ParseValue(raw string) (float64, error)
-	DetermineLevel(value, warningThreshold, criticalThreshold float64) string
-	DetermineType(value, warningThreshold, criticalThreshold float64) string
+	DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold float64) string
+	DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold float64) string
 	GenerateMessage(level string, value float64) string
 }
 

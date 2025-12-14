@@ -15,6 +15,7 @@ type processorConfig struct {
 	ValueKey        string            `yaml:"value_key"`
 	Unit            string            `yaml:"unit"`
 	StatePredicate  string            `yaml:"state_predicate"`
+	DefaultCaution  float64           `yaml:"default_caution"`
 	DefaultWarning  float64           `yaml:"default_warning"`
 	DefaultCritical float64           `yaml:"default_critical"`
 	Messages        map[string]string `yaml:"messages"`
@@ -53,6 +54,7 @@ func LoadFromConfig(path string) (map[string]Processor, error) {
 			ValueKeyValue:   valueKey,
 			UnitValue:       p.Unit,
 			StatePred:       p.StatePredicate,
+			DefaultCaution:  p.DefaultCaution,
 			DefaultWarn:     p.DefaultWarning,
 			DefaultCritical: p.DefaultCritical,
 			Messages:        p.Messages,
