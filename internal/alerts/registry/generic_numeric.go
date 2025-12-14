@@ -11,6 +11,7 @@ type GenericNumericProcessor struct {
 	ValueKeyValue   string
 	UnitValue       string
 	StatePred       string
+	DefaultCaution  float64
 	DefaultWarn     float64
 	DefaultCritical float64
 	Messages        map[string]string
@@ -18,6 +19,7 @@ type GenericNumericProcessor struct {
 
 func (p *GenericNumericProcessor) Category() string { return p.CategoryValue }
 
+func (p *GenericNumericProcessor) DefaultCautionThreshold() float64 { return p.DefaultCaution }
 func (p *GenericNumericProcessor) DefaultWarningThreshold() float64 { return p.DefaultWarn }
 func (p *GenericNumericProcessor) DefaultCriticalThreshold() float64 {
 	return p.DefaultCritical
@@ -35,25 +37,27 @@ func (p *GenericNumericProcessor) ParseValue(raw string) (float64, error) {
 	return strconv.ParseFloat(raw, 64)
 }
 
-func (p *GenericNumericProcessor) DetermineLevel(value, warningThreshold, criticalThreshold float64) string {
+func (p *GenericNumericProcessor) DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold float64) string {
 	switch {
 	case value >= criticalThreshold:
 		return "critical"
 	case value >= warningThreshold:
 		return "warning"
+	case value >= cautionThreshold:
+		return "caution"
 	default:
-		return "normal"
+		return "safe"
 	}
 }
 
-func (p *GenericNumericProcessor) DetermineType(value, warningThreshold, criticalThreshold float64) string {
-	return p.DetermineLevel(value, warningThreshold, criticalThreshold)
+func (p *GenericNumericProcessor) DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold float64) string {
+	return p.DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold)
 }
 
 func (p *GenericNumericProcessor) GenerateMessage(level string, value float64) string {
 	if p.Messages != nil {
 		if msg, ok := p.Messages[level]; ok {
-			return fmt.Sprintf(msg, value)
+			return msg
 		}
 	}
 	// No fallback on purpose to surface missing templates during debugging
