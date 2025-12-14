@@ -825,8 +825,9 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		for rows.Next() {
 			var entityID, entityName, deviceIDVal, spaceSlugVal, state string
 			var reportedAt time.Time
+			var latitude, longitude sql.NullFloat64
 
-			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt); err != nil {
+			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &latitude, &longitude); err != nil {
 				return fmt.Errorf("failed to scan alert row: %w", err)
 			}
 
@@ -858,6 +859,14 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 					"critical": criticalThreshold,
 				},
 				"reported_at": reportedAt,
+			}
+
+			// Add location if available
+			if latitude.Valid && longitude.Valid {
+				alert["location"] = map[string]interface{}{
+					"latitude":  latitude.Float64,
+					"longitude": longitude.Float64,
+				}
 			}
 			
 			results = append(results, alert)
@@ -900,9 +909,26 @@ const alertsQueryTemplate = `
 		e.device_id,
 		e.space_slug,
 		s.state,
-		s.reported_at
+		s.reported_at,
+		loc.latitude,
+		loc.longitude
 	FROM entities e
 	INNER JOIN entity_states s ON s.entity_id = e.id
+	LEFT JOIN LATERAL (
+		SELECT 
+			(a.shared_attrs->>'latitude')::float as latitude,
+			(a.shared_attrs->>'longitude')::float as longitude
+		FROM entities e2
+		INNER JOIN entity_states s2 ON s2.entity_id = e2.id
+		LEFT JOIN entity_state_attributes a ON a.id = s2.attributes_id
+		WHERE e2.device_id = e.device_id
+			AND e2.category = 'location'
+			AND e2.is_enabled = true
+			AND a.shared_attrs ? 'latitude'
+			AND a.shared_attrs ? 'longitude'
+		ORDER BY s2.reported_at DESC
+		LIMIT 1
+	) loc ON true
 	WHERE %s
 	ORDER BY s.reported_at DESC
 	LIMIT $6 OFFSET $7
