@@ -80,3 +80,17 @@ func tableHandler(c echo.Context, logger *zap.Logger, tsClient *timescaledb.Clie
 
 	return c.JSON(http.StatusOK, TableDataResponse{Columns: columns, Data: rows})
 }
+func mapHandler(c echo.Context, logger *zap.Logger, tsClient *timescaledb.Client, ctx context.Context, req WidgetDataRequest) error {
+	latitude, longitude, err := tsClient.GetLatestEntityLocation(ctx, req.EntityID)
+	if err != nil {
+		logger.Error("failed to get entity location", zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to retrieve location data"})
+	}
+
+	return c.JSON(http.StatusOK, MapDataResponse{
+		Coordinate: Coordinate{
+			Latitude:  latitude,
+			Longitude: longitude,
+		},
+	})
+}
