@@ -31,6 +31,11 @@ func orgFromContext(ctx context.Context) string {
 	return ""
 }
 
+// OrgFromContext is the exported version of orgFromContext
+func OrgFromContext(ctx context.Context) string {
+	return orgFromContext(ctx)
+}
+
 // pqQuoteIdentifier quotes an identifier for Postgres (very small helper)
 func pqQuoteIdentifier(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`

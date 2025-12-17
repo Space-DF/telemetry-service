@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
-	"github.com/Space-DF/telemetry-service/internal/timescaledb"
+	timescaledb "github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"go.uber.org/zap"
 )
 

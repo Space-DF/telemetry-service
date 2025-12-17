@@ -1,5 +1,6 @@
 package timescaledb
 
+
 import (
 	"context"
 	"fmt"
@@ -38,7 +39,7 @@ func (c *Client) GetLatestEntityValue(ctx context.Context, entityID string) (flo
 		return 0.0, "", fmt.Errorf("organization not found in context")
 	}
 
-	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		row := tx.QueryRowContext(txCtx, `
 			SELECT COALESCE(es.state::float8, 0), COALESCE(e.unit_of_measurement, '')
 			FROM entity_states es
@@ -74,7 +75,7 @@ func (c *Client) GetLatestEntityBoolValue(ctx context.Context, entityID string) 
 		return false, fmt.Errorf("organization not found in context")
 	}
 
-	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		row := tx.QueryRowContext(txCtx, `
 			SELECT es.state
 			FROM entity_states es
@@ -115,7 +116,7 @@ func (c *Client) GetAggregatedEntityData(
 		return nil, fmt.Errorf("organization not found in context")
 	}
 
-	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
 			SELECT 
 				es.reported_at,
@@ -180,7 +181,7 @@ func (c *Client) GetHistogramData(
 	}
 
 	// Get all values in range
-	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
 			SELECT COALESCE(es.state::float8, 0)
 			FROM entity_states es
@@ -286,7 +287,7 @@ func (c *Client) GetTableData(
 		return nil, nil, fmt.Errorf("organization not found in context")
 	}
 
-	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
 			SELECT 
 				es.reported_at,
@@ -373,7 +374,7 @@ func (c *Client) GetLatestEntityLocation(ctx context.Context, entityID string) (
 		return 0.0, 0.0, fmt.Errorf("organization not found in context")
 	}
 
-	err := c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		row := tx.QueryRowContext(txCtx, `
 			SELECT 
 				COALESCE((esa.shared_attrs->>'latitude')::float8, 0),

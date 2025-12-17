@@ -26,7 +26,7 @@ func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.Telem
 	}
 
 	log.Printf("[Telemetry] SaveTelemetryPayload: org=%s, device_id=%s, entities=%d", org, payload.DeviceID, len(payload.Entities))
-	return c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		for _, ent := range payload.Entities {
 			if err := c.upsertTelemetryEntity(txCtx, tx, &ent, payload); err != nil {
 				log.Printf("[Telemetry] ERROR upserting entity: %v", err)
