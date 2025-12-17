@@ -372,3 +372,44 @@ func (s *Service) GetTableData(
 
 	return tableRows, columns, nil
 }
+
+// GetLatestEntityLocation returns the latest latitude/longitude for an entity with location attributes.
+func (s *Service) GetLatestEntityLocation(ctx context.Context, entityID string) (float64, float64, error) {
+	org := core.OrgFromContext(ctx)
+	if org == "" {
+		return 0, 0, fmt.Errorf("organization not found in context")
+	}
+
+	var latitude, longitude float64
+
+	err := s.base.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		row := tx.QueryRowContext(txCtx, `
+			SELECT 
+				(a.shared_attrs->>'latitude')::float as latitude,
+				(a.shared_attrs->>'longitude')::float as longitude
+			FROM entity_states es
+			JOIN entities e ON es.entity_id = e.id
+			LEFT JOIN entity_state_attributes a ON es.attributes_id = a.id
+			WHERE e.unique_key = $1
+				AND a.shared_attrs ? 'latitude'
+				AND a.shared_attrs ? 'longitude'
+			ORDER BY es.reported_at DESC
+			LIMIT 1
+		`, entityID)
+
+		if err := row.Scan(&latitude, &longitude); err != nil {
+			if err.Error() == "sql: no rows in result set" {
+				return nil
+			}
+			return fmt.Errorf("scan location row: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return latitude, longitude, nil
+}

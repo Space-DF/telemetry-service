@@ -35,7 +35,7 @@ type Client struct {
 	base   *core.Base
 	Read   *read.Service
 	Alerts *alerts.Service
-	Ingest *write.Service
+	Write  *write.Service
 }
 
 func NewClient(connStr string, batchSize int, flushInterval time.Duration, logger *zap.Logger) (*Client, error) {
@@ -48,14 +48,14 @@ func NewClient(connStr string, batchSize int, flushInterval time.Duration, logge
 		base:   base,
 		Read:   read.NewService(base),
 		Alerts: alerts.NewService(base),
-		Ingest: write.NewService(base),
+		Write:  write.NewService(base),
 	}, nil
 }
 
 // Delegating API: write
 
 func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.TelemetryPayload) error {
-	return c.Ingest.SaveTelemetryPayload(ctx, payload)
+	return c.Write.SaveTelemetryPayload(ctx, payload)
 }
 
 // Delegating API: reads
@@ -98,6 +98,10 @@ func (c *Client) GetHistogramData(ctx context.Context, entityID string, startTim
 
 func (c *Client) GetTableData(ctx context.Context, entityID string, startTime, endTime time.Time) ([]TableDataRow, []string, error) {
 	return c.Read.GetTableData(ctx, entityID, startTime, endTime)
+}
+
+func (c *Client) GetLatestEntityLocation(ctx context.Context, entityID string) (float64, float64, error) {
+	return c.Read.GetLatestEntityLocation(ctx, entityID)
 }
 
 // Delegating API: alerts
