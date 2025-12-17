@@ -1,4 +1,4 @@
-package timescaledb
+package write
 
 import (
 	"context"
@@ -10,12 +10,21 @@ import (
 	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
+	"github.com/Space-DF/telemetry-service/internal/timescaledb/core"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 )
 
-func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.TelemetryPayload) error {
+type Service struct {
+	base *core.Base
+}
+
+func NewService(base *core.Base) *Service {
+	return &Service{base: base}
+}
+
+func (s *Service) SaveTelemetryPayload(ctx context.Context, payload *models.TelemetryPayload) error {
 	if payload == nil {
 		return fmt.Errorf("nil telemetry payload")
 	}
@@ -26,9 +35,9 @@ func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.Telem
 	}
 
 	log.Printf("[Telemetry] SaveTelemetryPayload: org=%s, device_id=%s, entities=%d", org, payload.DeviceID, len(payload.Entities))
-	return c.withOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	return s.base.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		for _, ent := range payload.Entities {
-			if err := c.upsertTelemetryEntity(txCtx, tx, &ent, payload); err != nil {
+			if err := s.upsertTelemetryEntity(txCtx, tx, &ent, payload); err != nil {
 				log.Printf("[Telemetry] ERROR upserting entity: %v", err)
 				return err
 			}
@@ -39,7 +48,7 @@ func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.Telem
 	})
 }
 
-func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *models.TelemetryEntity, payload *models.TelemetryPayload) error {
+func (s *Service) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *models.TelemetryEntity, payload *models.TelemetryPayload) error {
 	if ent == nil {
 		return fmt.Errorf("nil telemetry entity")
 	}
@@ -49,7 +58,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		displayType = []string{"unknown"}
 	}
 
-	// Ensure entity type exists (unique by unique_key).
 	entityTypeKey := ent.EntityType
 	if entityTypeKey == "" {
 		entityTypeKey = "unknown"
@@ -68,7 +76,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		return fmt.Errorf("upsert entity_type '%s': %w", entityTypeKey, err)
 	}
 
-	// Prepare optional device_id.
 	var deviceUUID *uuid.UUID
 	if payload.DeviceID != "" {
 		if parsed, err := uuid.Parse(payload.DeviceID); err == nil {
@@ -76,7 +83,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		}
 	}
 
-	// Upsert entity row.
 	var entityID uuid.UUID
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO entities (
@@ -107,7 +113,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		return fmt.Errorf("upsert entity '%s': %w", ent.UniqueID, err)
 	}
 
-	// Handle attributes: deduplicate by hash to reuse existing row.
 	var attrsID sql.NullString
 	if len(ent.Attributes) > 0 {
 		rawAttrs, err := json.Marshal(ent.Attributes)
@@ -129,7 +134,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		}
 	}
 
-	// Parse timestamps.
 	reportedAt := parseRFC3339(ent.Timestamp)
 	if reportedAt.IsZero() {
 		reportedAt = parseRFC3339(payload.Timestamp)
@@ -140,7 +144,6 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 
 	stateStr := fmt.Sprint(ent.State)
 
-	// Get the most recent state for this entity to check if it changed
 	var lastStateID sql.NullString
 	var lastState sql.NullString
 	var lastChangedAt time.Time
@@ -155,14 +158,11 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		reportedAt,
 	).Scan(&lastStateID, &lastState, &lastChangedAt, &lastReportedAt)
 
-	// Determine last_changed_at: if state value changed, use reportedAt; otherwise keep old timestamp
 	changedAt := reportedAt
 	if err == nil && lastState.Valid && lastState.String == stateStr {
-		// State hasn't changed, preserve the last_changed_at timestamp
 		changedAt = lastChangedAt
 	}
 
-	// Prepare old_state_id for linking
 	var oldStateUUID *uuid.UUID
 	if lastStateID.Valid && lastStateID.String != "" {
 		if parsed, err := uuid.Parse(lastStateID.String); err == nil {

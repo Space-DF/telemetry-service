@@ -1,4 +1,4 @@
-package timescaledb
+package core
 
 import (
 	"context"
@@ -8,18 +8,13 @@ import (
 // context key type for organization
 type ctxKeyOrg struct{}
 
-// contextWithOrg returns a new context that carries the organization slug
-func contextWithOrg(ctx context.Context, org string) context.Context {
+// ContextWithOrg is exported helper to attach organization slug to context
+func ContextWithOrg(ctx context.Context, org string) context.Context {
 	return context.WithValue(ctx, ctxKeyOrg{}, org)
 }
 
-// ContextWithOrg is exported helper to attach organization slug to context
-func ContextWithOrg(ctx context.Context, org string) context.Context {
-	return contextWithOrg(ctx, org)
-}
-
-// orgFromContext extracts the organization slug from context if present
-func orgFromContext(ctx context.Context) string {
+// OrgFromContext extracts the organization slug from context if present
+func OrgFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
