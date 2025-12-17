@@ -36,8 +36,3 @@ func (c *Client) WithOrgTx(ctx context.Context, org string, fn func(ctx context.
 
 	return nil
 }
-
-// withOrgTx is the internal (unexported) version for backwards compatibility within the same package
-func (c *Client) withOrgTx(ctx context.Context, org string, fn func(ctx context.Context, tx bob.Tx) error) error {
-	return c.WithOrgTx(ctx, org, fn)
-}
