@@ -13,10 +13,11 @@ import (
 
 // Config represents the service configuration
 type Config struct {
-	Server    Server    `mapstructure:"server"`
-	AMQP      AMQP      `mapstructure:"amqp"`
-	OrgEvents OrgEvents `mapstructure:"org_events"`
-	Db        Db        `mapstructure:"db"`
+	Server       Server       `mapstructure:"server"`
+	AMQP         AMQP         `mapstructure:"amqp"`
+	OrgEvents    OrgEvents    `mapstructure:"org_events"`
+	Db           Db           `mapstructure:"db"`
+	DeviceStatus DeviceStatus `mapstructure:"device_status"`
 }
 
 // OrgEvents contains organization events configuration
@@ -54,6 +55,18 @@ type Db struct {
 	FlushInterval  time.Duration `mapstructure:"flush_interval"`
 	MaxConnections int           `mapstructure:"max_connections"`
 	MaxIdleConns   int           `mapstructure:"max_idle_conns"`
+}
+
+// DeviceStatus contains configuration for device status event rules.
+type DeviceStatus struct {
+	Events []DeviceEventRule `mapstructure:"events"`
+}
+
+// DeviceEventRule defines how to compute an event for a category/unit.
+type DeviceEventRule struct {
+	Category     string  `mapstructure:"category"`
+	Unit         string  `mapstructure:"unit"`
+	LowThreshold float64 `mapstructure:"low_threshold"`
 }
 
 // LoadConfig loads configuration from file and environment variables

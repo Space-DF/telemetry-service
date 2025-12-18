@@ -4,6 +4,13 @@ server:
   api_port: 8080    # API server port (includes health endpoints)
   alerts_processors_path: "configs/alerts_processors.yaml"
 
+# Device status event rules
+device_status:
+  events:
+    - category: "battery"
+      unit: "v"
+      low_threshold: 3.3
+
 # AMQP/RabbitMQ Configuration
 amqp:
   broker_url: ""  # Set via environment variable AMQP_BROKER_URL
