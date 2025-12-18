@@ -26,7 +26,7 @@ func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
 		return nil, fmt.Errorf("start time is required")
 	}
 	if r.End.IsZero() {
-		r.End = time.Now()
+		r.End = time.Now().UTC()
 	}
 	if r.End.Before(r.Start) {
 		return nil, fmt.Errorf("end time must be after start time")

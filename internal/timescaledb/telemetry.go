@@ -198,7 +198,7 @@ func parseRFC3339(ts string) time.Time {
 	if err != nil {
 		return time.Time{}
 	}
-	return t
+	return t.UTC()
 }
 
 func nullUUID(id sql.NullString) any {

@@ -32,7 +32,7 @@ type LiveResponse struct {
 func NewHealthResponse() *HealthResponse {
 	return &HealthResponse{
 		Status:    "healthy",
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Checks:    make(map[string]ComponentCheck),
 	}
 }
@@ -42,7 +42,7 @@ func NewReadyResponse(ready bool, message string) *ReadyResponse {
 	return &ReadyResponse{
 		Ready:     ready,
 		Message:   message,
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 }
 
@@ -50,6 +50,6 @@ func NewReadyResponse(ready bool, message string) *ReadyResponse {
 func NewLiveResponse() *LiveResponse {
 	return &LiveResponse{
 		Live:      true,
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 }

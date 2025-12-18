@@ -156,14 +156,8 @@ func buildDateRange(dateStr string) (time.Time, time.Time, error) {
 		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrDateRequired)
 	}
 
-	// Load Vietnam timezone (UTC+7)
-	vietnamTZ, err := time.LoadLocation("Asia/Ho_Chi_Minh")
-	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("failed to load Vietnam timezone: %w", err)
-	}
-
-	// Parse date in Vietnam timezone
-	parsed, err := time.ParseInLocation(layout, trimmed, vietnamTZ)
+	// Parse date in UTC+0
+	parsed, err := time.ParseInLocation(layout, trimmed, time.UTC)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrInvalidDateFormat)
 	}
