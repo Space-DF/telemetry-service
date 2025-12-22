@@ -8,10 +8,11 @@ import (
 	"github.com/stephenafamo/bob"
 )
 
-// withOrgTx begins a transaction, sets the search_path for the provided org,
+// WithOrgTx begins a transaction, sets the search_path for the provided org,
 // runs the provided function passing the transaction as the db handle, and commits the transaction.
-func (c *Client) withOrgTx(ctx context.Context, org string, fn func(ctx context.Context, tx bob.Tx) error) error {
-	tx, err := c.db.BeginTx(ctx, nil)
+// Exported for use by subpackages.
+func (c *Client) WithOrgTx(ctx context.Context, org string, fn func(ctx context.Context, tx bob.Tx) error) error {
+	tx, err := c.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
