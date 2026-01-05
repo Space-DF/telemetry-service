@@ -38,16 +38,16 @@ func (p *GenericNumericProcessor) ParseValue(raw string) (float64, error) {
 }
 
 func (p *GenericNumericProcessor) DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold float64) string {
-	switch {
-	case value >= criticalThreshold:
-		return "critical"
-	case value >= warningThreshold:
-		return "warning"
-	case value >= cautionThreshold:
-		return "caution"
-	default:
-		return "safe"
-	}
+  switch {
+  case value > criticalThreshold:
+    return "critical"
+  case value >= warningThreshold:
+    return "warning"
+  case value > cautionThreshold:
+    return "caution"
+  default:
+    return "safe"
+  }
 }
 
 func (p *GenericNumericProcessor) DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold float64) string {
