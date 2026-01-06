@@ -87,7 +87,8 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 			"error": "unsupported category",
 		})
 	}
-	dateFilter := strings.TrimSpace(c.QueryParam("date"))
+	startDate := strings.TrimSpace(c.QueryParam("start_date"))
+	endDate := strings.TrimSpace(c.QueryParam("end_date"))
 
 	if deviceID == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{
@@ -130,7 +131,8 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		category,
 		spaceSlug,
 		deviceID,
-		dateFilter,
+		startDate,
+		endDate,
 		cautionThreshold,
 		warningThreshold,
 		criticalThreshold,
@@ -141,7 +143,7 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, timescaledb.ErrDateRequired):
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "date is required (YYYY-MM-DD)"})
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "start_date and end_date are required"})
 		case errors.Is(err, timescaledb.ErrInvalidDateFormat):
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid date format, expected YYYY-MM-DD"})
 		}

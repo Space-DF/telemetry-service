@@ -11,8 +11,8 @@ import (
 	"github.com/stephenafamo/bob"
 )
 
-// GetAlerts retrieves alerts for a device/category within a single day.
-func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, dateStr string, cautionThreshold, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
+// GetAlerts retrieves alerts for a device/category within a time range.
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
@@ -39,7 +39,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		criticalThreshold = processor.DefaultCriticalThreshold()
 	}
 
-	startAt, endAt, err := buildDateRange(dateStr)
+	startAt, endAt, err := buildDateRange(startStr, endStr)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -148,23 +148,45 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 	return results, totalCount, nil
 }
 
-// buildDateRange converts a required YYYY-MM-DD string into a single-day [start, end) window.
-func buildDateRange(dateStr string) (time.Time, time.Time, error) {
-	const layout = "2006-01-02" // Go's reference layout meaning YYYY-MM-DD
-	trimmed := strings.TrimSpace(dateStr)
-	if trimmed == "" {
+func buildDateRange(startStr, endStr string) (time.Time, time.Time, error) {
+	const dateLayout = "2006-01-02"
+	startTime := strings.TrimSpace(startStr)
+	endTime := strings.TrimSpace(endStr)
+
+	if startTime == "" {
 		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrDateRequired)
 	}
 
-	// Parse date in UTC+0
-	parsed, err := time.ParseInLocation(layout, trimmed, time.UTC)
+	var start time.Time
+	var err error
+
+	start, err = time.Parse(time.RFC3339, startTime)
 	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrInvalidDateFormat)
+		parsed, pErr := time.ParseInLocation(dateLayout, startTime, time.UTC)
+		if pErr != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrInvalidDateFormat)
+		}
+		start = parsed.UTC()
 	}
 
-	start := parsed.UTC()
-	end := start.Add(24 * time.Hour)
-	return start, end, nil
+	var end time.Time
+	if endTime == "" {
+		end = time.Now().UTC()
+	} else {
+		end, err = time.Parse(time.RFC3339, endTime)
+		if err != nil {
+			parsed, pErr := time.ParseInLocation(dateLayout, endTime, time.UTC)
+			if pErr != nil {
+				return time.Time{}, time.Time{}, fmt.Errorf("%w", ErrInvalidDateFormat)
+			}
+			end = parsed.UTC().Add(24 * time.Hour)
+		}
+	}
+
+	if !start.Before(end) {
+		return time.Time{}, time.Time{}, fmt.Errorf("start must be before end")
+	}
+	return start.UTC(), end.UTC(), nil
 }
 
 const alertsQueryTemplate = `
