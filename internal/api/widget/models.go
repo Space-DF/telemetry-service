@@ -81,4 +81,3 @@ type Coordinate struct {
 type MapDataResponse struct {
 	Coordinate Coordinate `json:"coordinate"`
 }
-

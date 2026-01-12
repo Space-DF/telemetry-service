@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/Space-DF/telemetry-service/internal/api/data"
 	"github.com/Space-DF/telemetry-service/internal/api/alerts"
+	"github.com/Space-DF/telemetry-service/internal/api/data"
 	"github.com/Space-DF/telemetry-service/internal/api/entities"
 	"github.com/Space-DF/telemetry-service/internal/api/location"
 	"github.com/Space-DF/telemetry-service/internal/api/widget"

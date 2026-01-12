@@ -72,7 +72,7 @@ func parseDisplayTypes(param string) []string {
 	if param == "" {
 		return nil
 	}
-	
+
 	parts := strings.Split(param, ",")
 	j := 0
 	for i := range parts {
@@ -81,7 +81,7 @@ func parseDisplayTypes(param string) []string {
 			j++
 		}
 	}
-	
+
 	if j == 0 {
 		return nil
 	}

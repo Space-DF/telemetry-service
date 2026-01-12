@@ -11,8 +11,8 @@ import (
 
 // Client represents a TimescaleDB client with basic lifecycle helpers.
 type Client struct {
-	DB            bob.DB        // Exported for subpackages
-	Logger        *zap.Logger   // Exported for subpackages
+	DB            bob.DB      // Exported for subpackages
+	Logger        *zap.Logger // Exported for subpackages
 	batchSize     int
 	flushInterval time.Duration
 	connStr       string
