@@ -1,0 +1,7 @@
+{
+  "global": {
+    "nosec": "nosec",
+    "exclude": "G109,G115",
+    "exclude-dir": "pkgs/db"
+  }
+}

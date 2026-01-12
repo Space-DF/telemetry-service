@@ -1,0 +1,13 @@
+processors:
+  - category: water_depth
+    value_key: water_depth
+    unit: cm
+    state_predicate: "s.state ~ '^-?[0-9]+(\\\\.[0-9]+)?$'"
+    default_caution: 10
+    default_warning: 30
+    default_critical: 60
+    messages:
+      safe: "Water level is safe"
+      caution: "Water is rising quickly"
+      warning: "Flooding"
+      critical: "Flood risk"
