@@ -1,6 +1,5 @@
 package timescaledb
 
-
 import (
 	"context"
 	"database/sql"
