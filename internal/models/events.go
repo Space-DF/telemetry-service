@@ -20,23 +20,9 @@ type EventData struct {
 	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
 }
 
-// LevelEvent represents a predefined event template/level (manufacturer, system, user-defined)
-type LevelEvent struct {
-	LevelEventID string    `json:"level_event_id" db:"level_event_id"`
-	OwnerType    string    `json:"owner_type" db:"owner_type"` // manufacturer, system, user
-	Description  string    `json:"description" db:"description"`
-	EventTypeID  int       `json:"event_type_id" db:"event_type_id"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
-
-	// Joined fields
-	EventType string `json:"event_type,omitempty" db:"event_type"`
-}
-
 // EventRule represents a rule for triggering events based on conditions
 type EventRule struct {
 	EventRuleID   string     `json:"event_rule_id" db:"event_rule_id"`
-	LevelEventID  string     `json:"level_event_id" db:"level_event_id"`
 	EntityID      *string    `json:"entity_id,omitempty" db:"entity_id"`
 	DeviceModelID *string    `json:"device_model_id,omitempty" db:"device_model_id"`
 	RuleKey       *string    `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
@@ -48,26 +34,23 @@ type EventRule struct {
 	EndTime       *time.Time `json:"end_time,omitempty" db:"end_time"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
-
-	// Joined fields
-	LevelEvent *LevelEvent `json:"level_event,omitempty"`
 }
 
 // Event represents an event occurrence
 type Event struct {
-	EventID        int64           `json:"event_id" db:"event_id"`
-	EventTypeID    int             `json:"event_type_id" db:"event_type_id"`
-	DataID         *int64          `json:"data_id,omitempty" db:"data_id"`
-	LevelEventID   *string         `json:"level_event_id,omitempty" db:"level_event_id"`
-	EventRuleID    *string         `json:"event_rule_id,omitempty" db:"event_rule_id"`
-	SpaceSlug      string          `json:"space_slug,omitempty" db:"space_slug"`
-	EntityID       *string         `json:"entity_id,omitempty" db:"entity_id"`
-	StateID        *int64          `json:"state_id,omitempty" db:"state_id"`
-	ContextID      []byte          `json:"context_id_bin,omitempty" db:"context_id_bin"`
-	TriggerID      *string         `json:"trigger_id,omitempty" db:"trigger_id"`
-	AllowNewEvent  *bool           `json:"allow_new_event,omitempty" db:"allow_new_event"`
-	TimeFiredTs    int64           `json:"time_fired_ts" db:"time_fired_ts"`
-	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
+	EventID       int64           `json:"event_id" db:"event_id"`
+	EventTypeID   int             `json:"event_type_id" db:"event_type_id"`
+	DataID        *int64          `json:"data_id,omitempty" db:"data_id"`
+	EventLevel    *string         `json:"event_level,omitempty" db:"event_level"` // manufacturer, system, user
+	EventRuleID   *string         `json:"event_rule_id,omitempty" db:"event_rule_id"`
+	SpaceSlug     string          `json:"space_slug,omitempty" db:"space_slug"`
+	EntityID      *string         `json:"entity_id,omitempty" db:"entity_id"`
+	StateID       *int64          `json:"state_id,omitempty" db:"state_id"`
+	ContextID     []byte          `json:"context_id_bin,omitempty" db:"context_id_bin"`
+	TriggerID     *string         `json:"trigger_id,omitempty" db:"trigger_id"`
+	AllowNewEvent *bool           `json:"allow_new_event,omitempty" db:"allow_new_event"`
+	TimeFiredTs   int64           `json:"time_fired_ts" db:"time_fired_ts"`
+	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 
 	// Joined fields
 	EventType  string          `json:"event_type,omitempty" db:"event_type"`
@@ -164,8 +147,7 @@ type EventDetail struct {
 	ContextID     []byte                 `json:"context_id,omitempty"`
 
 	// Joined fields
-	LevelEvent *LevelEvent `json:"level_event,omitempty"`
-	EventRule  *EventRule  `json:"event_rule,omitempty"`
+	EventRule *EventRule `json:"event_rule,omitempty"`
 }
 
 // TimestampsToTime converts timestamp fields to time.Time
@@ -233,27 +215,8 @@ func (e *EventData) SetSharedData(data map[string]interface{}) error {
 	return nil
 }
 
-// LevelEventRequest represents a request to create or update a level event
-type LevelEventRequest struct {
-	OwnerType   string `json:"owner_type" validate:"required,oneof=manufacturer system user"`
-	Description string `json:"description" validate:"required"`
-	EventType   string `json:"event_type" validate:"required"`
-}
-
-// LevelEventResponse represents a level event response
-type LevelEventResponse struct {
-	LevelEventID string    `json:"level_event_id"`
-	OwnerType    string    `json:"owner_type"`
-	Description  string    `json:"description"`
-	EventTypeID  int       `json:"event_type_id"`
-	EventType    string    `json:"event_type"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
 // EventRuleRequest represents a request to create or update an event rule
 type EventRuleRequest struct {
-	LevelEventID  string  `json:"level_event_id" validate:"required,uuid"`
 	EntityID      *string `json:"entity_id,omitempty" validate:"omitempty,uuid"`
 	DeviceModelID *string `json:"device_model_id,omitempty" validate:"omitempty,uuid"`
 	RuleKey       *string `json:"rule_key,omitempty"`
@@ -268,7 +231,6 @@ type EventRuleRequest struct {
 // EventRuleResponse represents an event rule response
 type EventRuleResponse struct {
 	EventRuleID   string       `json:"event_rule_id"`
-	LevelEventID  string       `json:"level_event_id"`
 	EntityID      *string      `json:"entity_id,omitempty"`
 	DeviceModelID *string      `json:"device_model_id,omitempty"`
 	RuleKey       *string      `json:"rule_key,omitempty"`
@@ -280,9 +242,6 @@ type EventRuleResponse struct {
 	EndTime       *time.Time   `json:"end_time,omitempty"`
 	CreatedAt     time.Time    `json:"created_at"`
 	UpdatedAt     time.Time    `json:"updated_at"`
-
-	// Joined fields
-	LevelEvent *LevelEvent `json:"level_event,omitempty"`
 }
 
 // EventRulesListResponse represents paginated event rules
@@ -291,12 +250,4 @@ type EventRulesListResponse struct {
 	TotalCount int         `json:"total_count"`
 	Page       int         `json:"page"`
 	PageSize   int         `json:"page_size"`
-}
-
-// LevelEventsListResponse represents paginated level events
-type LevelEventsListResponse struct {
-	Events     []LevelEvent `json:"events"`
-	TotalCount int          `json:"total_count"`
-	Page       int          `json:"page"`
-	PageSize   int          `json:"page_size"`
 }

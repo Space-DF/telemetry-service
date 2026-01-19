@@ -24,23 +24,9 @@ CREATE TABLE IF NOT EXISTS event_data (
 
 CREATE INDEX IF NOT EXISTS idx_event_data_hash ON event_data (hash);
 
--- Level Events: Predefined event templates/levels (manufacturer, system, user-defined)
-CREATE TABLE IF NOT EXISTS level_events (
-    level_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    owner_type TEXT NOT NULL CHECK (owner_type IN ('manufacturer', 'system', 'user')),
-    description TEXT NOT NULL,
-    event_type_id INTEGER NOT NULL REFERENCES event_types(event_type_id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_level_events_owner_type ON level_events (owner_type);
-CREATE INDEX IF NOT EXISTS idx_level_events_event_type_id ON level_events (event_type_id);
-
 -- Event Rules: Rules for triggering events based on conditions
 CREATE TABLE IF NOT EXISTS event_rules (
     event_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    level_event_id UUID NOT NULL REFERENCES level_events(level_event_id) ON DELETE CASCADE,
     entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
     device_model_id UUID,
     rule_key TEXT, -- e.g., 'battery_low', 'temperature_low'
@@ -54,7 +40,6 @@ CREATE TABLE IF NOT EXISTS event_rules (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_event_rules_level_event_id ON event_rules (level_event_id);
 CREATE INDEX IF NOT EXISTS idx_event_rules_entity_id ON event_rules (entity_id);
 CREATE INDEX IF NOT EXISTS idx_event_rules_device_model_id ON event_rules (device_model_id);
 CREATE INDEX IF NOT EXISTS idx_event_rules_status ON event_rules (status);
@@ -67,7 +52,7 @@ CREATE TABLE IF NOT EXISTS events (
     event_id BIGSERIAL PRIMARY KEY,
     event_type_id INTEGER NOT NULL REFERENCES event_types(event_type_id) ON DELETE CASCADE,
     data_id INTEGER REFERENCES event_data(data_id) ON DELETE SET NULL,
-    level_event_id UUID REFERENCES level_events(level_event_id) ON DELETE SET NULL,
+    event_level TEXT CHECK (event_level IN ('manufacturer', 'system', 'user')),
     event_rule_id UUID REFERENCES event_rules(event_rule_id) ON DELETE SET NULL,
     space_slug TEXT,
     entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
@@ -80,7 +65,6 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_event_type_id ON events (event_type_id);
-CREATE INDEX IF NOT EXISTS idx_events_level_event_id ON events (level_event_id);
 CREATE INDEX IF NOT EXISTS idx_events_event_rule_id ON events (event_rule_id);
 CREATE INDEX IF NOT EXISTS idx_events_space_slug ON events (space_slug);
 CREATE INDEX IF NOT EXISTS idx_events_entity_id ON events (entity_id);
@@ -103,6 +87,5 @@ ALTER TABLE entity_states DROP COLUMN IF EXISTS event_id;
 -- Drop events schema tables (entity_states and entity_state_attributes remain)
 DROP TABLE IF EXISTS events CASCADE;
 DROP TABLE IF EXISTS event_rules CASCADE;
-DROP TABLE IF EXISTS level_events CASCADE;
 DROP TABLE IF EXISTS event_data CASCADE;
 DROP TABLE IF EXISTS event_types CASCADE;

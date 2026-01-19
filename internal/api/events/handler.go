@@ -60,86 +60,6 @@ func getEventsByEntity(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 }
 
 // ============================================================================
-// Level Events API Handlers
-// ============================================================================
-
-// getLevelEvents returns all level events
-func getLevelEvents(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		page := 1
-		if pageStr := c.QueryParam("page"); pageStr != "" {
-			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				page = p
-			}
-		}
-
-		pageSize := 20
-		if sizeStr := c.QueryParam("page_size"); sizeStr != "" {
-			if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 && s <= 100 {
-				pageSize = s
-			}
-		}
-
-		ownerType := c.QueryParam("owner_type")
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		events, total, err := tsClient.GetLevelEvents(ctx, ownerType, page, pageSize)
-		if err != nil {
-			logger.Error("failed to get level events",
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to get level events",
-			})
-		}
-
-		return c.JSON(http.StatusOK, models.LevelEventsListResponse{
-			Events:     events,
-			TotalCount: total,
-			Page:       page,
-			PageSize:   pageSize,
-		})
-	}
-}
-
-// createLevelEvent creates a new level event
-func createLevelEvent(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		var req models.LevelEventRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		event, err := tsClient.CreateLevelEvent(ctx, &req)
-		if err != nil {
-			logger.Error("failed to create level event",
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to create level event",
-			})
-		}
-
-		return c.JSON(http.StatusCreated, event)
-	}
-}
-
-// ============================================================================
 // Event Rules API Handlers
 // ============================================================================
 
@@ -167,11 +87,10 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 			}
 		}
 
-		levelEventID := c.QueryParam("level_event_id")
 		entityID := c.QueryParam("entity_id")
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rules, total, err := tsClient.GetEventRules(ctx, levelEventID, entityID, page, pageSize)
+		rules, total, err := tsClient.GetEventRules(ctx, entityID, page, pageSize)
 		if err != nil {
 			logger.Error("failed to get event rules",
 				zap.Error(err))

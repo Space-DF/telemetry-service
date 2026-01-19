@@ -340,141 +340,11 @@ func (c *Client) GetEventsByEntity(ctx context.Context, org, entityID string, li
 }
 
 // ============================================================================
-// Level Events
-// ============================================================================
-
-// GetLevelEvents retrieves level events with pagination
-func (c *Client) GetLevelEvents(ctx context.Context, ownerType string, page, pageSize int) ([]models.LevelEvent, int, error) {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 || pageSize > 100 {
-		pageSize = 20
-	}
-
-	offset := (page - 1) * pageSize
-
-	var events []models.LevelEvent
-	var total int
-
-	err := c.WithOrgTx(ctx, "", func(txCtx context.Context, tx bob.Tx) error {
-		// Count total
-		countQuery := `SELECT COUNT(*) FROM level_events`
-		args := []interface{}{}
-
-		if ownerType != "" {
-			countQuery += ` WHERE owner_type = $1`
-			args = append(args, ownerType)
-		}
-
-		err := tx.QueryRowContext(txCtx, countQuery, args...).Scan(&total)
-		if err != nil {
-			return fmt.Errorf("failed to count level events: %w", err)
-		}
-
-		// Query events
-		query := `
-			SELECT le.level_event_id, le.owner_type, le.description, le.event_type_id,
-				   le.created_at, le.updated_at, et.event_type
-			FROM level_events le
-			JOIN event_types et ON le.event_type_id = et.event_type_id
-		`
-
-		if ownerType != "" {
-			query += ` WHERE le.owner_type = $1`
-			args = append(args, ownerType)
-			query += ` ORDER BY le.created_at DESC LIMIT $2 OFFSET $3`
-			args = append(args, pageSize, offset)
-		} else {
-			query += ` ORDER BY le.created_at DESC LIMIT $1 OFFSET $2`
-			args = append(args, pageSize, offset)
-		}
-
-		rows, err := tx.QueryContext(txCtx, query, args...)
-		if err != nil {
-			return fmt.Errorf("failed to query level events: %w", err)
-		}
-		defer func() { _ = rows.Close() }()
-
-		for rows.Next() {
-			var e models.LevelEvent
-			if err := rows.Scan(&e.LevelEventID, &e.OwnerType, &e.Description, &e.EventTypeID, &e.CreatedAt, &e.UpdatedAt, &e.EventType); err != nil {
-				return err
-			}
-			events = append(events, e)
-		}
-
-		return rows.Err()
-	})
-
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return events, total, nil
-}
-
-// CreateLevelEvent creates a new level event
-func (c *Client) CreateLevelEvent(ctx context.Context, req *models.LevelEventRequest) (*models.LevelEventResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("nil request")
-	}
-
-	var result models.LevelEventResponse
-
-	err := c.WithOrgTx(ctx, "", func(txCtx context.Context, tx bob.Tx) error {
-		// Get event type ID
-		var eventTypeID int
-		err := tx.QueryRowContext(txCtx, `
-			SELECT event_type_id FROM event_types WHERE event_type = $1
-		`, req.EventType).Scan(&eventTypeID)
-
-		if err == sql.ErrNoRows {
-			// Create new event type
-			err = tx.QueryRowContext(txCtx, `
-				INSERT INTO event_types (event_type) VALUES ($1)
-				RETURNING event_type_id
-			`, req.EventType).Scan(&eventTypeID)
-		}
-
-		if err != nil {
-			return fmt.Errorf("failed to get or create event type: %w", err)
-		}
-
-		// Insert level event
-		err = tx.QueryRowContext(txCtx, `
-			INSERT INTO level_events (owner_type, description, event_type_id)
-			VALUES ($1, $2, $3)
-			RETURNING level_event_id, created_at, updated_at
-		`, req.OwnerType, req.Description, eventTypeID).Scan(
-			&result.LevelEventID, &result.CreatedAt, &result.UpdatedAt,
-		)
-
-		if err != nil {
-			return fmt.Errorf("failed to insert level event: %w", err)
-		}
-
-		result.OwnerType = req.OwnerType
-		result.Description = req.Description
-		result.EventTypeID = eventTypeID
-		result.EventType = req.EventType
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-// ============================================================================
 // Event Rules
 // ============================================================================
 
 // GetEventRules retrieves event rules with pagination
-func (c *Client) GetEventRules(ctx context.Context, levelEventID, entityID string, page, pageSize int) ([]models.EventRule, int, error) {
+func (c *Client) GetEventRules(ctx context.Context, entityID string, page, pageSize int) ([]models.EventRule, int, error) {
 	if page <= 0 {
 		page = 1
 	}
@@ -493,17 +363,8 @@ func (c *Client) GetEventRules(ctx context.Context, levelEventID, entityID strin
 		args := []interface{}{}
 
 		whereClause := ""
-
-		if levelEventID != "" {
-			whereClause = " WHERE level_event_id = $1"
-			args = append(args, levelEventID)
-		}
 		if entityID != "" {
-			if whereClause != "" {
-				whereClause += " AND entity_id = $" + fmt.Sprintf("%d", len(args)+1)
-			} else {
-				whereClause = " WHERE entity_id = $" + fmt.Sprintf("%d", len(args)+1)
-			}
+			whereClause = " WHERE entity_id = $1"
 			args = append(args, entityID)
 		}
 
@@ -515,12 +376,10 @@ func (c *Client) GetEventRules(ctx context.Context, levelEventID, entityID strin
 
 		// Query rules
 		query := `
-			SELECT er.event_rule_id, er.level_event_id, er.entity_id, er.device_model_id,
+			SELECT er.event_rule_id, er.entity_id, er.device_model_id,
 				   er.rule_key, er.operator, er.operand, er.status, er.is_active,
-				   er.start_time, er.end_time, er.created_at, er.updated_at,
-				   le.owner_type, le.description as level_description
+				   er.start_time, er.end_time, er.created_at, er.updated_at
 			FROM event_rules er
-			JOIN level_events le ON er.level_event_id = le.level_event_id
 		` + whereClause + ` ORDER BY er.created_at DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
 		args = append(args, pageSize, offset)
 
@@ -532,23 +391,12 @@ func (c *Client) GetEventRules(ctx context.Context, levelEventID, entityID strin
 
 		for rows.Next() {
 			var r models.EventRule
-			var levelDesc sql.NullString
-
 			if err := rows.Scan(
-				&r.EventRuleID, &r.LevelEventID, &r.EntityID, &r.DeviceModelID,
+				&r.EventRuleID, &r.EntityID, &r.DeviceModelID,
 				&r.RuleKey, &r.Operator, &r.Operand, &r.Status, &r.IsActive,
 				&r.StartTime, &r.EndTime, &r.CreatedAt, &r.UpdatedAt,
-				&levelDesc,
 			); err != nil {
 				return err
-			}
-
-			// Populate level event for joined data
-			if levelDesc.Valid {
-				r.LevelEvent = &models.LevelEvent{
-					LevelEventID: r.LevelEventID,
-					Description:  levelDesc.String,
-				}
 			}
 
 			rules = append(rules, r)
@@ -590,10 +438,10 @@ func (c *Client) CreateEventRule(ctx context.Context, req *models.EventRuleReque
 
 		// Insert event rule
 		err := tx.QueryRowContext(txCtx, `
-			INSERT INTO event_rules (level_event_id, entity_id, device_model_id, rule_key, operator, operand, status, is_active, start_time, end_time)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			INSERT INTO event_rules (entity_id, device_model_id, rule_key, operator, operand, status, is_active, start_time, end_time)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING event_rule_id, created_at, updated_at
-		`, req.LevelEventID, req.EntityID, req.DeviceModelID, req.RuleKey, req.Operator, req.Operand,
+		`, req.EntityID, req.DeviceModelID, req.RuleKey, req.Operator, req.Operand,
 			req.Status, req.IsActive, startTime, endTime).Scan(
 			&result.EventRuleID, &result.CreatedAt, &result.UpdatedAt,
 		)
@@ -601,8 +449,6 @@ func (c *Client) CreateEventRule(ctx context.Context, req *models.EventRuleReque
 		if err != nil {
 			return fmt.Errorf("failed to insert event rule: %w", err)
 		}
-
-		result.LevelEventID = req.LevelEventID
 		if req.EntityID != nil {
 			result.EntityID = req.EntityID
 		}
@@ -665,12 +511,12 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, req *models
 		// Update event rule
 		err := tx.QueryRowContext(txCtx, `
 			UPDATE event_rules
-			SET level_event_id = $1, entity_id = $2, device_model_id = $3, rule_key = $4,
-			    operator = $5, operand = $6, status = $7, is_active = $8,
-			    start_time = $9, end_time = $10, updated_at = NOW()
-			WHERE event_rule_id = $11
+			SET entity_id = $1, device_model_id = $2, rule_key = $3,
+			    operator = $4, operand = $5, status = $6, is_active = $7,
+			    start_time = $8, end_time = $9, updated_at = NOW()
+			WHERE event_rule_id = $10
 			RETURNING event_rule_id, created_at, updated_at
-		`, req.LevelEventID, req.EntityID, req.DeviceModelID, req.RuleKey, req.Operator, req.Operand,
+		`, req.EntityID, req.DeviceModelID, req.RuleKey, req.Operator, req.Operand,
 			req.Status, req.IsActive, startTime, endTime, ruleID).Scan(
 			&result.EventRuleID, &result.CreatedAt, &result.UpdatedAt,
 		)
@@ -678,8 +524,6 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, req *models
 		if err != nil {
 			return fmt.Errorf("failed to update event rule: %w", err)
 		}
-
-		result.LevelEventID = req.LevelEventID
 		if req.EntityID != nil {
 			result.EntityID = req.EntityID
 		}
