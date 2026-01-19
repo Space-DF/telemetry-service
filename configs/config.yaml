@@ -3,6 +3,7 @@ server:
   log_level: "info"  # debug, info, warn, error
   api_port: 8080    # API server port (includes health endpoints)
   alerts_processors_path: "configs/alerts_processors.yaml"
+  event_rules_dir: "configs/event_rules"  # Directory containing device model event rules
 
 # AMQP/RabbitMQ Configuration
 amqp:

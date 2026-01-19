@@ -1,0 +1,71 @@
+# RAK4630 Event Rules
+device_model: "rak4630"
+device_model_id: "" # Will be resolved from device service
+display_name: "RAK4630 WisBlock"
+
+rules:
+  # Battery Low Warning
+  - rule_key: "battery_v"
+    entity_id_pattern: ""
+    operator: "lt"
+    operand: "3.3"
+    event_type: "device_event"
+    event_level: "system"
+    description: "Battery voltage is low (< 3.3V)"
+    status: "active"
+    is_active: true
+
+  # Battery Critical Warning
+  - rule_key: "battery_v"
+    entity_id_pattern: ""
+    operator: "lt"
+    operand: "3.0"
+    event_type: "device_event"
+    event_level: "system"
+    description: "Battery voltage is critically low (< 3.0V)"
+    status: "active"
+    is_active: true
+
+  # High Temperature Warning
+  - rule_key: "temperature"
+    entity_id_pattern: ""
+    operator: "gt"
+    operand: "50"
+    event_type: "device_event"
+    event_level: "system"
+    description: "Temperature is high (> 50°C)"
+    status: "active"
+    is_active: true
+
+  # Low Temperature Warning
+  - rule_key: "temperature"
+    entity_id_pattern: ""
+    operator: "lt"
+    operand: "-10"
+    event_type: "device_event"
+    event_level: "system"
+    description: "Temperature is very low (< -10°C)"
+    status: "active"
+    is_active: true
+
+  # High Humidity Warning
+  - rule_key: "humidity"
+    entity_id_pattern: ""
+    operator: "gt"
+    operand: "90"
+    event_type: "device_event"
+    event_level: "system"
+    description: "Humidity is very high (> 90%)"
+    status: "active"
+    is_active: true
+
+  # Low Humidity Warning
+  - rule_key: "humidity"
+    entity_id_pattern: ""
+    operator: "lt"
+    operand: "10"
+    event_type: "device_event"
+    event_level: "system"
+    description: "Humidity is very low (< 10%)"
+    status: "active"
+    is_active: true

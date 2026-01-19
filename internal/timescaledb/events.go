@@ -21,6 +21,14 @@ const (
 	EventTypeDeviceTriggered = "device_triggered"
 )
 
+// Pagination constants
+const (
+	DefaultPage          = 1
+	DefaultPageSize      = 20
+	MaxPageSize          = 100
+	DefaultEventLimit    = 100
+)
+
 // getOrCreateEventTypeID retrieves the event_type_id for a given event type,
 // creating it if it doesn't exist.
 func (c *Client) getOrCreateEventTypeID(ctx context.Context, tx bob.Tx, eventType string) (int, error) {
@@ -268,7 +276,7 @@ func (c *Client) GetEventsByEntity(ctx context.Context, org, entityID string, li
 		return nil, fmt.Errorf("entity_id is required")
 	}
 	if limit <= 0 {
-		limit = 100
+		limit = DefaultEventLimit
 	}
 
 	var events []models.Event
@@ -343,13 +351,38 @@ func (c *Client) GetEventsByEntity(ctx context.Context, org, entityID string, li
 // Event Rules
 // ============================================================================
 
+// populateEventRuleResponse populates an EventRuleResponse from request data and times
+func populateEventRuleResponse(result *models.EventRuleResponse, req *models.EventRuleRequest, startTime, endTime *time.Time) {
+	if req.EntityID != nil {
+		result.EntityID = req.EntityID
+	}
+	if req.DeviceModelID != nil {
+		result.DeviceModelID = req.DeviceModelID
+	}
+	if req.RuleKey != nil {
+		result.RuleKey = req.RuleKey
+	}
+	if req.Operator != nil {
+		result.Operator = req.Operator
+	}
+	result.Operand = req.Operand
+	if req.Status != nil {
+		result.Status = req.Status
+	}
+	if req.IsActive != nil {
+		result.IsActive = req.IsActive
+	}
+	result.StartTime = startTime
+	result.EndTime = endTime
+}
+
 // GetEventRules retrieves event rules with pagination
 func (c *Client) GetEventRules(ctx context.Context, entityID string, page, pageSize int) ([]models.EventRule, int, error) {
 	if page <= 0 {
-		page = 1
+		page = DefaultPage
 	}
-	if pageSize <= 0 || pageSize > 100 {
-		pageSize = 20
+	if pageSize <= 0 || pageSize > MaxPageSize {
+		pageSize = DefaultPageSize
 	}
 
 	offset := (page - 1) * pageSize
@@ -425,15 +458,17 @@ func (c *Client) CreateEventRule(ctx context.Context, req *models.EventRuleReque
 		var startTime, endTime *time.Time
 		if req.StartTime != nil {
 			t, parseErr := time.Parse(time.RFC3339, *req.StartTime)
-			if parseErr == nil {
-				startTime = &t
+			if parseErr != nil {
+				return fmt.Errorf("invalid start_time format: %w", parseErr)
 			}
+			startTime = &t
 		}
 		if req.EndTime != nil {
 			t, parseErr := time.Parse(time.RFC3339, *req.EndTime)
-			if parseErr == nil {
-				endTime = &t
+			if parseErr != nil {
+				return fmt.Errorf("invalid end_time format: %w", parseErr)
 			}
+			endTime = &t
 		}
 
 		// Insert event rule
@@ -449,27 +484,7 @@ func (c *Client) CreateEventRule(ctx context.Context, req *models.EventRuleReque
 		if err != nil {
 			return fmt.Errorf("failed to insert event rule: %w", err)
 		}
-		if req.EntityID != nil {
-			result.EntityID = req.EntityID
-		}
-		if req.DeviceModelID != nil {
-			result.DeviceModelID = req.DeviceModelID
-		}
-		if req.RuleKey != nil {
-			result.RuleKey = req.RuleKey
-		}
-		if req.Operator != nil {
-			result.Operator = req.Operator
-		}
-		result.Operand = req.Operand
-		if req.Status != nil {
-			result.Status = req.Status
-		}
-		if req.IsActive != nil {
-			result.IsActive = req.IsActive
-		}
-		result.StartTime = startTime
-		result.EndTime = endTime
+		populateEventRuleResponse(&result, req, startTime, endTime)
 
 		return nil
 	})
@@ -497,15 +512,17 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, req *models
 		var startTime, endTime *time.Time
 		if req.StartTime != nil {
 			t, parseErr := time.Parse(time.RFC3339, *req.StartTime)
-			if parseErr == nil {
-				startTime = &t
+			if parseErr != nil {
+				return fmt.Errorf("invalid start_time format: %w", parseErr)
 			}
+			startTime = &t
 		}
 		if req.EndTime != nil {
 			t, parseErr := time.Parse(time.RFC3339, *req.EndTime)
-			if parseErr == nil {
-				endTime = &t
+			if parseErr != nil {
+				return fmt.Errorf("invalid end_time format: %w", parseErr)
 			}
+			endTime = &t
 		}
 
 		// Update event rule
@@ -524,27 +541,7 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, req *models
 		if err != nil {
 			return fmt.Errorf("failed to update event rule: %w", err)
 		}
-		if req.EntityID != nil {
-			result.EntityID = req.EntityID
-		}
-		if req.DeviceModelID != nil {
-			result.DeviceModelID = req.DeviceModelID
-		}
-		if req.RuleKey != nil {
-			result.RuleKey = req.RuleKey
-		}
-		if req.Operator != nil {
-			result.Operator = req.Operator
-		}
-		result.Operand = req.Operand
-		if req.Status != nil {
-			result.Status = req.Status
-		}
-		if req.IsActive != nil {
-			result.IsActive = req.IsActive
-		}
-		result.StartTime = startTime
-		result.EndTime = endTime
+		populateEventRuleResponse(&result, req, startTime, endTime)
 
 		return nil
 	})
@@ -575,4 +572,155 @@ func (c *Client) DeleteEventRule(ctx context.Context, ruleID string) error {
 
 		return nil
 	})
+}
+
+// ruleConfig represents a single event rule configuration for seeding
+type ruleConfig struct {
+	RuleKey         string
+	EntityIDPattern string
+	Operator        string
+	Operand         string
+	EventType       string
+	EventLevel      string
+	Description     string
+	Status          string
+	IsActive        bool
+}
+
+// deviceModelRules represents event rules for a specific device model
+type deviceModelRules struct {
+	DeviceModel   string
+	DeviceModelID string
+	Rules         []ruleConfig
+}
+
+// SeedDefaultEventRules seeds default event rules from configuration
+// This is typically called on service startup to ensure default rules exist
+func (c *Client) SeedDefaultEventRules(ctx context.Context, rulesConfig interface{}) error {
+	var config struct {
+		DeviceModels []deviceModelRules
+	}
+
+	// Use type assertion to handle different config types
+	// This allows passing either the raw YAML unmarshalled struct or our custom config type
+	switch cfg := rulesConfig.(type) {
+	case map[string]interface{}:
+		// Handle raw YAML map
+		if dms, ok := cfg["device_models"].([]interface{}); ok {
+			for _, dm := range dms {
+				dmMap, ok := dm.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				dmr := deviceModelRules{
+					DeviceModel:   getString(dmMap, "device_model"),
+					DeviceModelID: getString(dmMap, "device_model_id"),
+				}
+				if rules, ok := dmMap["rules"].([]interface{}); ok {
+					for _, r := range rules {
+						rMap, ok := r.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						dmr.Rules = append(dmr.Rules, ruleConfig{
+							RuleKey:         getString(rMap, "rule_key"),
+							EntityIDPattern: getString(rMap, "entity_id_pattern"),
+							Operator:        getString(rMap, "operator"),
+							Operand:         getString(rMap, "operand"),
+							EventType:       getString(rMap, "event_type"),
+							EventLevel:      getString(rMap, "event_level"),
+							Description:     getString(rMap, "description"),
+							Status:          getString(rMap, "status"),
+							IsActive:        getBool(rMap, "is_active"),
+						})
+					}
+				}
+				config.DeviceModels = append(config.DeviceModels, dmr)
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported config type: %T", rulesConfig)
+	}
+
+	// Seed rules for each device model
+	for _, dm := range config.DeviceModels {
+		if err := c.seedDeviceModelRules(ctx, dm); err != nil {
+			return fmt.Errorf("failed to seed rules for device model %s: %w", dm.DeviceModel, err)
+		}
+	}
+
+	return nil
+}
+
+// seedDeviceModelRules seeds event rules for a specific device model
+func (c *Client) seedDeviceModelRules(ctx context.Context, dm deviceModelRules) error {
+	return c.WithOrgTx(ctx, "", func(txCtx context.Context, tx bob.Tx) error {
+		for _, ruleCfg := range dm.Rules {
+			// Check if rule already exists (by device_model_id + rule_key + operator + operand)
+			var existingRuleID string
+			checkQuery := `
+				SELECT event_rule_id FROM event_rules
+				WHERE device_model_id = $1 AND rule_key = $2 AND operator = $3 AND operand = $4
+				LIMIT 1
+			`
+			err := tx.QueryRowContext(txCtx, checkQuery, dm.DeviceModelID, ruleCfg.RuleKey, ruleCfg.Operator, ruleCfg.Operand).Scan(&existingRuleID)
+
+			if err == nil {
+				// Rule already exists, skip
+				log.Printf("[EventRules] Rule already exists for %s:%s (%s %s), skipping", dm.DeviceModel, ruleCfg.RuleKey, ruleCfg.Operator, ruleCfg.Operand)
+				continue
+			}
+
+			if err != sql.ErrNoRows {
+				return fmt.Errorf("failed to check existing rule: %w", err)
+			}
+
+			// Create new rule
+			var ruleID string
+			var entityID *string
+			if ruleCfg.EntityIDPattern != "" {
+				entityID = &ruleCfg.EntityIDPattern
+			}
+			ruleKey := &ruleCfg.RuleKey
+			operator := &ruleCfg.Operator
+			status := &ruleCfg.Status
+			isActive := &ruleCfg.IsActive
+
+			insertQuery := `
+				INSERT INTO event_rules (device_model_id, entity_id, rule_key, operator, operand, status, is_active)
+				VALUES ($1, $2, $3, $4, $5, $6, $7)
+				RETURNING event_rule_id
+			`
+			err = tx.QueryRowContext(txCtx, insertQuery,
+				dm.DeviceModelID, entityID, ruleKey, operator, ruleCfg.Operand, status, isActive,
+			).Scan(&ruleID)
+
+			if err != nil {
+				return fmt.Errorf("failed to insert event rule: %w", err)
+			}
+
+			log.Printf("[EventRules] Seeded rule: %s - %s %s %s", dm.DeviceModel, ruleCfg.RuleKey, ruleCfg.Operator, ruleCfg.Operand)
+		}
+		return nil
+	})
+}
+
+// getString safely extracts a string value from a map
+func getString(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// getBool safely extracts a bool value from a map
+func getBool(m map[string]interface{}, key string) bool {
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
 }
