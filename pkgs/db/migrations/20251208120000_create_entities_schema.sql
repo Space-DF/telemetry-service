@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS entities (
     display_type TEXT[] NOT NULL DEFAULT ARRAY['unknown'],
     image_url TEXT,
     is_enabled BOOLEAN NOT NULL DEFAULT true,
-    trigger_event_type TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -34,7 +33,6 @@ CREATE TABLE IF NOT EXISTS entities (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_unique_key ON entities (unique_key);
 CREATE INDEX IF NOT EXISTS idx_entities_space_slug ON entities (space_slug);
 CREATE INDEX IF NOT EXISTS idx_entities_device_id ON entities (device_id);
-CREATE INDEX IF NOT EXISTS idx_entities_trigger_event_type ON entities (trigger_event_type);
 
 CREATE TABLE IF NOT EXISTS entity_state_attributes (
     id UUID PRIMARY KEY,

@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS event_rules (
     is_active BOOLEAN DEFAULT true,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
+    allow_new_event BOOLEAN, -- flag to control duplicate event creation
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -59,7 +60,6 @@ CREATE TABLE IF NOT EXISTS events (
     state_id BIGINT REFERENCES entity_states(state_id) ON DELETE SET NULL,
     context_id_bin BYTEA,
     trigger_id UUID, -- for future automations table reference
-    allow_new_event BOOLEAN, -- flag to control duplicate event creation
     time_fired_ts BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
