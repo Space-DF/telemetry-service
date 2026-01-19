@@ -1,0 +1,108 @@
+-- migrate:up
+-- Events Schema
+CREATE TABLE IF NOT EXISTS event_types (
+    event_type_id SERIAL PRIMARY KEY,
+    event_type TEXT NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Insert common event types
+INSERT INTO event_types (event_type) VALUES
+    ('state_changed'),
+    ('automation_triggered'),
+    ('device_event'),
+    ('user_action')
+ON CONFLICT (event_type) DO NOTHING;
+
+-- Event Data: Shared data deduplicated by hash
+CREATE TABLE IF NOT EXISTS event_data (
+    data_id SERIAL PRIMARY KEY,
+    hash BIGINT NOT NULL UNIQUE,
+    shared_data JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_data_hash ON event_data (hash);
+
+-- Level Events: Predefined event templates/levels (manufacturer, system, user-defined)
+CREATE TABLE IF NOT EXISTS level_events (
+    level_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    owner_type TEXT NOT NULL CHECK (owner_type IN ('manufacturer', 'system', 'user')),
+    description TEXT NOT NULL,
+    event_type_id INTEGER NOT NULL REFERENCES event_types(event_type_id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_level_events_owner_type ON level_events (owner_type);
+CREATE INDEX IF NOT EXISTS idx_level_events_event_type_id ON level_events (event_type_id);
+
+-- Event Rules: Rules for triggering events based on conditions
+CREATE TABLE IF NOT EXISTS event_rules (
+    event_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    level_event_id UUID NOT NULL REFERENCES level_events(level_event_id) ON DELETE CASCADE,
+    entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
+    device_model_id UUID,
+    rule_key TEXT, -- e.g., 'battery_low', 'temperature_low'
+    operator VARCHAR(16) CHECK (operator IN ('eq', 'ne', 'gt', 'lt', 'gte', 'lte', 'contains')),
+    operand TEXT NOT NULL,
+    status VARCHAR(16) CHECK (status IN ('active', 'inactive', 'paused')) DEFAULT 'active',
+    is_active BOOLEAN DEFAULT true,
+    start_time TIMESTAMPTZ,
+    end_time TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_rules_level_event_id ON event_rules (level_event_id);
+CREATE INDEX IF NOT EXISTS idx_event_rules_entity_id ON event_rules (entity_id);
+CREATE INDEX IF NOT EXISTS idx_event_rules_device_model_id ON event_rules (device_model_id);
+CREATE INDEX IF NOT EXISTS idx_event_rules_status ON event_rules (status);
+CREATE INDEX IF NOT EXISTS idx_event_rules_is_active ON event_rules (is_active);
+
+-- Events: Event occurrences linking to event_type and event_data
+-- space_slug is stored here for filtering events within a space
+-- entity_id links the event to a specific entity for faster queries
+CREATE TABLE IF NOT EXISTS events (
+    event_id BIGSERIAL PRIMARY KEY,
+    event_type_id INTEGER NOT NULL REFERENCES event_types(event_type_id) ON DELETE CASCADE,
+    data_id INTEGER REFERENCES event_data(data_id) ON DELETE SET NULL,
+    level_event_id UUID REFERENCES level_events(level_event_id) ON DELETE SET NULL,
+    event_rule_id UUID REFERENCES event_rules(event_rule_id) ON DELETE SET NULL,
+    space_slug TEXT,
+    entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
+    state_id BIGINT REFERENCES entity_states(state_id) ON DELETE SET NULL,
+    context_id_bin BYTEA,
+    trigger_id UUID, -- for future automations table reference
+    allow_new_event BOOLEAN, -- flag to control duplicate event creation
+    time_fired_ts BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_event_type_id ON events (event_type_id);
+CREATE INDEX IF NOT EXISTS idx_events_level_event_id ON events (level_event_id);
+CREATE INDEX IF NOT EXISTS idx_events_event_rule_id ON events (event_rule_id);
+CREATE INDEX IF NOT EXISTS idx_events_space_slug ON events (space_slug);
+CREATE INDEX IF NOT EXISTS idx_events_entity_id ON events (entity_id);
+CREATE INDEX IF NOT EXISTS idx_events_state_id ON events (state_id);
+CREATE INDEX IF NOT EXISTS idx_events_trigger_id ON events (trigger_id);
+CREATE INDEX IF NOT EXISTS idx_events_time_fired_ts ON events (time_fired_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_events_data_id ON events (data_id);
+
+-- Add event_id column to entity_states to create bidirectional linkage
+-- This allows states to reference their triggering event
+ALTER TABLE entity_states ADD COLUMN IF NOT EXISTS event_id BIGINT REFERENCES events(event_id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_entity_states_event_id ON entity_states (event_id);
+
+-- migrate:down
+
+-- Remove event_id column from entity_states
+ALTER TABLE entity_states DROP COLUMN IF EXISTS event_id;
+
+-- Drop events schema tables (entity_states and entity_state_attributes remain)
+DROP TABLE IF EXISTS events CASCADE;
+DROP TABLE IF EXISTS event_rules CASCADE;
+DROP TABLE IF EXISTS level_events CASCADE;
+DROP TABLE IF EXISTS event_data CASCADE;
+DROP TABLE IF EXISTS event_types CASCADE;

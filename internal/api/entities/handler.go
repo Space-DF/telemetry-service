@@ -11,6 +11,11 @@ import (
 	"go.uber.org/zap"
 )
 
+// updateEntityTriggerEventRequest represents the request to update an entity's trigger event type
+type updateEntityTriggerEventRequest struct {
+	TriggerEventType string `json:"trigger_event_type"`
+}
+
 func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Parse query params
@@ -86,4 +91,53 @@ func parseDisplayTypes(param string) []string {
 		return nil
 	}
 	return parts[:j]
+}
+
+// updateEntityTriggerEvent updates the trigger event type for an entity
+func updateEntityTriggerEvent(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		entityID := strings.TrimSpace(c.Param("entity_id"))
+		if entityID == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "entity_id is required",
+			})
+		}
+
+		var req updateEntityTriggerEventRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "invalid request body",
+			})
+		}
+
+		if req.TriggerEventType == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "trigger_event_type is required",
+			})
+		}
+
+		orgToUse := common.ResolveOrgFromRequest(c)
+		if orgToUse == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Could not determine organization from hostname or X-Organization header",
+			})
+		}
+
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+		err := tsClient.UpdateEntityTriggerEventType(ctx, entityID, req.TriggerEventType)
+		if err != nil {
+			logger.Error("failed to update entity trigger event type",
+				zap.String("entity_id", entityID),
+				zap.String("trigger_event_type", req.TriggerEventType),
+				zap.Error(err))
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "failed to update entity trigger event type",
+			})
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"entity_id":           entityID,
+			"trigger_event_type":  req.TriggerEventType,
+		})
+	}
 }
