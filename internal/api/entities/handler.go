@@ -11,8 +11,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// updateEntityTriggerEventRequest represents the request to update an entity's trigger event type
-type updateEntityTriggerEventRequest struct {
+// updateDeviceTriggerEventRequest represents the request to update an device's trigger event type
+type updateDeviceTriggerEventRequest struct {
 	TriggerEventType string `json:"trigger_event_type"`
 }
 
@@ -93,17 +93,17 @@ func parseDisplayTypes(param string) []string {
 	return parts[:j]
 }
 
-// updateEntityTriggerEvent updates the trigger event type for an entity
-func updateEntityTriggerEvent(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
+// updateDeviceTriggerEvent updates the trigger event type for an device
+func updateDeviceTriggerEvent(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		entityID := strings.TrimSpace(c.Param("entity_id"))
-		if entityID == "" {
+		deviceID := strings.TrimSpace(c.Param("device_id"))
+		if deviceID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "entity_id is required",
+				"error": "device_id is required",
 			})
 		}
 
-		var req updateEntityTriggerEventRequest
+		var req updateDeviceTriggerEventRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": "invalid request body",
@@ -124,19 +124,19 @@ func updateEntityTriggerEvent(logger *zap.Logger, tsClient *timescaledb.Client) 
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		err := tsClient.UpdateEntityTriggerEventType(ctx, entityID, req.TriggerEventType)
+		err := tsClient.UpdateDeviceTriggerEventType(ctx, deviceID, req.TriggerEventType)
 		if err != nil {
-			logger.Error("failed to update entity trigger event type",
-				zap.String("entity_id", entityID),
+			logger.Error("failed to update device trigger event type",
+				zap.String("device_id", deviceID),
 				zap.String("trigger_event_type", req.TriggerEventType),
 				zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to update entity trigger event type",
+				"error": "failed to update device trigger event type",
 			})
 		}
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
-			"entity_id":           entityID,
+			"device_id":           deviceID,
 			"trigger_event_type":  req.TriggerEventType,
 		})
 	}

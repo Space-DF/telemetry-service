@@ -208,10 +208,10 @@ func nullUUID(id sql.NullString) any {
 	return nil
 }
 
-// UpdateEntityTriggerEventType updates the trigger event type for an entity
-func (c *Client) UpdateEntityTriggerEventType(ctx context.Context, entityID, triggerEventType string) error {
-	if entityID == "" {
-		return fmt.Errorf("entity_id is required")
+// UpdateDeviceTriggerEventType updates the trigger event type for an device
+func (c *Client) UpdateDeviceTriggerEventType(ctx context.Context, deviceID, triggerEventType string) error {
+	if deviceID == "" {
+		return fmt.Errorf("device_id is required")
 	}
 	if triggerEventType == "" {
 		return fmt.Errorf("trigger_event_type is required")
@@ -228,14 +228,14 @@ func (c *Client) UpdateEntityTriggerEventType(ctx context.Context, entityID, tri
 			SET trigger_event_type = $1,
 			    updated_at = NOW()
 			WHERE id = $2
-		`, triggerEventType, entityID)
+		`, triggerEventType, deviceID)
 
 		if err != nil {
-			return fmt.Errorf("failed to update entity trigger event type: %w", err)
+			return fmt.Errorf("failed to update device trigger event type: %w", err)
 		}
 
-		log.Printf("[Telemetry] Updated entity trigger event type: org=%s, entity_id=%s, trigger_event_type=%s",
-			org, entityID, triggerEventType)
+		log.Printf("[Telemetry] Updated device trigger event type: org=%s, device_id=%s, trigger_event_type=%s",
+			org, deviceID, triggerEventType)
 
 		return nil
 	})
