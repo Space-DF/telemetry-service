@@ -9,4 +9,7 @@ import (
 func RegisterRoutes(e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
 	group := e.Group("/entities")
 	group.GET("", getEntities(logger, tsClient))
+
+	// Update device trigger event configuration
+	group.PUT("/:device_id/trigger-event", updateDeviceTriggerEvent(logger, tsClient))
 }
