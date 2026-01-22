@@ -132,148 +132,13 @@ func (c *Client) getOrCreateStatesMetaID(ctx context.Context, tx bob.Tx, entityI
 	return metadataID, nil
 }
 
-// RecordStateChange records a state change event and creates/updates the state record.
-// This is the main entry point for recording state changes with event tracking.
-func (c *Client) RecordStateChange(ctx context.Context, org, spaceSlug string, req *models.StateChangeRequest) (*models.State, error) {
-	if req == nil {
-		return nil, fmt.Errorf("nil state change request")
-	}
-	if req.EntityID == "" {
-		return nil, fmt.Errorf("entity_id is required")
-	}
-
-	// Use space_slug from request if provided, otherwise use the parameter
-	if req.SpaceSlug != "" {
-		spaceSlug = req.SpaceSlug
-	}
-
-	// Default event type to "state_changed" if not specified
-	eventType := req.EventType
-	if eventType == "" {
-		eventType = EventTypeStateChanged
-	}
-
-	// Default timestamp to now if not specified
-	timeFiredTs := time.Now().UnixMilli()
-	if req.TimeFiredTs != nil {
-		timeFiredTs = *req.TimeFiredTs
-	}
-
-	log.Printf("[Events] Recording state change: org=%s, space_slug=%s, entity_id=%s, new_state=%s, event_type=%s",
-		org, spaceSlug, req.EntityID, req.NewState, eventType)
-
-	var result *models.State
-
-	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Build event data
-		eventData := map[string]interface{}{
-			"entity_id": req.EntityID,
-		}
-		if req.OldState != "" {
-			eventData["old_state"] = map[string]interface{}{
-				"state": req.OldState,
-			}
-		}
-		eventData["new_state"] = map[string]interface{}{
-			"state": req.NewState,
-		}
-
-		// Get or create event type ID
-		eventTypeID, err := c.getOrCreateEventTypeID(txCtx, tx, eventType)
-		if err != nil {
-			return err
-		}
-
-		// Get or create event data ID
-		dataID, err := c.getOrCreateEventDataID(txCtx, tx, eventData)
-		if err != nil {
-			return err
-		}
-
-		// Insert event
-		var eventID int64
-		err = tx.QueryRowContext(txCtx, `
-			INSERT INTO events (event_type_id, data_id, space_slug, entity_id, context_id_bin, trigger_id, allow_new_event, time_fired_ts)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			RETURNING event_id
-		`, eventTypeID, dataID, spaceSlug, req.EntityID, req.ContextID, req.TriggerID, req.AllowNewEvent, timeFiredTs).Scan(&eventID)
-
-		if err != nil {
-			return fmt.Errorf("failed to insert event: %w", err)
-		}
-
-		// Get or create states meta ID
-		metadataID, err := c.getOrCreateStatesMetaID(txCtx, tx, req.EntityID)
-		if err != nil {
-			return err
-		}
-
-		// Get or create state attributes ID
-		attributesID, err := c.getOrCreateStateAttributesID(txCtx, tx, req.Attributes)
-		if err != nil {
-			return err
-		}
-
-		// Determine last_changed_ts and last_updated_ts
-		lastChangedTs := timeFiredTs
-		lastUpdatedTs := timeFiredTs
-
-		// Check if state actually changed - if not, get the old last_changed_ts
-		var oldLastChangedTs sql.NullInt64
-		err = tx.QueryRowContext(txCtx, `
-			SELECT last_changed_ts FROM states
-			WHERE metadata_id = $1
-			ORDER BY state_id DESC
-			LIMIT 1
-		`, metadataID).Scan(&oldLastChangedTs)
-
-		if err == nil && req.OldState == req.NewState {
-			// State hasn't changed, preserve the old last_changed_ts
-			lastChangedTs = oldLastChangedTs.Int64
-		}
-
-		// Insert state
-		var stateID int64
-		err = tx.QueryRowContext(txCtx, `
-			INSERT INTO states (metadata_id, state, attributes_id, event_id, last_changed_ts, last_updated_ts)
-			VALUES ($1, $2, $3, $4, $5, $6)
-			RETURNING state_id
-		`, metadataID, req.NewState, attributesID, eventID, lastChangedTs, lastUpdatedTs).Scan(&stateID)
-
-		if err != nil {
-			return fmt.Errorf("failed to insert state: %w", err)
-		}
-
-		result = &models.State{
-			StateID:       stateID,
-			MetadataID:    metadataID,
-			State:         req.NewState,
-			AttributesID:  attributesID,
-			EventID:       &eventID,
-			LastChangedTs: lastChangedTs,
-			LastUpdatedTs: lastUpdatedTs,
-		}
-
-		log.Printf("[Events] State change recorded: org=%s, space_slug=%s, entity_id=%s, state_id=%d, event_id=%d",
-			org, spaceSlug, req.EntityID, stateID, eventID)
-
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return result, nil
-}
-
-// GetEventsByEntity retrieves all events for a specific entity.
-func (c *Client) GetEventsByEntity(ctx context.Context, org, entityID string, limit int) ([]models.Event, error) {
+// GetEventsByDevice retrieves all events for a specific entity.
+func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, limit int) ([]models.Event, error) {
 	if org == "" {
 		return nil, fmt.Errorf("organization is required")
 	}
-	if entityID == "" {
-		return nil, fmt.Errorf("entity_id is required")
+	if deviceID == "" {
+		return nil, fmt.Errorf("device_id is required")
 	}
 	if limit <= 0 {
 		limit = DefaultEventLimit
@@ -282,21 +147,21 @@ func (c *Client) GetEventsByEntity(ctx context.Context, org, entityID string, li
 	var events []models.Event
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Query events where the event_data contains this entity_id
+		// Query events where the event_data contains this device_id
 		query := `
 			SELECT e.event_id, e.event_type_id, e.data_id, e.space_slug, e.context_id_bin,
 				   e.trigger_id, e.allow_new_event, e.time_fired_ts, et.event_type, ed.shared_data
 			FROM events e
 			JOIN event_types et ON e.event_type_id = et.event_type_id
 			LEFT JOIN event_data ed ON e.data_id = ed.data_id
-			WHERE ed.shared_data->>'entity_id' = $1
+			WHERE ed.shared_data->>'device_id' = $1
 			ORDER BY e.time_fired_ts DESC
 			LIMIT $2
 		`
 
-		rows, err := tx.QueryContext(txCtx, query, entityID, limit)
+		rows, err := tx.QueryContext(txCtx, query, deviceID, limit)
 		if err != nil {
-			return fmt.Errorf("failed to query events by entity: %w", err)
+			return fmt.Errorf("failed to query events by device: %w", err)
 		}
 		defer func(){
 			_ = rows.Close()

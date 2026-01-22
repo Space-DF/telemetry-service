@@ -16,8 +16,8 @@ import (
 // Events API Handlers
 // ============================================================================
 
-// getEventsByEntity returns all events for a specific entity
-func getEventsByEntity(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
+// getEventsByDevice returns all events for a specific device
+func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
 		if orgToUse == "" {
@@ -26,10 +26,10 @@ func getEventsByEntity(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 			})
 		}
 
-		entityID := strings.TrimSpace(c.Param("entity_id"))
-		if entityID == "" {
+		deviceID := strings.TrimSpace(c.Param("device_id"))
+		if deviceID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "entity_id is required",
+				"error": "device_id is required",
 			})
 		}
 
@@ -41,10 +41,10 @@ func getEventsByEntity(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		events, err := tsClient.GetEventsByEntity(ctx, orgToUse, entityID, limit)
+		events, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, limit)
 		if err != nil {
-			logger.Error("failed to get events by entity",
-				zap.String("entity_id", entityID),
+			logger.Error("failed to get events by device",
+				zap.String("device_id", deviceID),
 				zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to get events",
@@ -52,7 +52,7 @@ func getEventsByEntity(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 		}
 
 		return c.JSON(http.StatusOK, map[string]interface{}{
-			"entity_id": entityID,
+			"device_id": deviceID,
 			"events":    events,
 			"count":     len(events),
 		})
@@ -87,10 +87,10 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 			}
 		}
 
-		entityID := c.QueryParam("entity_id")
+		deviceID := c.QueryParam("device_id")
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rules, total, err := tsClient.GetEventRules(ctx, entityID, page, pageSize)
+		rules, total, err := tsClient.GetEventRules(ctx, deviceID, page, pageSize)
 		if err != nil {
 			logger.Error("failed to get event rules",
 				zap.Error(err))
@@ -208,57 +208,5 @@ func deleteEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "event rule deleted successfully",
 		})
-	}
-}
-
-// ============================================================================
-// States API Handlers
-// ============================================================================
-
-// recordStateChange records a state change event and creates a new state record
-func recordStateChange(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
-		if err != nil {
-			return err
-		}
-
-		var req models.StateChangeRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-
-		if req.EntityID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "entity_id is required",
-			})
-		}
-		if req.NewState == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "new_state is required",
-			})
-		}
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		state, err := tsClient.RecordStateChange(ctx, orgToUse, spaceSlug, &req)
-		if err != nil {
-			logger.Error("failed to record state change",
-				zap.String("entity_id", req.EntityID),
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to record state change",
-			})
-		}
-
-		return c.JSON(http.StatusCreated, state)
 	}
 }
