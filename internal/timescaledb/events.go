@@ -3,9 +3,7 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"hash/crc32"
 	"log"
 	"time"
 
@@ -28,109 +26,6 @@ const (
 	MaxPageSize          = 100
 	DefaultEventLimit    = 100
 )
-
-// getOrCreateEventTypeID retrieves the event_type_id for a given event type,
-// creating it if it doesn't exist.
-func (c *Client) getOrCreateEventTypeID(ctx context.Context, tx bob.Tx, eventType string) (int, error) {
-	var eventTypeID int
-	err := tx.QueryRowContext(ctx, `
-		SELECT event_type_id FROM event_types WHERE event_type = $1
-	`, eventType).Scan(&eventTypeID)
-
-	if err == sql.ErrNoRows {
-		// Create new event type
-		err = tx.QueryRowContext(ctx, `
-			INSERT INTO event_types (event_type) VALUES ($1)
-			RETURNING event_type_id
-		`, eventType).Scan(&eventTypeID)
-	}
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to get or create event type '%s': %w", eventType, err)
-	}
-
-	return eventTypeID, nil
-}
-
-// getOrCreateEventDataID stores event data and returns its ID,
-// reusing existing data if the hash matches.
-func (c *Client) getOrCreateEventDataID(ctx context.Context, tx bob.Tx, data map[string]interface{}) (*int64, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-
-	rawData, err := json.Marshal(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal event data: %w", err)
-	}
-
-	hash := int64(crc32.ChecksumIEEE(rawData))
-
-	var dataID int64
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO event_data (hash, shared_data)
-		VALUES ($1, $2)
-		ON CONFLICT (hash) DO UPDATE SET shared_data = EXCLUDED.shared_data
-		RETURNING data_id
-	`, hash, rawData).Scan(&dataID)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert event data: %w", err)
-	}
-
-	return &dataID, nil
-}
-
-// getOrCreateStateAttributesID stores state attributes and returns its ID,
-// reusing existing attributes if the hash matches.
-func (c *Client) getOrCreateStateAttributesID(ctx context.Context, tx bob.Tx, attrs map[string]interface{}) (*int, error) {
-	if len(attrs) == 0 {
-		return nil, nil
-	}
-
-	rawAttrs, err := json.Marshal(attrs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal state attributes: %w", err)
-	}
-
-	hash := int64(crc32.ChecksumIEEE(rawAttrs))
-
-	var attributesID int
-	err = tx.QueryRowContext(ctx, `
-		INSERT INTO state_attributes (hash, shared_attrs)
-		VALUES ($1, $2)
-		ON CONFLICT (hash) DO UPDATE SET shared_attrs = EXCLUDED.shared_attrs
-		RETURNING attributes_id
-	`, hash, rawAttrs).Scan(&attributesID)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to insert state attributes: %w", err)
-	}
-
-	return &attributesID, nil
-}
-
-// getOrCreateStatesMetaID retrieves or creates the metadata_id for an entity.
-func (c *Client) getOrCreateStatesMetaID(ctx context.Context, tx bob.Tx, entityID string) (int, error) {
-	var metadataID int
-	err := tx.QueryRowContext(ctx, `
-		SELECT metadata_id FROM states_meta WHERE entity_id = $1
-	`, entityID).Scan(&metadataID)
-
-	if err == sql.ErrNoRows {
-		// Create new metadata
-		err = tx.QueryRowContext(ctx, `
-			INSERT INTO states_meta (entity_id) VALUES ($1)
-			RETURNING metadata_id
-		`, entityID).Scan(&metadataID)
-	}
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to get or create states meta for '%s': %w", entityID, err)
-	}
-
-	return metadataID, nil
-}
 
 // GetEventsByDevice retrieves all events for a specific entity.
 func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, limit int) ([]models.Event, error) {
