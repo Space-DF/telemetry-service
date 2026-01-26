@@ -1,7 +1,7 @@
 # RAK4630 Event Rules
 device_model: "rak4630"
 device_model_id: "" # Will be resolved from device service
-display_name: "RAK4630 WisBlock"
+display_name: "RAK4630 Event Rules"
 
 rules:
   # Battery Low Warning
