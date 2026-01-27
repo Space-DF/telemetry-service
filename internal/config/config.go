@@ -58,21 +58,20 @@ type Db struct {
 
 // LoadConfig loads configuration from file and environment variables
 func LoadConfig() (*Config, error) {
-	_ = godotenv.Load(".env")
-
 	var cfg Config
 	vp := viper.New()
 
 	vp.SetConfigFile("configs/config.yaml")
-	vp.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	vp.AutomaticEnv()
-
 	if err := vp.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if !errors.As(err, &configFileNotFoundError) {
 			return nil, fmt.Errorf("error reading config file: %w", err)
 		}
 	}
+	_ = godotenv.Load(".env")
+
+	vp.AutomaticEnv()
+	vp.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	if err := vp.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal error: %w", err)
