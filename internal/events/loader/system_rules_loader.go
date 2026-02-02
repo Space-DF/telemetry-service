@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"gopkg.in/yaml.v3"
 )
 
@@ -80,7 +82,24 @@ func LoadSystemDefaultRules(dir string) (map[string]*DeviceModelRules, error) {
 
 // loadDeviceModelRules loads rules from a single YAML file
 func loadDeviceModelRules(filePath, baseDir string) (*DeviceModelRules, error) {
-	data, err := os.ReadFile(filePath)
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve file path: %w", err)
+	}
+
+	// Check if the file path is within the base directory
+	relPath, err := filepath.Rel(absBaseDir, absFilePath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return nil, fmt.Errorf("file path is outside base directory: %s", filePath)
+	}
+
+	// #nosec G304 -- Path is validated above to ensure it's within baseDir
+	data, err := os.ReadFile(absFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
@@ -100,7 +119,8 @@ func loadDeviceModelRules(filePath, baseDir string) (*DeviceModelRules, error) {
 
 	// Set defaults
 	if rules.DisplayName == "" {
-		rules.DisplayName = fmt.Sprintf("%s %s Rules", strings.Title(rules.Brand), strings.ToUpper(rules.Model))
+		caser := cases.Title(language.English)
+		rules.DisplayName = fmt.Sprintf("%s %s Rules", caser.String(rules.Brand), strings.ToUpper(rules.Model))
 	}
 
 	for i := range rules.Rules {
