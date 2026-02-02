@@ -20,11 +20,10 @@ type EventData struct {
 	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
 }
 
-// EventRule represents a rule for triggering events based on conditions
+// EventRule represents an automation rule for triggering events based on conditions
 type EventRule struct {
 	EventRuleID   string     `json:"event_rule_id" db:"event_rule_id"`
-	EntityID      *string    `json:"entity_id,omitempty" db:"entity_id"`
-	DeviceModelID *string    `json:"device_model_id,omitempty" db:"device_model_id"`
+	DeviceID      *string    `json:"device_id,omitempty" db:"device_id"`
 	RuleKey       *string    `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
 	Operator      *string    `json:"operator,omitempty" db:"operator"`   // eq, ne, gt, lt, gte, lte, contains
 	Operand       string     `json:"operand" db:"operand"`
@@ -36,12 +35,47 @@ type EventRule struct {
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }
 
+// EventRuleRequest represents a request to create or update an event rule
+type EventRuleRequest struct {
+	DeviceID  *string `json:"device_id,omitempty" validate:"omitempty,uuid"`
+	RuleKey   *string `json:"rule_key,omitempty" validate:"required"`
+	Operator  *string `json:"operator,omitempty" validate:"omitempty,oneof=eq ne gt lt gte lte contains"`
+	Operand   string  `json:"operand" validate:"required"`
+	Status    *string `json:"status,omitempty" validate:"omitempty,oneof=active inactive paused"`
+	IsActive  *bool   `json:"is_active,omitempty"`
+	StartTime *string `json:"start_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	EndTime   *string `json:"end_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+}
+
+// EventRuleResponse represents an event rule response
+type EventRuleResponse struct {
+	EventRuleID string     `json:"event_rule_id"`
+	DeviceID    *string    `json:"device_id,omitempty"`
+	RuleKey     *string    `json:"rule_key,omitempty"`
+	Operator    *string    `json:"operator,omitempty"`
+	Operand     string     `json:"operand"`
+	Status      *string    `json:"status,omitempty"`
+	IsActive    *bool      `json:"is_active,omitempty"`
+	StartTime   *time.Time `json:"start_time,omitempty"`
+	EndTime     *time.Time `json:"end_time,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+}
+
+// EventRulesListResponse represents a paginated list of event rules
+type EventRulesListResponse struct {
+	Rules      []EventRule `json:"rules"`
+	TotalCount int         `json:"total_count"`
+	Page       int         `json:"page"`
+	PageSize   int         `json:"page_size"`
+}
+
 // Event represents an event occurrence
 type Event struct {
 	EventID       int64           `json:"event_id" db:"event_id"`
 	EventTypeID   int             `json:"event_type_id" db:"event_type_id"`
 	DataID        *int64          `json:"data_id,omitempty" db:"data_id"`
-	EventLevel    *string         `json:"event_level,omitempty" db:"event_level"` // manufacturer, system, user
+	EventLevel    *string         `json:"event_level,omitempty" db:"event_level"` // manufacturer, system, automation
 	EventRuleID   *string         `json:"event_rule_id,omitempty" db:"event_rule_id"`
 	SpaceSlug     string          `json:"space_slug,omitempty" db:"space_slug"`
 	EntityID      *string         `json:"entity_id,omitempty" db:"entity_id"`
@@ -99,7 +133,6 @@ type StateChangeRequest struct {
 	TimeFiredTs    *int64                 `json:"time_fired_ts,omitempty"`
 	ContextID      []byte                 `json:"context_id,omitempty"`
 	TriggerID      *string                `json:"trigger_id,omitempty"`      // for future automations reference
-	AllowNewEvent  *bool                  `json:"allow_new_event,omitempty"` // flag to control duplicate event creation
 }
 
 // StateHistoryResponse represents historical state data for an entity
@@ -141,7 +174,6 @@ type EventDetail struct {
 	EntityID      *string                `json:"entity_id,omitempty"`
 	StateID       *int64                 `json:"state_id,omitempty"`
 	TriggerID     *string                `json:"trigger_id,omitempty"`
-	AllowNewEvent *bool                  `json:"allow_new_event,omitempty"`
 	TimeFired     time.Time              `json:"time_fired"`
 	EventData     map[string]interface{} `json:"event_data,omitempty"`
 	ContextID     []byte                 `json:"context_id,omitempty"`
@@ -215,39 +247,17 @@ func (e *EventData) SetSharedData(data map[string]interface{}) error {
 	return nil
 }
 
-// EventRuleRequest represents a request to create or update an event rule
-type EventRuleRequest struct {
-	EntityID      *string `json:"entity_id,omitempty" validate:"omitempty,uuid"`
-	DeviceModelID *string `json:"device_model_id,omitempty" validate:"omitempty,uuid"`
-	RuleKey       *string `json:"rule_key,omitempty"`
-	Operator      *string `json:"operator,omitempty" validate:"omitempty,oneof=eq ne gt lt gte lte contains"`
-	Operand       string  `json:"operand" validate:"required"`
-	Status        *string `json:"status,omitempty" validate:"omitempty,oneof=active inactive paused"`
-	IsActive      *bool   `json:"is_active,omitempty"`
-	StartTime     *string `json:"start_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
-	EndTime       *string `json:"end_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
-}
-
-// EventRuleResponse represents an event rule response
-type EventRuleResponse struct {
-	EventRuleID   string       `json:"event_rule_id"`
-	EntityID      *string      `json:"entity_id,omitempty"`
-	DeviceModelID *string      `json:"device_model_id,omitempty"`
-	RuleKey       *string      `json:"rule_key,omitempty"`
-	Operator      *string      `json:"operator,omitempty"`
-	Operand       string       `json:"operand"`
-	Status        *string      `json:"status,omitempty"`
-	IsActive      *bool        `json:"is_active,omitempty"`
-	StartTime     *time.Time   `json:"start_time,omitempty"`
-	EndTime       *time.Time   `json:"end_time,omitempty"`
-	CreatedAt     time.Time    `json:"created_at"`
-	UpdatedAt     time.Time    `json:"updated_at"`
-}
-
-// EventRulesListResponse represents paginated event rules
-type EventRulesListResponse struct {
-	Rules      []EventRule `json:"rules"`
-	TotalCount int         `json:"total_count"`
-	Page       int         `json:"page"`
-	PageSize   int         `json:"page_size"`
+// MatchedEvent represents an event rule that matched evaluation
+type MatchedEvent struct {
+	EntityID    string  `json:"entity_id"`
+	EntityType  string  `json:"entity_type"`
+	RuleKey     string  `json:"rule_key"`
+	EventType   string  `json:"event_type"`
+	EventLevel  string  `json:"event_level"`
+	Description string  `json:"description"`
+	Value       float64 `json:"value"`
+	Threshold   float64 `json:"threshold"`
+	Operator    string  `json:"operator"`
+	RuleSource  string  `json:"rule_source"` // "default" or "automation"
+	Timestamp   int64   `json:"timestamp"`    // Unix timestamp in milliseconds
 }

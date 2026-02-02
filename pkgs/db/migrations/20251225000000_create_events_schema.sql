@@ -27,24 +27,27 @@ CREATE INDEX IF NOT EXISTS idx_event_data_hash ON event_data (hash);
 -- Event Rules: Rules for triggering events based on conditions
 CREATE TABLE IF NOT EXISTS event_rules (
     event_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
-    device_model_id UUID,
-    rule_key TEXT, -- e.g., 'battery_low', 'temperature_low'
+    device_id UUID, -- Device-specific automation rules
+    rule_key TEXT NOT NULL, -- e.g., 'battery_low', 'temperature_low'
     operator VARCHAR(16) CHECK (operator IN ('eq', 'ne', 'gt', 'lt', 'gte', 'lte', 'contains')),
     operand TEXT NOT NULL,
     status VARCHAR(16) CHECK (status IN ('active', 'inactive', 'paused')) DEFAULT 'active',
     is_active BOOLEAN DEFAULT true,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
-    allow_new_event BOOLEAN, -- flag to control duplicate event creation
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_event_rules_entity_id ON event_rules (entity_id);
-CREATE INDEX IF NOT EXISTS idx_event_rules_device_model_id ON event_rules (device_model_id);
+-- Indexes for event_rules
+CREATE INDEX IF NOT EXISTS idx_event_rules_device_id ON event_rules (device_id);
 CREATE INDEX IF NOT EXISTS idx_event_rules_status ON event_rules (status);
 CREATE INDEX IF NOT EXISTS idx_event_rules_is_active ON event_rules (is_active);
+-- Composite index for active device rules query (performance optimization)
+CREATE INDEX IF NOT EXISTS idx_event_rules_active_device ON event_rules (is_active, device_id, created_at DESC)
+WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_event_rules_time_range ON event_rules (start_time, end_time)
+WHERE is_active = true;
 
 -- Events: Event occurrences linking to event_type and event_data
 -- space_slug is stored here for filtering events within a space
@@ -53,13 +56,15 @@ CREATE TABLE IF NOT EXISTS events (
     event_id BIGSERIAL PRIMARY KEY,
     event_type_id INTEGER NOT NULL REFERENCES event_types(event_type_id) ON DELETE CASCADE,
     data_id INTEGER REFERENCES event_data(data_id) ON DELETE SET NULL,
-    event_level TEXT CHECK (event_level IN ('manufacturer', 'system', 'user')),
+    event_level TEXT CHECK (event_level IN ('manufacturer', 'system', 'automation')),
     event_rule_id UUID REFERENCES event_rules(event_rule_id) ON DELETE SET NULL,
     space_slug TEXT,
-    entity_id UUID REFERENCES entities(id) ON DELETE SET NULL,
-    state_id BIGINT REFERENCES entity_states(state_id) ON DELETE SET NULL,
+    entity_id TEXT,
+    device_model_id TEXT,
+    state_id UUID REFERENCES entity_states(id) ON DELETE SET NULL,
     context_id_bin BYTEA,
     trigger_id UUID, -- for future automations table reference
+    allow_new_event BOOLEAN DEFAULT true,
     time_fired_ts BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -68,6 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_events_event_type_id ON events (event_type_id);
 CREATE INDEX IF NOT EXISTS idx_events_event_rule_id ON events (event_rule_id);
 CREATE INDEX IF NOT EXISTS idx_events_space_slug ON events (space_slug);
 CREATE INDEX IF NOT EXISTS idx_events_entity_id ON events (entity_id);
+CREATE INDEX IF NOT EXISTS idx_events_device_model_id ON events (device_model_id);
 CREATE INDEX IF NOT EXISTS idx_events_state_id ON events (state_id);
 CREATE INDEX IF NOT EXISTS idx_events_trigger_id ON events (trigger_id);
 CREATE INDEX IF NOT EXISTS idx_events_time_fired_ts ON events (time_fired_ts DESC);

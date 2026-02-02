@@ -1,6 +1,6 @@
 # RAK4630 Event Rules
-device_model: "rak4630"
-device_model_id: "" # Will be resolved from device service
+model: "rak4630"
+model_id: "" # Will be resolved from device service
 display_name: "RAK4630 Event Rules"
 
 rules:

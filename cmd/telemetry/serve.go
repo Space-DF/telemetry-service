@@ -29,6 +29,7 @@ import (
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	amqp "github.com/Space-DF/telemetry-service/internal/amqp/multi-tenant"
 	"github.com/Space-DF/telemetry-service/internal/api"
+	"github.com/Space-DF/telemetry-service/internal/events/registry"
 	"github.com/Space-DF/telemetry-service/internal/health"
 	"github.com/Space-DF/telemetry-service/internal/services"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -88,8 +89,18 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		}
 	}()
 
+	// Initialize rule registry
+	ruleRegistry := registry.NewRuleRegistry(tsClient, logger)
+
+	// Load default rules from YAML
+	if appConfig.Server.EventRulesDir != "" {
+		if err := ruleRegistry.LoadDefaultRulesFromDir(appConfig.Server.EventRulesDir); err != nil {
+			logger.Warn("Failed to load default event rules", zap.Error(err))
+		}
+	}
+
 	// Initialize location processor
-	processor := services.NewLocationProcessor(tsClient, logger)
+	processor := services.NewLocationProcessor(tsClient, ruleRegistry, logger)
 
 	// Initialize multi-tenant AMQP consumer with schema initializer
 	consumer := amqp.NewMultiTenantConsumer(appConfig.AMQP, appConfig.OrgEvents, processor, tsClient, logger)
@@ -135,12 +146,17 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		}
 	}()
 
-	// Setup reload signal for alert processors
+	// Setup reload signal for alert processors and event rules
 	reloadChan := make(chan os.Signal, 1)
 	signal.Notify(reloadChan, syscall.SIGHUP)
 	go func() {
 		for range reloadChan {
 			loadAlertProcessors(logger, appConfig.Server.AlertsProcessorsCfg)
+			if appConfig.Server.EventRulesDir != "" {
+				if err := ruleRegistry.ReloadDefaultRules(appConfig.Server.EventRulesDir); err != nil {
+					logger.Warn("Failed to reload default event rules", zap.Error(err))
+				}
+			}
 		}
 	}()
 

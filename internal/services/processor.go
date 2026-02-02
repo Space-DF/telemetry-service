@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/events/registry"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	timescaledb "github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"go.uber.org/zap"
@@ -12,8 +14,9 @@ import (
 
 // LocationProcessor processes device location messages and stores them in Psql
 type LocationProcessor struct {
-	tsClient *timescaledb.Client
-	logger   *zap.Logger
+	tsClient     *timescaledb.Client
+	ruleRegistry *registry.RuleRegistry
+	logger       *zap.Logger
 
 	// Counters for monitoring
 	processedCount atomic.Int64
@@ -22,10 +25,11 @@ type LocationProcessor struct {
 }
 
 // NewLocationProcessor creates a new location processor
-func NewLocationProcessor(tsClient *timescaledb.Client, logger *zap.Logger) *LocationProcessor {
+func NewLocationProcessor(tsClient *timescaledb.Client, ruleRegistry *registry.RuleRegistry, logger *zap.Logger) *LocationProcessor {
 	return &LocationProcessor{
-		tsClient: tsClient,
-		logger:   logger,
+		tsClient:     tsClient,
+		ruleRegistry: ruleRegistry,
+		logger:       logger,
 	}
 }
 
@@ -145,6 +149,37 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 	if err := p.tsClient.SaveTelemetryPayload(ctx, payload); err != nil {
 		p.logger.Error("Failed to persist telemetry payload", zap.Error(err))
 		return err
+	}
+
+	// Evaluate rules and create events for matched rules
+	if p.ruleRegistry != nil {
+		matchedEvents := p.ruleRegistry.Evaluate(ctx,
+			payload.DeviceID,
+			payload.DeviceInfo.Manufacturer,
+			payload.DeviceInfo.Model,
+			payload.Entities)
+
+		for _, event := range matchedEvents {
+			// Set timestamp to current time if not set
+			if event.Timestamp == 0 {
+				event.Timestamp = time.Now().UnixMilli()
+			}
+			if err := p.tsClient.CreateEvent(ctx, payload.Organization, &event, payload.SpaceSlug); err != nil {
+				p.logger.Error("Failed to create event",
+					zap.Error(err),
+					zap.String("entity_id", event.EntityID),
+					zap.String("rule_key", event.RuleKey))
+			} else {
+				p.logger.Info("Event created from rule match",
+					zap.String("entity_id", event.EntityID),
+					zap.String("rule_key", event.RuleKey),
+					zap.String("event_type", event.EventType),
+					zap.String("rule_source", event.RuleSource),
+					zap.String("event_level", event.EventLevel),
+					zap.Float64("value", event.Value),
+					zap.Float64("threshold", event.Threshold))
+			}
+		}
 	}
 
 	return nil
