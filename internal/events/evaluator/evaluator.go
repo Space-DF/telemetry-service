@@ -24,7 +24,7 @@ func NewEvaluator(logger *zap.Logger) *Evaluator {
 }
 
 // EvaluateRule evaluates a single YAML rule against an entity
-func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEntity) *models.MatchedEvent {
+func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity models.TelemetryEntity) *models.MatchedEvent {
 	// Skip inactive rules
 	if !rule.IsActive {
 		return nil
@@ -57,7 +57,7 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEn
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:    entity.EntityID,
+		EntityID:    deviceID,
 		EntityType:  entity.EntityType,
 		RuleKey:     rule.RuleKey,
 		EventType:   rule.EventType,
@@ -74,7 +74,7 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEn
 }
 
 // EvaluateRuleDB evaluates a database rule against an entity
-func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.TelemetryEntity) *models.MatchedEvent {
+func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entity models.TelemetryEntity) *models.MatchedEvent {
 	// Skip inactive rules
 	if rule.IsActive != nil && !*rule.IsActive {
 		return nil
@@ -128,7 +128,7 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.Telemetr
 	description := fmt.Sprintf("Rule %s matched: %.2f %s %.2f", ruleKey, value, operator, operand)
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:    entity.EntityID,
+		EntityID:    deviceID,
 		EntityType:  entity.EntityType,
 		RuleKey:     ruleKey,
 		EventType:   "device_event",

@@ -6,7 +6,7 @@ display_name: "RAK4630 Event Rules"
 
 rules:
   # Battery Low Warning
-  - rule_key: "battery_v"
+  - rule_key: "battery"
     operator: "lt"
     operand: "3.3"
     event_type: "device_event"
@@ -16,7 +16,7 @@ rules:
     is_active: true
 
   # Battery Critical Warning
-  - rule_key: "battery_v"
+  - rule_key: "battery"
     operator: "lt"
     operand: "3.0"
     event_type: "device_event"

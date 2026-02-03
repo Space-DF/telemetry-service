@@ -108,7 +108,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 					// Find rules that match this attribute key
 					if rules, exists := rulesByKey[attrKey]; exists {
 						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRuleDB(rule, entity); matched != nil {
+							if matched := r.evaluator.EvaluateRuleDB(rule, deviceID, entity); matched != nil {
 								matchedEvents = append(matchedEvents, *matched)
 								matchedRuleKeys[matched.RuleKey] = true
 							}
@@ -123,7 +123,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 					if !processedKeys[entity.EntityType] {
 						processedKeys[entity.EntityType] = true
 						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRuleDB(rule, entity); matched != nil {
+							if matched := r.evaluator.EvaluateRuleDB(rule, deviceID, entity); matched != nil {
 								matchedEvents = append(matchedEvents, *matched)
 								matchedRuleKeys[matched.RuleKey] = true
 							}
@@ -164,7 +164,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 					// Find default rules for this attribute
 					if rules, exists := defaultRulesByKey[attrKey]; exists {
 						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRule(rule, entity); matched != nil {
+							if matched := r.evaluator.EvaluateRule(rule, deviceID, entity); matched != nil {
 								matchedEvents = append(matchedEvents, *matched)
 							}
 						}
@@ -178,7 +178,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 				if !matchedRuleKeys[entity.EntityType] {
 					if rules, exists := defaultRulesByKey[entity.EntityType]; exists {
 						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRule(rule, entity); matched != nil {
+							if matched := r.evaluator.EvaluateRule(rule, deviceID, entity); matched != nil {
 								matchedEvents = append(matchedEvents, *matched)
 							}
 						}
