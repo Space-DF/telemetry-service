@@ -11,11 +11,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// updateDeviceTriggerEventRequest represents the request to update an device's trigger event type
-type updateDeviceTriggerEventRequest struct {
-	TriggerEventType string `json:"trigger_event_type"`
-}
-
 func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Parse query params
@@ -91,53 +86,4 @@ func parseDisplayTypes(param string) []string {
 		return nil
 	}
 	return parts[:j]
-}
-
-// updateDeviceTriggerEvent updates the trigger event type for an device
-func updateDeviceTriggerEvent(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		deviceID := strings.TrimSpace(c.Param("device_id"))
-		if deviceID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "device_id is required",
-			})
-		}
-
-		var req updateDeviceTriggerEventRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-
-		if req.TriggerEventType == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "trigger_event_type is required",
-			})
-		}
-
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		err := tsClient.UpdateDeviceTriggerEventType(ctx, deviceID, req.TriggerEventType)
-		if err != nil {
-			logger.Error("failed to update device trigger event type",
-				zap.String("device_id", deviceID),
-				zap.String("trigger_event_type", req.TriggerEventType),
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to update device trigger event type",
-			})
-		}
-
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"device_id":           deviceID,
-			"trigger_event_type":  req.TriggerEventType,
-		})
-	}
 }

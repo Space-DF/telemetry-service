@@ -31,20 +31,22 @@ type EventRule struct {
 	IsActive      *bool      `json:"is_active,omitempty" db:"is_active"`
 	StartTime     *time.Time `json:"start_time,omitempty" db:"start_time"`
 	EndTime       *time.Time `json:"end_time,omitempty" db:"end_time"`
+	AllowNewEvent *bool      `json:"allow_new_event,omitempty" db:"allow_new_event"`
 	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
 }
 
 // EventRuleRequest represents a request to create or update an event rule
 type EventRuleRequest struct {
-	DeviceID  *string `json:"device_id,omitempty" validate:"omitempty,uuid"`
-	RuleKey   *string `json:"rule_key,omitempty" validate:"required"`
-	Operator  *string `json:"operator,omitempty" validate:"omitempty,oneof=eq ne gt lt gte lte contains"`
-	Operand   string  `json:"operand" validate:"required"`
-	Status    *string `json:"status,omitempty" validate:"omitempty,oneof=active inactive paused"`
-	IsActive  *bool   `json:"is_active,omitempty"`
-	StartTime *string `json:"start_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
-	EndTime   *string `json:"end_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	DeviceID      *string `json:"device_id,omitempty" validate:"required,uuid"`
+	RuleKey       *string `json:"rule_key,omitempty" validate:"required"`
+	Operator      *string `json:"operator,omitempty" validate:"omitempty,oneof=eq ne gt lt gte lte contains"`
+	Operand       string  `json:"operand" validate:"required"`
+	Status        *string `json:"status,omitempty" validate:"omitempty,oneof=active inactive paused"`
+	IsActive      *bool   `json:"is_active,omitempty"`
+	AllowNewEvent *bool   `json:"allow_new_event,omitempty"`
+	StartTime     *string `json:"start_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	EndTime       *string `json:"end_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
 }
 
 // EventRuleResponse represents an event rule response
@@ -82,7 +84,6 @@ type Event struct {
 	StateID       *int64          `json:"state_id,omitempty" db:"state_id"`
 	ContextID     []byte          `json:"context_id_bin,omitempty" db:"context_id_bin"`
 	TriggerID     *string         `json:"trigger_id,omitempty" db:"trigger_id"`
-	AllowNewEvent *bool           `json:"allow_new_event,omitempty" db:"allow_new_event"`
 	TimeFiredTs   int64           `json:"time_fired_ts" db:"time_fired_ts"`
 	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
 

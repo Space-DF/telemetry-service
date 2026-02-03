@@ -25,7 +25,6 @@ type EventRuleConfig struct {
 // DeviceModelRules represents event rules for a specific device model
 type DeviceModelRules struct {
 	DeviceModel   string             `yaml:"device_model"`
-	DeviceModelID string             `yaml:"device_model_id"`
 	DisplayName   string             `yaml:"display_name"`
 	Rules         []EventRuleConfig  `yaml:"rules"`
 }
@@ -155,54 +154,4 @@ func isPathAllowed(path string) bool {
 		}
 	}
 	return false
-}
-
-// GetRulesForDeviceModel returns all rules for a specific device model
-func (c *EventRulesConfig) GetRulesForDeviceModel(deviceModel string) []EventRuleConfig {
-	for _, dm := range c.DeviceModels {
-		if dm.DeviceModel == deviceModel {
-			return dm.Rules
-		}
-	}
-	return nil
-}
-
-// GetDeviceModelRules returns the DeviceModelRules for a specific device model
-func (c *EventRulesConfig) GetDeviceModelRules(deviceModel string) *DeviceModelRules {
-	for i := range c.DeviceModels {
-		if c.DeviceModels[i].DeviceModel == deviceModel {
-			return &c.DeviceModels[i]
-		}
-	}
-	return nil
-}
-
-// ToRawMap converts the EventRulesConfig to a map[string]interface{} for use with SeedDefaultEventRules
-func (c *EventRulesConfig) ToRawMap() map[string]interface{} {
-	deviceModels := make([]interface{}, 0, len(c.DeviceModels))
-	for _, dm := range c.DeviceModels {
-		rules := make([]interface{}, 0, len(dm.Rules))
-		for _, r := range dm.Rules {
-			rules = append(rules, map[string]interface{}{
-				"rule_key":           r.RuleKey,
-				"entity_id_pattern":  r.EntityIDPattern,
-				"operator":          r.Operator,
-				"operand":           r.Operand,
-				"event_type":        r.EventType,
-				"event_level":       r.EventLevel,
-				"description":       r.Description,
-				"status":            r.Status,
-				"is_active":         r.IsActive,
-			})
-		}
-		deviceModels = append(deviceModels, map[string]interface{}{
-			"device_model":   dm.DeviceModel,
-			"device_model_id": dm.DeviceModelID,
-			"display_name":   dm.DisplayName,
-			"rules":          rules,
-		})
-	}
-	return map[string]interface{}{
-		"device_models": deviceModels,
-	}
 }

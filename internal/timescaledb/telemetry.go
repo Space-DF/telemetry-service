@@ -207,36 +207,3 @@ func nullUUID(id sql.NullString) any {
 	}
 	return nil
 }
-
-// UpdateDeviceTriggerEventType updates the trigger event type for an device
-func (c *Client) UpdateDeviceTriggerEventType(ctx context.Context, deviceID, triggerEventType string) error {
-	if deviceID == "" {
-		return fmt.Errorf("device_id is required")
-	}
-	if triggerEventType == "" {
-		return fmt.Errorf("trigger_event_type is required")
-	}
-
-	org := orgFromContext(ctx)
-	if org == "" {
-		return fmt.Errorf("organization not found in context")
-	}
-
-	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		_, err := tx.ExecContext(txCtx, `
-			UPDATE entities
-			SET trigger_event_type = $1,
-			    updated_at = NOW()
-			WHERE id = $2
-		`, triggerEventType, deviceID)
-
-		if err != nil {
-			return fmt.Errorf("failed to update device trigger event type: %w", err)
-		}
-
-		log.Printf("[Telemetry] Updated device trigger event type: org=%s, device_id=%s, trigger_event_type=%s",
-			org, deviceID, triggerEventType)
-
-		return nil
-	})
-}

@@ -40,8 +40,21 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 			}
 		}
 
+		// Parse start_time and end_time query parameters
+		var startTime, endTime *int64
+		if startTimeStr := c.QueryParam("start_time"); startTimeStr != "" {
+			if ms, err := strconv.ParseInt(startTimeStr, 10, 64); err == nil {
+				startTime = &ms
+			}
+		}
+		if endTimeStr := c.QueryParam("end_time"); endTimeStr != "" {
+			if ms, err := strconv.ParseInt(endTimeStr, 10, 64); err == nil {
+				endTime = &ms
+			}
+		}
+
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		events, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, limit)
+		events, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, limit, startTime, endTime)
 		if err != nil {
 			logger.Error("failed to get events by device",
 				zap.String("device_id", deviceID),

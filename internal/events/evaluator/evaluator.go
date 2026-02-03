@@ -2,9 +2,10 @@ package evaluator
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/events"
 	"github.com/Space-DF/telemetry-service/internal/events/loader"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"go.uber.org/zap"
@@ -25,13 +26,18 @@ func NewEvaluator(logger *zap.Logger) *Evaluator {
 // EvaluateRule evaluates a single YAML rule against an entity
 func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEntity) *models.MatchedEvent {
 	// Skip inactive rules
-	if !rule.IsActive || rule.Status != "active" {
+	if !rule.IsActive {
 		return nil
 	}
 
-	// Check if rule applies to this entity (if entity_id_pattern is specified)
+	// Check if rule allows creating new events
+	if !rule.AllowNewEvent {
+		return nil
+	}
+
+	// Check if rule applies to this entity
 	if rule.EntityIDPattern != "" {
-		if !contains(entity.EntityID, rule.EntityIDPattern) && entity.EntityID != rule.EntityIDPattern {
+		if !events.Contains(entity.EntityID, rule.EntityIDPattern) && entity.EntityID != rule.EntityIDPattern {
 			return nil
 		}
 	}
@@ -43,22 +49,21 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEn
 	}
 
 	// Parse the operand as float64
-	operand, err := strconv.ParseFloat(rule.Operand, 64)
-	if err != nil {
+	operand, ok := events.ParseFloat64(rule.Operand)
+	if !ok {
 		e.logger.Warn("Failed to parse operand as float64",
 			zap.String("rule_key", rule.RuleKey),
-			zap.String("operand", rule.Operand),
-			zap.Error(err))
+			zap.String("operand", rule.Operand))
 		return nil
 	}
 
 	// Evaluate the condition
-	matched := e.compareValues(value, operand, rule.Operator)
+	matched := events.CompareValues(value, operand, rule.Operator, e.logger)
 	if !matched {
 		return nil
 	}
 
-	return &models.MatchedEvent{
+	matchedEvent := &models.MatchedEvent{
 		EntityID:    entity.EntityID,
 		EntityType:  entity.EntityType,
 		RuleKey:     rule.RuleKey,
@@ -69,7 +74,10 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEn
 		Threshold:   operand,
 		Operator:    rule.Operator,
 		RuleSource:  "default",
+		Timestamp:   time.Now().UnixMilli(),
 	}
+
+	return matchedEvent
 }
 
 // EvaluateRuleDB evaluates a database rule against an entity
@@ -79,6 +87,11 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.Telemetr
 		return nil
 	}
 	if rule.Status != nil && *rule.Status != "active" {
+		return nil
+	}
+
+	// Check if rule allows creating new events
+	if rule.AllowNewEvent != nil && !*rule.AllowNewEvent {
 		return nil
 	}
 
@@ -98,12 +111,11 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.Telemetr
 	}
 
 	// Parse the operand as float64
-	operand, err := strconv.ParseFloat(rule.Operand, 64)
-	if err != nil {
+	operand, ok := events.ParseFloat64(rule.Operand)
+	if !ok {
 		e.logger.Warn("Failed to parse operand as float64",
 			zap.String("rule_key", ruleKey),
-			zap.String("operand", rule.Operand),
-			zap.Error(err))
+			zap.String("operand", rule.Operand))
 		return nil
 	}
 
@@ -117,7 +129,7 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.Telemetr
 	}
 
 	// Evaluate the condition
-	matched := e.compareValues(value, operand, operator)
+	matched := events.CompareValues(value, operand, operator, e.logger)
 	if !matched {
 		return nil
 	}
@@ -125,7 +137,7 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.Telemetr
 	// Build description
 	description := fmt.Sprintf("Rule %s matched: %.2f %s %.2f", ruleKey, value, operator, operand)
 
-	return &models.MatchedEvent{
+	matchedEvent := &models.MatchedEvent{
 		EntityID:    entity.EntityID,
 		EntityType:  entity.EntityType,
 		RuleKey:     ruleKey,
@@ -136,7 +148,10 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.Telemetr
 		Threshold:   operand,
 		Operator:    operator,
 		RuleSource:  "automation",
+		Timestamp:   time.Now().UnixMilli(),
 	}
+
+	return matchedEvent
 }
 
 // getEntityValue extracts a numeric value from an entity based on the rule key
@@ -144,23 +159,21 @@ func (e *Evaluator) getEntityValue(entity models.TelemetryEntity, ruleKey string
 	// Try to get value from Attributes map first
 	if entity.Attributes != nil {
 		if val, ok := entity.Attributes[ruleKey]; ok {
-			return e.parseFloat64(val)
+			return events.ParseFloat64(val)
 		}
 	}
 
-	// Try to get value from State (which could be a map or direct value)
+	// Try to get value from State
 	if entity.State != nil {
 		switch s := entity.State.(type) {
 		case map[string]interface{}:
 			if val, ok := s[ruleKey]; ok {
-				return e.parseFloat64(val)
+				return events.ParseFloat64(val)
 			}
 		default:
-			// Check if rule_key matches or is a prefix of entity_type
-			// e.g., rule_key="battery_v" matches entity_type="battery"
-			//       rule_key="temperature" matches entity_type="temperature"
-			if e.isRuleKeyRelevant(ruleKey, entity.EntityType, entity.Name) {
-				if val, ok := e.parseFloat64(s); ok {
+			// For other types, try to parse as float64
+			if val, ok := events.ParseFloat64(s); ok {
+				if e.isRuleKeyRelevant(ruleKey, entity.EntityType, entity.Name) {
 					return val, true
 				}
 			}
@@ -184,55 +197,24 @@ func (e *Evaluator) isRuleKeyRelevant(ruleKey, entityType, entityName string) bo
 		return true
 	}
 
+	// Check entity name for common sensor patterns
+	entityNameLower := strings.ToLower(entityName)
+	ruleKeyLower := strings.ToLower(ruleKey)
+
+	// Direct match: "temperature" rule_key with "Temperature" entity name
+	if ruleKeyLower == entityNameLower {
+		return true
+	}
+
+	// Contains match: "battery_v" rule_key with "Battery Level" entity
+	if strings.Contains(entityNameLower, ruleKeyLower) {
+		return true
+	}
+
+	// Prefix match: "humidity" rule_key with "Humidity Sensor" entity
+	if strings.HasPrefix(entityNameLower, ruleKeyLower) {
+		return true
+	}
+
 	return false
-}
-
-// parseFloat64 converts various types to float64
-func (e *Evaluator) parseFloat64(value interface{}) (float64, bool) {
-	switch v := value.(type) {
-	case float64:
-		return v, true
-	case float32:
-		return float64(v), true
-	case int:
-		return float64(v), true
-	case int64:
-		return float64(v), true
-	case int32:
-		return float64(v), true
-	case string:
-		f, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return 0, false
-		}
-		return f, true
-	default:
-		return 0, false
-	}
-}
-
-// compareValues performs comparison based on operator
-func (e *Evaluator) compareValues(value, threshold float64, operator string) bool {
-	switch operator {
-	case "gt":
-		return value > threshold
-	case "lt":
-		return value < threshold
-	case "gte":
-		return value >= threshold
-	case "lte":
-		return value <= threshold
-	case "eq":
-		return value == threshold
-	case "ne":
-		return value != threshold
-	default:
-		e.logger.Warn("Unknown operator", zap.String("operator", operator))
-		return false
-	}
-}
-
-// contains checks if the target string contains the substring (case-insensitive)
-func contains(str, substr string) bool {
-	return strings.Contains(strings.ToLower(str), strings.ToLower(substr))
 }

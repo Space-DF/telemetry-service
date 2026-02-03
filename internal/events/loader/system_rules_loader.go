@@ -20,8 +20,8 @@ type YAMLRule struct {
 	EventType       string `yaml:"event_type"`
 	EventLevel      string `yaml:"event_level"`
 	Description     string `yaml:"description"`
-	Status          string `yaml:"status"`
 	IsActive        bool   `yaml:"is_active"`
+	AllowNewEvent   bool   `yaml:"allow_new_event"`
 }
 
 // DeviceModelRules represents event rules for a specific device model
@@ -123,17 +123,5 @@ func loadDeviceModelRules(filePath, baseDir string) (*DeviceModelRules, error) {
 		rules.DisplayName = fmt.Sprintf("%s %s Rules", caser.String(rules.Brand), strings.ToUpper(rules.Model))
 	}
 
-	for i := range rules.Rules {
-		if rules.Rules[i].Status == "" {
-			rules.Rules[i].Status = "active"
-		}
-	}
-
 	return &rules, nil
-}
-
-// GetRulesForDevice retrieves rules for a specific brand/model combination
-func GetRulesForDevice(loadedRules map[string]*DeviceModelRules, brand, model string) *DeviceModelRules {
-	key := fmt.Sprintf("%s/%s", strings.ToLower(brand), strings.ToLower(model))
-	return loadedRules[key]
 }

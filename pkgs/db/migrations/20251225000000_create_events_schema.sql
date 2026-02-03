@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS event_rules (
     is_active BOOLEAN DEFAULT true,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
+    allow_new_event BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -60,11 +61,9 @@ CREATE TABLE IF NOT EXISTS events (
     event_rule_id UUID REFERENCES event_rules(event_rule_id) ON DELETE SET NULL,
     space_slug TEXT,
     entity_id TEXT,
-    device_model_id TEXT,
     state_id UUID REFERENCES entity_states(id) ON DELETE SET NULL,
     context_id_bin BYTEA,
     trigger_id UUID, -- for future automations table reference
-    allow_new_event BOOLEAN DEFAULT true,
     time_fired_ts BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -73,7 +72,6 @@ CREATE INDEX IF NOT EXISTS idx_events_event_type_id ON events (event_type_id);
 CREATE INDEX IF NOT EXISTS idx_events_event_rule_id ON events (event_rule_id);
 CREATE INDEX IF NOT EXISTS idx_events_space_slug ON events (space_slug);
 CREATE INDEX IF NOT EXISTS idx_events_entity_id ON events (entity_id);
-CREATE INDEX IF NOT EXISTS idx_events_device_model_id ON events (device_model_id);
 CREATE INDEX IF NOT EXISTS idx_events_state_id ON events (state_id);
 CREATE INDEX IF NOT EXISTS idx_events_trigger_id ON events (trigger_id);
 CREATE INDEX IF NOT EXISTS idx_events_time_fired_ts ON events (time_fired_ts DESC);

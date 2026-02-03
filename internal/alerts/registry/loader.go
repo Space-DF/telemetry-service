@@ -63,19 +63,3 @@ func LoadFromConfig(path string) (map[string]Processor, error) {
 
 	return result, nil
 }
-
-// RegisterFromConfig merges processors from YAML into the global registry, overriding existing categories.
-func RegisterFromConfig(path string) error {
-	processors, err := LoadFromConfig(path)
-	if err != nil {
-		return err
-	}
-
-	globalRegistry.mu.Lock()
-	defer globalRegistry.mu.Unlock()
-
-	for category, processor := range processors {
-		globalRegistry.processors[category] = processor
-	}
-	return nil
-}

@@ -12,10 +12,8 @@ import (
 
 // EventType constants
 const (
-	EventTypeStateChanged    = "state_changed"
-	EventTypeServiceCall     = "service_call"
-	EventTypeAutomation      = "automation_triggered"
-	EventTypeDeviceTriggered = "device_triggered"
+	EventTypeStateChanged = "state_changed"
+	EventTypeAutomation   = "automation_triggered"
 )
 
 // Pagination constants
@@ -27,7 +25,7 @@ const (
 )
 
 // GetEventsByDevice retrieves all events for a specific entity.
-func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, limit int) ([]models.Event, error) {
+func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, limit int, startTime, endTime *int64) ([]models.Event, error) {
 	if org == "" {
 		return nil, fmt.Errorf("organization is required")
 	}
@@ -41,19 +39,37 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 	var events []models.Event
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Query events where the event_data contains this device_id
-		query := `
+		// Build base query with device_id filter
+		whereClause := `ed.shared_data->>'device_id' = $1`
+		args := []interface{}{deviceID}
+
+		// Add time range filters if provided
+		argIndex := 2
+		if startTime != nil {
+			whereClause += fmt.Sprintf(" AND e.time_fired_ts >= $%d", argIndex)
+			args = append(args, *startTime)
+			argIndex++
+		}
+		if endTime != nil {
+			whereClause += fmt.Sprintf(" AND e.time_fired_ts <= $%d", argIndex)
+			args = append(args, *endTime)
+			argIndex++
+		}
+		args = append(args, limit)
+
+		// Complete the query
+		query := fmt.Sprintf(`
 			SELECT e.event_id, e.event_type_id, e.data_id, e.space_slug, e.context_id_bin,
-				   e.trigger_id, e.allow_new_event, e.time_fired_ts, et.event_type, ed.shared_data
+				   e.trigger_id, e.time_fired_ts, et.event_type, ed.shared_data
 			FROM events e
 			JOIN event_types et ON e.event_type_id = et.event_type_id
 			LEFT JOIN event_data ed ON e.data_id = ed.data_id
-			WHERE ed.shared_data->>'device_id' = $1
+			WHERE %s
 			ORDER BY e.time_fired_ts DESC
-			LIMIT $2
-		`
+			LIMIT $%d
+		`, whereClause, argIndex)
 
-		rows, err := tx.QueryContext(txCtx, query, deviceID, limit)
+		rows, err := tx.QueryContext(txCtx, query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to query events by device: %w", err)
 		}
@@ -67,10 +83,9 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			var slug sql.NullString
 			var contextID []byte
 			var triggerID sql.NullString
-			var allowNewEvent sql.NullBool
 			var sharedData []byte
 
-			if err := rows.Scan(&e.EventID, &e.EventTypeID, &dataID, &slug, &contextID, &triggerID, &allowNewEvent, &e.TimeFiredTs, &e.EventType, &sharedData); err != nil {
+			if err := rows.Scan(&e.EventID, &e.EventTypeID, &dataID, &slug, &contextID, &triggerID, &e.TimeFiredTs, &e.EventType, &sharedData); err != nil {
 				return err
 			}
 
@@ -85,9 +100,6 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			}
 			if triggerID.Valid {
 				e.TriggerID = &triggerID.String
-			}
-			if allowNewEvent.Valid {
-				e.AllowNewEvent = &allowNewEvent.Bool
 			}
 			if len(sharedData) > 0 {
 				e.SharedData = sharedData
@@ -171,7 +183,7 @@ func (c *Client) GetEventRules(ctx context.Context, deviceID string, page, pageS
 		// Query rules
 		query := `
 			SELECT er.event_rule_id, er.device_id, er.rule_key, er.operator, er.operand,
-				   er.status, er.is_active, er.start_time, er.end_time, er.created_at, er.updated_at
+				   er.status, er.is_active, er.start_time, er.end_time, er.allow_new_event, er.created_at, er.updated_at
 			FROM event_rules er
 		` + whereClause + ` ORDER BY er.created_at DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
 		args = append(args, pageSize, offset)
@@ -185,8 +197,8 @@ func (c *Client) GetEventRules(ctx context.Context, deviceID string, page, pageS
 		for rows.Next() {
 			var r models.EventRule
 			if err := rows.Scan(
-				&r.EventRuleID, &r.DeviceID, &r.RuleKey, &r.Operator, &r.Operand,
-				&r.Status, &r.IsActive, &r.StartTime, &r.EndTime, &r.CreatedAt, &r.UpdatedAt,
+				&r.EventRuleID, &r.DeviceID, &r.RuleKey, &r.Operator, &r.Operand, 
+				&r.Status, &r.IsActive, &r.StartTime, &r.EndTime, &r.AllowNewEvent, &r.CreatedAt, &r.UpdatedAt,
 			); err != nil {
 				return err
 			}
@@ -220,7 +232,7 @@ func (c *Client) GetActiveRulesForDevice(ctx context.Context, deviceID string) (
 		// Filter by time range to exclude expired rules
 		query := `
 			SELECT er.event_rule_id, er.device_id, er.rule_key, er.operator, er.operand,
-				   er.status, er.is_active, er.start_time, er.end_time, er.created_at, er.updated_at
+				   er.status, er.is_active, er.start_time, er.end_time, er.allow_new_event, er.created_at, er.updated_at
 			FROM event_rules er
 			WHERE er.is_active = true
 			  AND er.device_id = $1
@@ -239,7 +251,7 @@ func (c *Client) GetActiveRulesForDevice(ctx context.Context, deviceID string) (
 			var r models.EventRule
 			if err := rows.Scan(
 				&r.EventRuleID, &r.DeviceID, &r.RuleKey, &r.Operator, &r.Operand,
-				&r.Status, &r.IsActive, &r.StartTime, &r.EndTime, &r.CreatedAt, &r.UpdatedAt,
+				&r.Status, &r.IsActive, &r.StartTime, &r.EndTime, &r.AllowNewEvent, &r.CreatedAt, &r.UpdatedAt,
 			); err != nil {
 				return err
 			}
@@ -290,11 +302,11 @@ func (c *Client) CreateEventRule(ctx context.Context, req *models.EventRuleReque
 
 		// Insert event rule
 		err := tx.QueryRowContext(txCtx, `
-			INSERT INTO event_rules (device_id, rule_key, operator, operand, status, is_active, start_time, end_time)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO event_rules (device_id, rule_key, operator, operand, status, is_active, allow_new_event, start_time, end_time)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING event_rule_id, created_at, updated_at
 		`, req.DeviceID, req.RuleKey, req.Operator, req.Operand,
-			req.Status, req.IsActive, startTime, endTime).Scan(
+			req.Status, req.IsActive, req.AllowNewEvent, startTime, endTime).Scan(
 			&result.EventRuleID, &result.CreatedAt, &result.UpdatedAt,
 		)
 
@@ -351,11 +363,11 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, req *models
 		err := tx.QueryRowContext(txCtx, `
 			UPDATE event_rules
 			SET device_id = $1, rule_key = $2, operator = $3, operand = $4,
-			    status = $5, is_active = $6, start_time = $7, end_time = $8, updated_at = NOW()
-			WHERE event_rule_id = $9
+			    status = $5, is_active = $6, allow_new_event = $7, start_time = $8, end_time = $9, updated_at = NOW()
+			WHERE event_rule_id = $10
 			RETURNING event_rule_id, created_at, updated_at
 		`, req.DeviceID, req.RuleKey, req.Operator, req.Operand,
-			req.Status, req.IsActive, startTime, endTime, ruleID).Scan(
+			req.Status, req.IsActive, req.AllowNewEvent, startTime, endTime, ruleID).Scan(
 			&result.EventRuleID, &result.CreatedAt, &result.UpdatedAt,
 		)
 
