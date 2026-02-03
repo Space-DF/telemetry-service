@@ -35,13 +35,6 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEn
 		return nil
 	}
 
-	// Check if rule applies to this entity
-	if rule.EntityIDPattern != "" {
-		if !events.Contains(entity.EntityID, rule.EntityIDPattern) && entity.EntityID != rule.EntityIDPattern {
-			return nil
-		}
-	}
-
 	// Get the value from entity attributes based on rule_key
 	value, exists := e.getEntityValue(entity, rule.RuleKey)
 	if !exists {
@@ -84,9 +77,6 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, entity models.TelemetryEn
 func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, entity models.TelemetryEntity) *models.MatchedEvent {
 	// Skip inactive rules
 	if rule.IsActive != nil && !*rule.IsActive {
-		return nil
-	}
-	if rule.Status != nil && *rule.Status != "active" {
 		return nil
 	}
 

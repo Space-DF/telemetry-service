@@ -12,7 +12,6 @@ import (
 // EventRuleConfig represents a single event rule configuration
 type EventRuleConfig struct {
 	RuleKey         string `yaml:"rule_key"`
-	EntityIDPattern string `yaml:"entity_id_pattern"`
 	Operator        string `yaml:"operator"`
 	Operand         string `yaml:"operand"`
 	EventType       string `yaml:"event_type"`
