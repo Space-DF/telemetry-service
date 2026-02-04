@@ -35,4 +35,5 @@ type TelemetryEntity struct {
 	UnitOfMeas  string         `json:"unit_of_measurement,omitempty"`
 	Icon        string         `json:"icon,omitempty"`
 	Timestamp   string         `json:"timestamp"`
+	StateID     *string        `json:"state_id,omitempty"`
 }

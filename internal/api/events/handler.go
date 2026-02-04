@@ -12,10 +12,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ============================================================================
-// Events API Handlers
-// ============================================================================
-
 // getEventsByDevice returns all events for a specific device
 func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -71,10 +67,6 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 		})
 	}
 }
-
-// ============================================================================
-// Event Rules API Handlers
-// ============================================================================
 
 // getEventRules returns all event rules
 func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {

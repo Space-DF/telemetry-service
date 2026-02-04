@@ -16,8 +16,9 @@ import (
 // RuleRegistry manages event rules from both YAML files and database
 type RuleRegistry struct {
 	// Default rules from YAML (key: "brand/model" e.g., "rakwireless/rak4630")
-	defaultRules map[string]*loader.DeviceModelRules
-	defaultRulesMu sync.RWMutex
+	defaultRules        map[string]*loader.DeviceModelRules
+	groupedDefaultRules map[string]map[string][]loader.YAMLRule // "brand/model" → rule_key → rules
+	defaultRulesMu      sync.RWMutex
 
 	// Cache for device automation rules
 	cache *DeviceRulesCache
@@ -30,11 +31,12 @@ type RuleRegistry struct {
 // NewRuleRegistry creates a new rule registry
 func NewRuleRegistry(db *timescaledb.Client, logger *zap.Logger) *RuleRegistry {
 	r := &RuleRegistry{
-		defaultRules: make(map[string]*loader.DeviceModelRules),
-		cache:        NewDeviceRulesCache(db, logger),
-		evaluator:    evaluator.NewEvaluator(logger),
-		db:          db,
-		logger:      logger,
+		defaultRules:        make(map[string]*loader.DeviceModelRules),
+		groupedDefaultRules: make(map[string]map[string][]loader.YAMLRule),
+		cache:               NewDeviceRulesCache(db, logger),
+		evaluator:           evaluator.NewEvaluator(logger),
+		db:                 db,
+		logger:             logger,
 	}
 
 	// Start background cache cleanup
@@ -54,6 +56,16 @@ func (r *RuleRegistry) LoadDefaultRulesFromDir(dir string) error {
 	}
 
 	r.defaultRules = rules
+
+	// Group default rules by rule_key for O(1) lookup
+	r.groupedDefaultRules = make(map[string]map[string][]loader.YAMLRule)
+	for key, dm := range rules {
+		grouped := make(map[string][]loader.YAMLRule)
+		for _, rule := range dm.Rules {
+			grouped[rule.RuleKey] = append(grouped[rule.RuleKey], rule)
+		}
+		r.groupedDefaultRules[key] = grouped
+	}
 
 	// Log loaded rules
 	for _, dm := range rules {
@@ -79,54 +91,24 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 		return matchedEvents
 	}
 
-	// Try to get automation rules from cache first
-	customRules := r.cache.Get(ctx, deviceID)
+	// Try to get grouped automation rules from cache first
+	rulesByKey := r.cache.GetGrouped(ctx, deviceID)
 
 	// Evaluate custom automation rules if they exist
-	if len(customRules) > 0 {
+	if len(rulesByKey) > 0 {
 		r.logger.Debug("Using custom automation rules for device",
 			zap.String("device_id", deviceID),
-			zap.Int("rule_count", len(customRules)))
+			zap.Int("rule_count", len(rulesByKey)))
 
-		// Group rules by rule_key for O(1) lookup
-		rulesByKey := r.groupRulesByKey(customRules)
-
-		// Match entity attributes to rules by rule_key
+		// Match entity to rules by rule_key
 		for _, entity := range entities {
-			// Track which rule_keys we've processed for this entity
-			processedKeys := make(map[string]bool)
-
-			// Check each attribute in the entity
-			if entity.Attributes != nil {
-				for attrKey := range entity.Attributes {
-					// Skip if we already processed a rule with this key
-					if processedKeys[attrKey] {
-						continue
-					}
-					processedKeys[attrKey] = true
-
-					// Find rules that match this attribute key
-					if rules, exists := rulesByKey[attrKey]; exists {
-						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRuleDB(rule, deviceID, entity); matched != nil {
-								matchedEvents = append(matchedEvents, *matched)
-								matchedRuleKeys[matched.RuleKey] = true
-							}
-						}
-					}
-				}
-			}
-
-			// Also check entity_type for state-based entities
+			// Check entity_type for state-based entities
 			if entity.EntityType != "" {
 				if rules, exists := rulesByKey[entity.EntityType]; exists {
-					if !processedKeys[entity.EntityType] {
-						processedKeys[entity.EntityType] = true
-						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRuleDB(rule, deviceID, entity); matched != nil {
-								matchedEvents = append(matchedEvents, *matched)
-								matchedRuleKeys[matched.RuleKey] = true
-							}
+					for _, rule := range rules {
+						if matched := r.evaluator.EvaluateRuleDB(rule, deviceID, entity); matched != nil {
+							matchedEvents = append(matchedEvents, *matched)
+							matchedRuleKeys[matched.RuleKey] = true
 						}
 					}
 				}
@@ -138,40 +120,11 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 	// Only for rule_keys that didn't match custom automation rules
 	r.defaultRulesMu.RLock()
 	key := fmt.Sprintf("%s/%s", strings.ToLower(brand), strings.ToLower(model))
-	defaultRules, exists := r.defaultRules[key]
+	defaultRulesByKey, exists := r.groupedDefaultRules[key]
 	r.defaultRulesMu.RUnlock()
 
 	if exists {
-		// Group default rules by rule_key
-		defaultRulesByKey := make(map[string][]loader.YAMLRule)
-		for _, rule := range defaultRules.Rules {
-			defaultRulesByKey[rule.RuleKey] = append(defaultRulesByKey[rule.RuleKey], rule)
-		}
-
 		for _, entity := range entities {
-			// Track processed keys to avoid duplicate evaluations
-			processedKeys := make(map[string]bool)
-
-			// Check entity attributes
-			if entity.Attributes != nil {
-				for attrKey := range entity.Attributes {
-					// Skip if custom automation rule already matched for this rule_key
-					if matchedRuleKeys[attrKey] {
-						continue
-					}
-					processedKeys[attrKey] = true
-
-					// Find default rules for this attribute
-					if rules, exists := defaultRulesByKey[attrKey]; exists {
-						for _, rule := range rules {
-							if matched := r.evaluator.EvaluateRule(rule, deviceID, entity); matched != nil {
-								matchedEvents = append(matchedEvents, *matched)
-							}
-						}
-					}
-				}
-			}
-
 			// Check entity_type for state-based entities
 			if entity.EntityType != "" {
 				// Skip if custom automation rule already matched for this rule_key
@@ -189,17 +142,6 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 	}
 
 	return matchedEvents
-}
-
-// groupRulesByKey groups database rules by rule_key for efficient O(1) lookup
-func (r *RuleRegistry) groupRulesByKey(rules []models.EventRule) map[string][]models.EventRule {
-	rulesByKey := make(map[string][]models.EventRule)
-	for _, rule := range rules {
-		if rule.RuleKey != nil && *rule.RuleKey != "" {
-			rulesByKey[*rule.RuleKey] = append(rulesByKey[*rule.RuleKey], rule)
-		}
-	}
-	return rulesByKey
 }
 
 // GetDefaultRules returns all loaded default rules (for debugging/inspection)

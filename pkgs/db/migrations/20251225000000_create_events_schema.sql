@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS event_rules (
 CREATE INDEX IF NOT EXISTS idx_event_rules_device_id ON event_rules (device_id);
 CREATE INDEX IF NOT EXISTS idx_event_rules_status ON event_rules (status);
 CREATE INDEX IF NOT EXISTS idx_event_rules_is_active ON event_rules (is_active);
--- Composite index for active device rules query (performance optimization)
+-- Composite index for active device rules query
 CREATE INDEX IF NOT EXISTS idx_event_rules_active_device ON event_rules (is_active, device_id, created_at DESC)
 WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_event_rules_time_range ON event_rules (start_time, end_time)
@@ -62,8 +62,7 @@ CREATE TABLE IF NOT EXISTS events (
     space_slug TEXT,
     entity_id TEXT,
     state_id UUID REFERENCES entity_states(id) ON DELETE SET NULL,
-    context_id_bin BYTEA,
-    trigger_id UUID, -- for future automations table reference
+    trigger_id UUID, -- for future automation scale
     time_fired_ts BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

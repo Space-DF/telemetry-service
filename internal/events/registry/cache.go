@@ -20,9 +20,10 @@ const (
 
 // DeviceRulesCacheEntry represents a cached entry for device automation rules
 type DeviceRulesCacheEntry struct {
-	Rules     []models.EventRule
-	CachedAt  time.Time
-	ExpiresAt time.Time
+	Rules      []models.EventRule                      // Flat array (for compatibility)
+	RulesByKey map[string][]models.EventRule           // Grouped by rule_key for O(1) lookup
+	CachedAt   time.Time
+	ExpiresAt  time.Time
 }
 
 // DeviceRulesCache manages caching of device automation rules
@@ -110,11 +111,15 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []models.Ev
 		return nil
 	}
 
+	// Group rules by rule_key for O(1) lookup
+	rulesByKey := c.groupRulesByKey(rules)
+
 	// Store in cache (write lock)
 	entry = &DeviceRulesCacheEntry{
-		Rules:     rules,
-		CachedAt:  now,
-		ExpiresAt: now.Add(c.ttl),
+		Rules:      rules,
+		RulesByKey: rulesByKey,
+		CachedAt:   now,
+		ExpiresAt:  now.Add(c.ttl),
 	}
 
 	c.mu.Lock()
@@ -127,6 +132,49 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []models.Ev
 		zap.Duration("ttl", c.ttl))
 
 	return rules
+}
+
+// GetGrouped retrieves grouped device automation rules from cache or database
+func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[string][]models.EventRule {
+	now := time.Now()
+
+	// Try cache first (read lock)
+	c.mu.RLock()
+	entry, found := c.cache[deviceID]
+	c.mu.RUnlock()
+
+	if found && now.Before(entry.ExpiresAt) {
+		// Cache hit
+		c.hits.Add(1)
+		return entry.RulesByKey
+	}
+
+	// Cache miss - call Get() which will populate the cache
+	c.Get(ctx, deviceID)
+
+	// Try cache again
+	c.mu.RLock()
+	entry, found = c.cache[deviceID]
+	c.mu.RUnlock()
+
+	if found && now.Before(entry.ExpiresAt) {
+		return entry.RulesByKey
+	}
+
+	return nil
+}
+
+// groupRulesByKey groups rules by their rule_key for O(1) lookup
+func (c *DeviceRulesCache) groupRulesByKey(rules []models.EventRule) map[string][]models.EventRule {
+	result := make(map[string][]models.EventRule)
+
+	for _, rule := range rules {
+		if rule.RuleKey != nil && *rule.RuleKey != "" {
+			result[*rule.RuleKey] = append(result[*rule.RuleKey], rule)
+		}
+	}
+
+	return result
 }
 
 // Invalidate removes cached rules for a specific device

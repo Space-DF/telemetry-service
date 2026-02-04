@@ -66,8 +66,8 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 		Value:       value,
 		Threshold:   operand,
 		Operator:    rule.Operator,
-		RuleSource:  "default",
 		Timestamp:   time.Now().UnixMilli(),
+		StateID:     entity.StateID,
 	}
 
 	return matchedEvent
@@ -94,7 +94,7 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 		return nil
 	}
 
-	// Get the value from entity attributes based on rule_key
+	// Get the value from entity based on rule_key
 	value, exists := e.getEntityValue(entity, ruleKey)
 	if !exists {
 		return nil
@@ -137,35 +137,29 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 		Value:       value,
 		Threshold:   operand,
 		Operator:    operator,
-		RuleSource:  "automation",
 		Timestamp:   time.Now().UnixMilli(),
+		EventRuleID: &rule.EventRuleID,
+		StateID:     entity.StateID,
 	}
 
 	return matchedEvent
 }
 
-// getEntityValue extracts a numeric value from an entity based on the rule key
+// getEntityValue extracts a numeric value from an entity state based on the rule key
 func (e *Evaluator) getEntityValue(entity models.TelemetryEntity, ruleKey string) (float64, bool) {
-	// Try to get value from Attributes map first
-	if entity.Attributes != nil {
-		if val, ok := entity.Attributes[ruleKey]; ok {
+	if entity.State == nil {
+		return 0, false
+	}
+	
+	switch s := entity.State.(type) {
+	case map[string]interface{}:
+		if val, ok := s[ruleKey]; ok {
 			return events.ParseFloat64(val)
 		}
-	}
-
-	// Try to get value from State
-	if entity.State != nil {
-		switch s := entity.State.(type) {
-		case map[string]interface{}:
-			if val, ok := s[ruleKey]; ok {
-				return events.ParseFloat64(val)
-			}
-		default:
-			// For other types, try to parse as float64
-			if val, ok := events.ParseFloat64(s); ok {
-				if e.isRuleKeyRelevant(ruleKey, entity.EntityType, entity.Name) {
-					return val, true
-				}
+	default:
+		if val, ok := events.ParseFloat64(s); ok {
+			if e.isRuleKeyMatched(ruleKey, entity.EntityType) {
+				return val, true
 			}
 		}
 	}
@@ -173,38 +167,9 @@ func (e *Evaluator) getEntityValue(entity models.TelemetryEntity, ruleKey string
 	return 0, false
 }
 
-// isRuleKeyRelevant checks if a rule key is relevant to an entity
-func (e *Evaluator) isRuleKeyRelevant(ruleKey, entityType, entityName string) bool {
-	if ruleKey == entityType {
-		return true
-	}
-
-	if strings.HasPrefix(ruleKey, entityType) {
-		return true
-	}
-
-	if strings.HasPrefix(entityType, ruleKey) {
-		return true
-	}
-
-	// Check entity name for common sensor patterns
-	entityNameLower := strings.ToLower(entityName)
+// isRuleKeyMatched checks if a rule key matches an entity type
+func (e *Evaluator) isRuleKeyMatched(ruleKey, entityType string) bool {
 	ruleKeyLower := strings.ToLower(ruleKey)
 
-	// Direct match: "temperature" rule_key with "Temperature" entity name
-	if ruleKeyLower == entityNameLower {
-		return true
-	}
-
-	// Contains match: "battery_v" rule_key with "Battery Level" entity
-	if strings.Contains(entityNameLower, ruleKeyLower) {
-		return true
-	}
-
-	// Prefix match: "humidity" rule_key with "Humidity Sensor" entity
-	if strings.HasPrefix(entityNameLower, ruleKeyLower) {
-		return true
-	}
-
-	return false
+	return ruleKeyLower == strings.ToLower(entityType)
 }

@@ -174,7 +174,6 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 					zap.String("entity_id", event.EntityID),
 					zap.String("rule_key", event.RuleKey),
 					zap.String("event_type", event.EventType),
-					zap.String("rule_source", event.RuleSource),
 					zap.String("event_level", event.EventLevel),
 					zap.Float64("value", event.Value),
 					zap.Float64("threshold", event.Threshold))
