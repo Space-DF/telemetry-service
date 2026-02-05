@@ -25,23 +25,22 @@ func (c *Client) SaveTelemetryPayload(ctx context.Context, payload *models.Telem
 		return fmt.Errorf("missing organization in telemetry payload")
 	}
 
-	log.Printf("[Telemetry] SaveTelemetryPayload: org=%s, device_id=%s, entities=%d", org, payload.DeviceID, len(payload.Entities))
 	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		for _, ent := range payload.Entities {
-			if err := c.upsertTelemetryEntity(txCtx, tx, &ent, payload); err != nil {
+		for i := range payload.Entities {
+			stateID, err := c.upsertTelemetryEntity(txCtx, tx, &payload.Entities[i], payload)
+			if err != nil {
 				log.Printf("[Telemetry] ERROR upserting entity: %v", err)
 				return err
 			}
-			log.Printf("[Telemetry] Entity upserted: org=%s, device_id=%s, entity_id=%s", org, payload.DeviceID, ent.UniqueID)
+			payload.Entities[i].StateID = &stateID
 		}
-		log.Printf("[Telemetry] Successfully saved payload: org=%s, device_id=%s", org, payload.DeviceID)
 		return nil
 	})
 }
 
-func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *models.TelemetryEntity, payload *models.TelemetryPayload) error {
+func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *models.TelemetryEntity, payload *models.TelemetryPayload) (string, error) {
 	if ent == nil {
-		return fmt.Errorf("nil telemetry entity")
+		return "", fmt.Errorf("nil telemetry entity")
 	}
 
 	displayType := ent.DisplayType
@@ -65,7 +64,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		ent.EntityType,
 		entityTypeKey,
 	).Scan(&entityTypeID); err != nil {
-		return fmt.Errorf("upsert entity_type '%s': %w", entityTypeKey, err)
+		return "", fmt.Errorf("upsert entity_type '%s': %w", entityTypeKey, err)
 	}
 
 	// Prepare optional device_id.
@@ -104,7 +103,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		ent.UnitOfMeas,
 		pq.Array(displayType),
 	).Scan(&entityID); err != nil {
-		return fmt.Errorf("upsert entity '%s': %w", ent.UniqueID, err)
+		return "", fmt.Errorf("upsert entity '%s': %w", ent.UniqueID, err)
 	}
 
 	// Handle attributes: deduplicate by hash to reuse existing row.
@@ -112,7 +111,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	if len(ent.Attributes) > 0 {
 		rawAttrs, err := json.Marshal(ent.Attributes)
 		if err != nil {
-			return fmt.Errorf("marshal attributes for '%s': %w", ent.UniqueID, err)
+			return "", fmt.Errorf("marshal attributes for '%s': %w", ent.UniqueID, err)
 		}
 
 		hash := int64(crc32.ChecksumIEEE(rawAttrs))
@@ -125,7 +124,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			hash,
 			rawAttrs,
 		).Scan(&attrsID); err != nil {
-			return fmt.Errorf("upsert attributes for '%s': %w", ent.UniqueID, err)
+			return "", fmt.Errorf("upsert attributes for '%s': %w", ent.UniqueID, err)
 		}
 	}
 
@@ -184,10 +183,10 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		changedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("insert entity_state for '%s': %w", ent.UniqueID, err)
+		return "", fmt.Errorf("insert entity_state for '%s': %w", ent.UniqueID, err)
 	}
 
-	return nil
+	return stateID.String(), nil
 }
 
 func parseRFC3339(ts string) time.Time {

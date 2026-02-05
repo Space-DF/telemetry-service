@@ -32,6 +32,7 @@ type Server struct {
 	LogLevel            string `mapstructure:"log_level"`
 	APIPort             int    `mapstructure:"api_port"`
 	AlertsProcessorsCfg string `mapstructure:"alerts_processors_path"`
+	EventRulesDir       string `mapstructure:"event_rules_dir"`
 }
 
 // AMQP contains RabbitMQ configuration
