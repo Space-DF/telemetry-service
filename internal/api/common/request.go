@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-// ResolveOrgFromRequest extracts organization from hostname (like test.localhost)
+// ResolveOrgFromRequest extracts organization from hostname (like spacedf.localhost)
 // or from X-Organization header with header taking priority.
 // Format: {org_slug}.{domain} where domain is configured in settings
 func ResolveOrgFromRequest(c echo.Context) string {

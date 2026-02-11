@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/api/entities/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -14,32 +15,31 @@ import (
 func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Parse query params
-		category := c.QueryParam("category")
-		deviceID := c.QueryParam("device_id")
-		displayTypes := parseDisplayTypes(c.QueryParam("display_type"))
-		search := strings.TrimSpace(c.QueryParam("search"))
-		pageStr := c.QueryParam("page")
-		pageSizeStr := c.QueryParam("page_size")
+		req := &models.EntitiesRequest{
+			Category:     c.QueryParam("category"),
+			DeviceID:     c.QueryParam("device_id"),
+			DisplayTypes: parseDisplayTypes(c.QueryParam("display_type")),
+			Search:       strings.TrimSpace(c.QueryParam("search")),
+		}
 
 		// Resolve space slug from X-Space header (required)
 		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
 		if err != nil {
 			return err
 		}
+		req.SpaceSlug = spaceSlug
 
-		// defaults
-		page := 1
-		pageSize := 100
-		if pageStr != "" {
+		if pageStr := c.QueryParam("page"); pageStr != "" {
 			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				page = p
+				req.Page = p
 			}
 		}
-		if pageSizeStr != "" {
+		if pageSizeStr := c.QueryParam("page_size"); pageSizeStr != "" {
 			if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 {
-				pageSize = ps
+				req.PageSize = ps
 			}
 		}
+		req.SetDefaults()
 
 		// Resolve organization from hostname or X-Organization header
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -55,15 +55,15 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
 		// Query DB
-		entities, count, err := tsClient.GetEntities(ctx, spaceSlug, category, deviceID, displayTypes, search, page, pageSize)
+		entities, count, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DisplayTypes, req.Search, req.Page, req.PageSize)
 		if err != nil {
 			logger.Error("failed to query entities", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query entities"})
 		}
 
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"count":   count,
-			"results": entities,
+		return c.JSON(http.StatusOK, models.EntitiesResponse{
+			Count:   count,
+			Results: entities,
 		})
 	}
 }

@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/api/alerts/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -24,41 +24,6 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 		logger:   logger,
 		tsClient: tsClient,
 	}
-}
-
-type Alert struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Level      string                 `json:"level"`
-	Message    string                 `json:"message"`
-	EntityID   string                 `json:"entity_id"`
-	EntityName string                 `json:"entity_name"`
-	DeviceID   string                 `json:"device_id"`
-	SpaceSlug  string                 `json:"space_slug"`
-	Location   *LocationInfo          `json:"location,omitempty"`
-	WaterDepth float64                `json:"water_depth"`
-	Unit       string                 `json:"unit"`
-	Threshold  *ThresholdInfo         `json:"threshold"`
-	ReportedAt time.Time              `json:"reported_at"`
-	Attributes map[string]interface{} `json:"attributes,omitempty"`
-}
-
-type LocationInfo struct {
-	Latitude  float64 `json:"latitude"`
-	Longitude float64 `json:"longitude"`
-	Address   string  `json:"address,omitempty"`
-}
-
-type ThresholdInfo struct {
-	Warning  float64 `json:"warning"`
-	Critical float64 `json:"critical"`
-}
-
-type AlertsResponse struct {
-	Results    []interface{} `json:"results"`
-	TotalCount int           `json:"total_count"`
-	Page       int           `json:"page"`
-	PageSize   int           `json:"page_size"`
 }
 
 // GetAlerts returns alerts based on water level thresholds
@@ -151,7 +116,7 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to retrieve alerts"})
 	}
 
-	response := AlertsResponse{
+	response := models.AlertsResponse{
 		Results:    alerts,
 		TotalCount: totalCount,
 		Page:       page,

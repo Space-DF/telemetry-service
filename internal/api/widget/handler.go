@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/api/widget/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -12,7 +13,7 @@ import (
 
 func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		var req WidgetDataRequest
+		var req models.WidgetDataRequest
 
 		// Get entity_id from URL path
 		req.EntityID = c.Param("entity_id")
@@ -35,7 +36,7 @@ func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 		}
 
 		// Validate time-range requirements
-		if req.DisplayType == DisplayTypeChart || req.DisplayType == DisplayTypeHistogram || req.DisplayType == DisplayTypeTable {
+		if req.DisplayType == models.DisplayTypeChart || req.DisplayType == models.DisplayTypeHistogram || req.DisplayType == models.DisplayTypeTable {
 			if req.StartTime == nil || req.EndTime == nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{
 					"error": fmt.Sprintf("%s requires start_time and end_time", req.DisplayType),
@@ -46,17 +47,17 @@ func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgSlug)
 
 		switch req.DisplayType {
-		case DisplayTypeGauge, DisplayTypeSlider, DisplayTypeValue:
+		case models.DisplayTypeGauge, models.DisplayTypeSlider, models.DisplayTypeValue:
 			return gaugeHandler(c, logger, tsClient, ctx, req)
-		case DisplayTypeSwitch:
+		case models.DisplayTypeSwitch:
 			return switchHandler(c, logger, tsClient, ctx, req)
-		case DisplayTypeChart:
+		case models.DisplayTypeChart:
 			return chartHandler(c, logger, tsClient, ctx, req)
-		case DisplayTypeHistogram:
+		case models.DisplayTypeHistogram:
 			return histogramHandler(c, logger, tsClient, ctx, req)
-		case DisplayTypeTable:
+		case models.DisplayTypeTable:
 			return tableHandler(c, logger, tsClient, ctx, req)
-		case DisplayTypeMap:
+		case models.DisplayTypeMap:
 			return mapHandler(c, logger, tsClient, ctx, req)
 		default:
 			return c.JSON(http.StatusBadRequest, map[string]string{

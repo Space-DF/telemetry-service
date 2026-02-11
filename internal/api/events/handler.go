@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	apimodels "github.com/Space-DF/telemetry-service/internal/api/events/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
@@ -22,48 +23,50 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 			})
 		}
 
-		deviceID := strings.TrimSpace(c.Param("device_id"))
-		if deviceID == "" {
+		req := &apimodels.EventsByDeviceRequest{
+			DeviceID: strings.TrimSpace(c.Param("device_id")),
+		}
+
+		if req.DeviceID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": "device_id is required",
 			})
 		}
 
-		limit := 100
 		if limitStr := c.QueryParam("limit"); limitStr != "" {
 			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-				limit = l
+				req.Limit = l
 			}
 		}
 
 		// Parse start_time and end_time query parameters
-		var startTime, endTime *int64
 		if startTimeStr := c.QueryParam("start_time"); startTimeStr != "" {
 			if ms, err := strconv.ParseInt(startTimeStr, 10, 64); err == nil {
-				startTime = &ms
+				req.StartTime = &ms
 			}
 		}
 		if endTimeStr := c.QueryParam("end_time"); endTimeStr != "" {
 			if ms, err := strconv.ParseInt(endTimeStr, 10, 64); err == nil {
-				endTime = &ms
+				req.EndTime = &ms
 			}
 		}
+		req.SetDefaults()
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		events, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, limit, startTime, endTime)
+		events, err := tsClient.GetEventsByDevice(ctx, orgToUse, req.DeviceID, req.Limit, req.StartTime, req.EndTime)
 		if err != nil {
 			logger.Error("failed to get events by device",
-				zap.String("device_id", deviceID),
+				zap.String("device_id", req.DeviceID),
 				zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to get events",
 			})
 		}
 
-		return c.JSON(http.StatusOK, map[string]interface{}{
-			"device_id": deviceID,
-			"events":    events,
-			"count":     len(events),
+		return c.JSON(http.StatusOK, apimodels.EventsByDeviceResponse{
+			DeviceID: req.DeviceID,
+			Events:   convertEventsToItems(events),
+			Count:    len(events),
 		})
 	}
 }
@@ -78,24 +81,23 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 			})
 		}
 
-		page := 1
+		req := &apimodels.EventRulesRequest{
+			DeviceID: c.QueryParam("device_id"),
+		}
 		if pageStr := c.QueryParam("page"); pageStr != "" {
 			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				page = p
+				req.Page = p
 			}
 		}
-
-		pageSize := 20
 		if sizeStr := c.QueryParam("page_size"); sizeStr != "" {
-			if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 && s <= 100 {
-				pageSize = s
+			if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
+				req.PageSize = s
 			}
 		}
-
-		deviceID := c.QueryParam("device_id")
+		req.SetDefaults()
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rules, total, err := tsClient.GetEventRules(ctx, deviceID, page, pageSize)
+		rules, total, err := tsClient.GetEventRules(ctx, req.DeviceID, req.Page, req.PageSize)
 		if err != nil {
 			logger.Error("failed to get event rules",
 				zap.Error(err))
@@ -107,8 +109,8 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 		return c.JSON(http.StatusOK, models.EventRulesListResponse{
 			Rules:      rules,
 			TotalCount: total,
-			Page:       page,
-			PageSize:   pageSize,
+			Page:       req.Page,
+			PageSize:   req.PageSize,
 		})
 	}
 }
@@ -210,8 +212,35 @@ func deleteEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
-		return c.JSON(http.StatusOK, map[string]string{
-			"message": "event rule deleted successfully",
+		return c.JSON(http.StatusOK, apimodels.DeleteEventRuleResponse{
+			Message: "event rule deleted successfully",
 		})
 	}
+}
+
+// convertEventsToItems converts internal models.Event to API response items
+func convertEventsToItems(events []models.Event) []apimodels.EventItem {
+	items := make([]apimodels.EventItem, len(events))
+	for i, e := range events {
+		items[i] = apimodels.EventItem{
+			EventID:    e.EventID,
+			EventType:  e.EventType,
+			EventLevel: safeString(e.EventLevel),
+			SpaceSlug:  e.SpaceSlug,
+			EntityID:   safeString(e.EntityID),
+			TimeFired:  e.TimeFired(),
+		}
+		if e.SharedData != nil {
+			data, _ := e.ParseEventData()
+			items[i].EventData = data
+		}
+	}
+	return items
+}
+
+func safeString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
