@@ -1,0 +1,36 @@
+# Server Configuration
+server:
+  log_level: "info" # debug, info, warn, error
+  api_port: 8080 # API server port (includes health endpoints)
+  alerts_processors_path: "configs/alerts_processors.yaml"
+  event_rules_dir: "configs/event_rules" # Directory containing device model event rules
+
+# AMQP/RabbitMQ Configuration
+amqp:
+  broker_url: "" # Set via environment variable AMQP_BROKER_URL
+  consumer_tag: "telemetry-service"
+  prefetch_count: 100
+  allowed_vhosts: [] # Empty means process all vhosts
+  reconnect_delay: "5s"
+
+# Organization Events Configuration
+org_events:
+  exchange: "org.events" # Topic exchange for org events
+  queue: "telemetry.org.events.queue" # Telemetry's queue for org events
+  routing_key: "org.#" # Listen to all org events
+  consumer_tag: "telemetry-org-events"
+
+# TimescaleDB Configuration
+db:
+  name: "spacedf_telemetry"
+  username: "postgres"
+  password: "postgres"
+  host: "localhost"
+  port: 5437
+  batch_size: 1000 # Number of locations to batch before writing
+  flush_interval: "1s" # Maximum time between batch writes
+  max_connections: 25 # Maximum number of open database connections
+  max_idle_conns: 5 # Maximum number of idle connections in the pool
+
+psql:
+  dsn: "postgres://postgres:postgres@localhost:5437/spacedf_telemetry?sslmode=disable"
