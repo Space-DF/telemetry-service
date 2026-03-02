@@ -28,14 +28,14 @@ CREATE INDEX IF NOT EXISTS idx_event_data_hash ON event_data (hash);
 CREATE TABLE IF NOT EXISTS event_rules (
     event_rule_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     device_id UUID, -- Device-specific automation rules
+    geofence_id UUID,
     rule_key TEXT NOT NULL, -- e.g., 'battery_low', 'temperature_low'
-    operator VARCHAR(16) CHECK (operator IN ('eq', 'ne', 'gt', 'lt', 'gte', 'lte', 'contains')),
-    operand TEXT NOT NULL,
+    definition JSON NOT NULL,
     status VARCHAR(16) CHECK (status IN ('active', 'inactive', 'paused')) DEFAULT 'active',
     is_active BOOLEAN DEFAULT true,
     start_time TIMESTAMPTZ,
     end_time TIMESTAMPTZ,
-    allow_new_event BOOLEAN DEFAULT true,
+    repeatable BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -68,19 +68,6 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_events_event_type_id ON events (event_type_id);
-CREATE INDEX IF NOT EXISTS idx_events_event_rule_id ON events (event_rule_id);
-CREATE INDEX IF NOT EXISTS idx_events_space_slug ON events (space_slug);
-CREATE INDEX IF NOT EXISTS idx_events_entity_id ON events (entity_id);
-CREATE INDEX IF NOT EXISTS idx_events_state_id ON events (state_id);
-CREATE INDEX IF NOT EXISTS idx_events_trigger_id ON events (trigger_id);
-CREATE INDEX IF NOT EXISTS idx_events_time_fired_ts ON events (time_fired_ts DESC);
-CREATE INDEX IF NOT EXISTS idx_events_data_id ON events (data_id);
-
--- Add event_id column to entity_states to create bidirectional linkage
--- This allows states to reference their triggering event
-ALTER TABLE entity_states ADD COLUMN IF NOT EXISTS event_id BIGINT REFERENCES events(event_id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_entity_states_event_id ON entity_states (event_id);
 
 -- migrate:down
 
