@@ -198,7 +198,7 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 
 		// Convert features array to MultiPolygon geometry if provided
 		var geometryJSON []byte
-		if req.Features != nil && len(req.Features) > 0 {
+		if len(req.Features) > 0 {
 			geometryJSON, err = convertFeaturesToMultiPolygon(req.Features)
 			if err != nil {
 				logger.Error("failed to convert features to multipolygon", zap.Error(err))

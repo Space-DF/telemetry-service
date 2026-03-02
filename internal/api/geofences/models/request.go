@@ -12,6 +12,7 @@ type GeofenceFeature struct {
 	Type       string          `json:"type"` // "Feature"
 	Geometry   json.RawMessage `json:"geometry"`
 }
+
 type FeatureProperties struct {
 		Mode  string `json:"mode"`
 }
