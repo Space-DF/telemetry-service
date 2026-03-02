@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/google/uuid"
@@ -144,7 +145,7 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 		)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return fmt.Errorf("geofence not found")
+				return models.ErrGeofenceNotFound
 			}
 			return fmt.Errorf("failed to query geofence: %w", err)
 		}
@@ -230,81 +231,64 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 	var g models.Geofence
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// First get current geofence
-		var currentGeometry []byte
-		var currentName, currentTypeZone string
-		var currentIsActive bool
-		var currentSpaceID sql.NullString
-
-		getQuery := `
-			SELECT name, type_zone, ST_AsGeoJSON(geometry), is_active, space_id,
-			FROM geofences WHERE geofence_id = $1
-		`
-		err := tx.QueryRowContext(txCtx, getQuery, geofenceID).Scan(
-			&currentName, &currentTypeZone, &currentGeometry, &currentIsActive, &currentSpaceID,
-		)
-		if err != nil {
-			if err == sql.ErrNoRows {
-				return fmt.Errorf("geofence not found")
-			}
-			return fmt.Errorf("failed to get geofence: %w", err)
-		}
-
-		// Use current values if not provided in update request
-		nameVal := currentName
-		typeZoneVal := currentTypeZone
-		geometryVal := currentGeometry
-		isActiveVal := currentIsActive
-		spaceIDVal := currentSpaceID
+		// Build SET clauses dynamically based on provided fields
+		setClauses := []string{"updated_at = NOW()"}
+		args := []interface{}{}
+		argIdx := 1
 
 		if name != nil {
-			nameVal = *name
+			setClauses = append(setClauses, fmt.Sprintf("name = $%d", argIdx))
+			args = append(args, *name)
+			argIdx++
 		}
 		if typeZone != nil {
-			typeZoneVal = *typeZone
+			setClauses = append(setClauses, fmt.Sprintf("type_zone = $%d", argIdx))
+			args = append(args, *typeZone)
+			argIdx++
 		}
 		if geometry != nil {
-			geometryVal = geometry
+			setClauses = append(setClauses, fmt.Sprintf("geometry = ST_GeomFromGeoJSON($%d)", argIdx))
+			args = append(args, geometry)
+			argIdx++
 		}
 		if isActive != nil {
-			isActiveVal = *isActive
+			setClauses = append(setClauses, fmt.Sprintf("is_active = $%d", argIdx))
+			args = append(args, *isActive)
+			argIdx++
 		}
 		if spaceID != nil {
 			if *spaceID == uuid.Nil {
-				spaceIDVal = sql.NullString{Valid: false}
+				setClauses = append(setClauses, fmt.Sprintf("space_id = $%d", argIdx))
+				args = append(args, nil)
 			} else {
-				spaceIDVal = sql.NullString{String: spaceID.String(), Valid: true}
+				setClauses = append(setClauses, fmt.Sprintf("space_id = $%d", argIdx))
+				args = append(args, *spaceID)
 			}
+			argIdx++
 		}
 
-		// Update geofence
-		updateQuery := `
-			UPDATE geofences
-			SET name = $1, type_zone = $2, geometry = ST_GeomFromGeoJSON($3),
-			    is_active = $4, space_id = $5, updated_at = NOW()
-			WHERE geofence_id = $6
-			RETURNING created_at, updated_at
-		`
+		args = append(args, geofenceID)
 
-		err = tx.QueryRowContext(txCtx, updateQuery,
-			nameVal, typeZoneVal, geometryVal, isActiveVal, spaceIDVal, geofenceID).Scan(
-			&g.CreatedAt, &g.UpdatedAt,
+		query := fmt.Sprintf(`
+			UPDATE geofences
+			SET %s
+			WHERE geofence_id = $%d
+			RETURNING geofence_id, name, type_zone, ST_AsGeoJSON(geometry)::json, is_active, space_id, created_at, updated_at
+		`, strings.Join(setClauses, ", "), argIdx)
+
+		var geometryJSON []byte
+		err := tx.QueryRowContext(txCtx, query, args...).Scan(
+			&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON,
+			&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
+			if err == sql.ErrNoRows {
+				return models.ErrGeofenceNotFound
+			}
 			return fmt.Errorf("failed to update geofence: %w", err)
 		}
 
-		g.GeofenceID = geofenceID
-		g.Name = nameVal
-		g.TypeZone = typeZoneVal
-		g.Geometry = models.Geometry(geometryVal)
-		g.IsActive = isActiveVal
-
-		if spaceIDVal.Valid {
-			parsedID, _ := uuid.Parse(spaceIDVal.String)
-			g.SpaceID = &parsedID
-		}
-
+		g.Geometry = models.Geometry(geometryJSON)
 		return nil
 	})
 
@@ -332,9 +316,12 @@ func (c *Client) DeleteGeofence(ctx context.Context, geofenceID uuid.UUID) error
 			return fmt.Errorf("failed to delete geofence: %w", err)
 		}
 
-		rows, _ := result.RowsAffected()
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
 		if rows == 0 {
-			return fmt.Errorf("geofence not found")
+			return models.ErrGeofenceNotFound
 		}
 
 		return nil

@@ -424,7 +424,7 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 		return fmt.Errorf("failed to start consuming from queue '%s' in vhost '%s': %w", queueName, vhost, err)
 	}
 
-	tenantCtx, cancel := context.WithCancel(parentCtx)
+	tenantCtx, cancel := context.WithCancel(parentCtx) //#nosec G118
 	consumer := &TenantConsumer{
 		OrgSlug:     orgSlug,
 		Vhost:       vhost,

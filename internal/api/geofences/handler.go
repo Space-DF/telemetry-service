@@ -2,6 +2,7 @@ package geofences
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -100,7 +101,7 @@ func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 		geofence, err := tsClient.GetGeofenceByID(ctx, geofenceID)
 		if err != nil {
-			if err.Error() == "geofence not found" {
+			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
 					Error: "Geofence not found",
 				})
@@ -156,7 +157,6 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			Geofence: apimodels.GeofenceResponse{
 				GeofenceID: geofence.GeofenceID,
 				Name:       geofence.Name,
-				Type:       geofence.TypeZone,
 				TypeZone:   geofence.TypeZone,
 				Geometry:   json.RawMessage(geofence.Geometry),
 				Features:   req.Features,
@@ -211,7 +211,7 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.SpaceID, req.IsActive)
 		if err != nil {
-			if err.Error() == "geofence not found" {
+			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
 					Error: "Geofence not found",
 				})
@@ -256,7 +256,7 @@ func deleteGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 		if err := tsClient.DeleteGeofence(ctx, geofenceID); err != nil {
-			if err.Error() == "geofence not found" {
+			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
 					Error: "Geofence not found",
 				})
@@ -320,7 +320,6 @@ func convertGeofenceToResponse(g *models.GeofenceWithSpace) apimodels.GeofenceRe
 	resp := apimodels.GeofenceResponse{
 		GeofenceID: g.GeofenceID,
 		Name:       g.Name,
-		Type:       g.TypeZone,
 		TypeZone:   g.TypeZone,
 		Geometry:   json.RawMessage(g.Geometry),
 		IsActive:   g.IsActive,
@@ -338,7 +337,6 @@ func convertModelGeofenceToResponse(g *models.Geofence) apimodels.GeofenceRespon
 	return apimodels.GeofenceResponse{
 		GeofenceID: g.GeofenceID,
 		Name:       g.Name,
-		Type:       g.TypeZone,
 		TypeZone:   g.TypeZone,
 		Geometry:   json.RawMessage(g.Geometry),
 		IsActive:   g.IsActive,
