@@ -310,7 +310,9 @@ func (c *Client) GetEventRulesByGeofenceID(ctx context.Context, geofenceID strin
 		if err != nil {
 			return fmt.Errorf("failed to query event rules: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			_ = rows.Close()
+		}()
 
 		for rows.Next() {
 			var r models.EventRule
