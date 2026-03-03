@@ -44,8 +44,10 @@ func (c *Client) CreateSchemaAndTables(ctx context.Context, orgSlug string) erro
 	}
 
 	escaped := strings.ReplaceAll(orgSlug, `"`, `""`)
+	quotedSchema := fmt.Sprintf(`"%s"`, escaped)
+
 	q := parsed.Query()
-	q.Set("search_path", fmt.Sprintf(`"%s",public`, escaped))
+	q.Set("options", fmt.Sprintf("-c search_path=%s,public", quotedSchema))
 	parsed.RawQuery = q.Encode()
 
 	migrationPath := "pkgs/db/migrations"

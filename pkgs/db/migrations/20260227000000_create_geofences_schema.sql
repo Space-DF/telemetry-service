@@ -3,7 +3,6 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- Geofences Schema
-
 CREATE TABLE IF NOT EXISTS spaces (
     space_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
@@ -20,7 +19,7 @@ CREATE TABLE IF NOT EXISTS geofences (
     geofence_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     type_zone varchar(30) CHECK (type_zone IN ('safe', 'danger', 'normal')) DEFAULT 'normal',
-    geometry geometry, -- Can be Polygon or MultiPolygon
+    geometry geometry,
     is_active BOOLEAN DEFAULT false,
     space_id UUID REFERENCES spaces(space_id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -39,5 +38,4 @@ CREATE INDEX IF NOT EXISTS idx_geofences_is_active ON geofences (is_active);
 DROP TABLE IF EXISTS geofences CASCADE;
 DROP TABLE IF EXISTS spaces CASCADE;
 
--- Drop PostGIS extension (be careful, this affects all PostGIS functionality)
 -- DROP EXTENSION IF EXISTS postgis CASCADE;
