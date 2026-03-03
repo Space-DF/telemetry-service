@@ -26,13 +26,13 @@ const (
 
 // TaskConsumer consumes Celery tasks from RabbitMQ
 type TaskConsumer struct {
-	amqpURL      string
-	dbClient     *timescaledb.Client
-	logger       *zap.Logger
-	conn         *amqp.Connection
-	channel      *amqp.Channel
-	done         chan bool
-	wg           sync.WaitGroup
+	amqpURL  string
+	dbClient *timescaledb.Client
+	logger   *zap.Logger
+	conn     *amqp.Connection
+	channel  *amqp.Channel
+	done     chan bool
+	wg       sync.WaitGroup
 
 	updateQueueName string
 	deleteQueueName string
@@ -41,12 +41,12 @@ type TaskConsumer struct {
 // NewTaskConsumer creates a new Celery task consumer
 func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.Logger) *TaskConsumer {
 	return &TaskConsumer{
-		amqpURL:          amqpURL,
-		dbClient:         dbClient,
-		logger:           logger,
-		done:             make(chan bool, 1),
-		updateQueueName:  "telemetry_update_space",
-		deleteQueueName:  "telemetry_delete_space",
+		amqpURL:         amqpURL,
+		dbClient:        dbClient,
+		logger:          logger,
+		done:            make(chan bool, 1),
+		updateQueueName: "telemetry_update_space",
+		deleteQueueName: "telemetry_delete_space",
 	}
 }
 
@@ -84,7 +84,7 @@ func (c *TaskConsumer) Connect() error {
 		true,     // durable
 		false,
 		false,
-		true,  // wait
+		true, // wait
 		nil,
 	)
 	if err != nil {
@@ -102,7 +102,7 @@ func (c *TaskConsumer) Connect() error {
 		true,
 		false,
 		false,
-		true,  // wait
+		true, // wait
 		nil,
 	)
 	if err != nil {
@@ -186,10 +186,10 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 	updateMessages, err := c.channel.Consume(
 		c.updateQueueName,
 		"telemetry_update_consumer", // consumer tag
-		false, // manual ack
-		false, // non-exclusive
-		false, // no-local
-		false, // no-wait
+		false,                       // manual ack
+		false,                       // non-exclusive
+		false,                       // no-local
+		false,                       // no-wait
 		nil,
 	)
 	if err != nil {
@@ -200,10 +200,10 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 	deleteMessages, err := c.channel.Consume(
 		c.deleteQueueName,
 		"telemetry_delete_consumer", // consumer tag
-		false, // manual ack
-		false, // non-exclusive
-		false, // no-local
-		false, // no-wait
+		false,                       // manual ack
+		false,                       // non-exclusive
+		false,                       // no-local
+		false,                       // no-wait
 		nil,
 	)
 	if err != nil {

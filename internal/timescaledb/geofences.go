@@ -231,9 +231,29 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 	var g models.Geofence
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Build SET clauses dynamically based on provided fields
-		setClauses := []string{"updated_at = NOW()"}
-		args := []interface{}{}
+		// First get current geofence
+		var currentGeometry []byte
+		var currentName, currentTypeZone string
+		var currentIsActive bool
+		var currentSpaceID sql.NullString
+
+		getQuery := `
+			SELECT name, type_zone, ST_AsGeoJSON(geometry), is_active, space_id
+			FROM geofences WHERE geofence_id = $1
+		`
+		err := tx.QueryRowContext(txCtx, getQuery, geofenceID).Scan(
+			&currentName, &currentTypeZone, &currentGeometry, &currentIsActive, &currentSpaceID,
+		)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("geofence not found")
+			}
+			return fmt.Errorf("failed to get geofence: %w", err)
+		}
+
+		// Use current values if not provided in update request
+		var setClauses []string
+		var args []interface{}
 		argIdx := 1
 
 		if name != nil {
@@ -267,6 +287,20 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			argIdx++
 		}
 
+		// If no fields to update, return current geofence
+		if len(setClauses) == 0 {
+			g.GeofenceID = geofenceID
+			g.Name = currentName
+			g.TypeZone = currentTypeZone
+			g.Geometry = models.Geometry(currentGeometry)
+			g.IsActive = currentIsActive
+			if currentSpaceID.Valid {
+				spaceUUID, _ := uuid.Parse(currentSpaceID.String)
+				g.SpaceID = &spaceUUID
+			}
+			return nil
+		}
+
 		args = append(args, geofenceID)
 
 		query := fmt.Sprintf(`
@@ -277,7 +311,7 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 		`, strings.Join(setClauses, ", "), argIdx)
 
 		var geometryJSON []byte
-		err := tx.QueryRowContext(txCtx, query, args...).Scan(
+		err = tx.QueryRowContext(txCtx, query, args...).Scan(
 			&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON,
 			&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
 		)
@@ -397,4 +431,27 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 	}
 
 	return geofences, nil
+}
+
+// IsPointInGeofence checks whether a lat/lon coordinate lies inside the given geofence.
+func (c *Client) IsPointInGeofence(ctx context.Context, geofenceID string, lat, lon float64) (isInside bool, typeZone string, err error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return false, "", fmt.Errorf("organization not found in context")
+	}
+
+	err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		return tx.QueryRowContext(txCtx, `
+			SELECT type_zone,
+			       ST_Contains(geometry, ST_SetSRID(ST_MakePoint($2, $3), 4326))
+			FROM geofences
+			WHERE geofence_id::text = $1 AND is_active = true
+		`, geofenceID, lon, lat).Scan(&typeZone, &isInside)
+	})
+
+	if err != nil {
+		return false, "", err
+	}
+
+	return isInside, typeZone, nil
 }

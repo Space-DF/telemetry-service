@@ -106,6 +106,25 @@ func (c *Client) UpsertSpace(ctx context.Context, orgSlug string, space models.S
 	return nil
 }
 
+// GetSpaceIDBySlug looks up a space by its slug within the organization schema
+func (c *Client) GetSpaceIDBySlug(ctx context.Context, orgSlug, spaceSlug string) (uuid.UUID, error) {
+	if orgSlug == "" || spaceSlug == "" {
+		return uuid.Nil, fmt.Errorf("organization slug and space slug are required")
+	}
+
+	var spaceID uuid.UUID
+	err := c.WithOrgTx(ctx, orgSlug, func(txCtx context.Context, tx bob.Tx) error {
+		return tx.QueryRowContext(txCtx,
+			`SELECT space_id FROM spaces WHERE space_slug = $1 LIMIT 1`, spaceSlug,
+		).Scan(&spaceID)
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("space with slug '%s' not found in org '%s': %w", spaceSlug, orgSlug, err)
+	}
+
+	return spaceID, nil
+}
+
 // DeleteSpace deletes a space from the organization schema.
 // This is called by the Celery task consumer when delete_space task is received.
 func (c *Client) DeleteSpace(ctx context.Context, orgSlug string, spaceID uuid.UUID) error {

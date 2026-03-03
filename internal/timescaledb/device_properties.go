@@ -32,7 +32,8 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 		rows, err := tx.QueryContext(txCtx, `
 			SELECT DISTINCT e.category
 			FROM entities e
-			WHERE e.device_id::text = $1 AND e.space_slug = $2 AND e.category != 'location'
+			LEFT JOIN spaces s ON e.space_id = s.space_id
+			WHERE e.device_id::text = $1 AND s.space_slug = $2 AND e.category != 'location'
 			ORDER BY e.category
 		`, deviceID, spaceSlug)
 		if err != nil {
@@ -58,7 +59,8 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 				SELECT COALESCE(es.state::float8, 0)
 				FROM entity_states es
 				JOIN entities e ON es.entity_id = e.id
-				WHERE e.device_id::text = $1 AND e.space_slug = $2 AND e.category = $3
+				LEFT JOIN spaces s ON e.space_id = s.space_id
+				WHERE e.device_id::text = $1 AND s.space_slug = $2 AND e.category = $3
 				ORDER BY es.reported_at DESC
 				LIMIT 1
 			`, deviceID, spaceSlug, category)

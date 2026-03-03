@@ -23,7 +23,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 
 	// Build WHERE clauses
 	args := []interface{}{spaceSlug}
-	where := "e.space_slug = $1"
+	where := "s.space_slug = $1"
 	idx := 2
 	if category != "" {
 		where += fmt.Sprintf(" AND e.category = $%d", idx)
@@ -48,7 +48,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e LEFT JOIN entity_types et ON e.entity_type_id = et.id WHERE %s", where)
+	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e LEFT JOIN entity_types et ON e.entity_type_id = et.id LEFT JOIN spaces s ON e.space_id = s.space_id WHERE %s", where)
 	var total int
 	if org != "" {
 		if err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
@@ -65,12 +65,13 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	// Select query
-	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.image_url, e.is_enabled, e.created_at, e.updated_at, s.time_start, s.time_end
+	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.image_url, e.is_enabled, e.created_at, e.updated_at, s2.time_start, s2.time_end
 		FROM entities e
 		LEFT JOIN entity_types et ON e.entity_type_id = et.id
+		LEFT JOIN spaces s ON e.space_id = s.space_id
 		LEFT JOIN (
 			SELECT entity_id, MIN(reported_at) AS time_start, MAX(reported_at) AS time_end FROM entity_states GROUP BY entity_id
-		) s ON s.entity_id = e.id
+		) s2 ON s2.entity_id = e.id
 		WHERE %s
 		ORDER BY e.created_at DESC
 		LIMIT $%d OFFSET $%d`, where, idx, idx+1)

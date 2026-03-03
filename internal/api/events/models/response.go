@@ -30,17 +30,18 @@ type EventRulesResponse struct {
 
 // EventRuleItem represents a single event rule in API response
 type EventRuleItem struct {
-	EventRuleID   string     `json:"event_rule_id"`
-	DeviceID      *string    `json:"device_id,omitempty"`
-	RuleKey       string     `json:"rule_key,omitempty"`
-	Operator      string     `json:"operator,omitempty"`
-	Operand       string     `json:"operand"`
-	IsActive      bool       `json:"is_active"`
-	StartTime     *time.Time `json:"start_time,omitempty"`
-	EndTime       *time.Time `json:"end_time,omitempty"`
-	AllowNewEvent bool       `json:"allow_new_event"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	EventRuleID string    `json:"event_rule_id"`
+	DeviceID    *string   `json:"device_id,omitempty"`
+	SpaceID     *string   `json:"space_id,omitempty"`
+	GeofenceID  *string   `json:"geofence_id,omitempty"`
+	RuleKey     string    `json:"rule_key,omitempty"`
+	Definition  *string   `json:"definition,omitempty"`
+	IsActive    bool      `json:"is_active"`
+	RepeatAble  bool      `json:"repeat_able"`
+	CooldownSec *int      `json:"cooldown_sec,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // DeleteEventRuleResponse represents response after deleting an event rule

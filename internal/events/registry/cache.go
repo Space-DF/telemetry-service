@@ -20,18 +20,18 @@ const (
 
 // DeviceRulesCacheEntry represents a cached entry for device automation rules
 type DeviceRulesCacheEntry struct {
-	Rules      []models.EventRule                      // Flat array (for compatibility)
-	RulesByKey map[string][]models.EventRule           // Grouped by rule_key for O(1) lookup
+	Rules      []models.EventRule            // Flat array (for compatibility)
+	RulesByKey map[string][]models.EventRule // Grouped by rule_key for O(1) lookup
 	CachedAt   time.Time
 	ExpiresAt  time.Time
 }
 
 // DeviceRulesCache manages caching of device automation rules
 type DeviceRulesCache struct {
-	cache map[string]*DeviceRulesCacheEntry // key: deviceID
-	mu    sync.RWMutex
-	ttl   time.Duration
-	db    *timescaledb.Client
+	cache  map[string]*DeviceRulesCacheEntry // key: deviceID
+	mu     sync.RWMutex
+	ttl    time.Duration
+	db     *timescaledb.Client
 	logger *zap.Logger
 
 	// Metrics (atomic counters for thread safety)
@@ -213,11 +213,11 @@ func (c *DeviceRulesCache) GetMetrics() map[string]interface{} {
 	c.mu.RUnlock()
 
 	return map[string]interface{}{
-		"hits":       hits,
-		"misses":     misses,
-		"total":      total,
-		"hit_rate":   hitRate,
-		"cache_size": cacheSize,
+		"hits":        hits,
+		"misses":      misses,
+		"total":       total,
+		"hit_rate":    hitRate,
+		"cache_size":  cacheSize,
 		"ttl_seconds": c.ttl.Seconds(),
 	}
 }

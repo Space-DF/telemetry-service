@@ -40,11 +40,12 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 	log.Printf("GetLocationHistory called - org='%s' space_slug='%s' device_id='%s' start='%s' end='%s' limit=%d",
 		org, spaceSlug, deviceID, start.String(), end.String(), limit)
 
-	query := `SELECT s.reported_at, e.device_id::text, e.space_slug, a.shared_attrs
+	query := `SELECT s.reported_at, e.device_id::text, sp.space_slug, a.shared_attrs
 		FROM entity_states s
 		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN spaces sp ON e.space_id = sp.space_id
 		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
-		WHERE e.device_id::text = $1 AND e.space_slug = $2 
+		WHERE e.device_id::text = $1 AND sp.space_slug = $2 
 			AND e.category = 'location'
 			AND s.reported_at >= $3 AND s.reported_at <= $4
 			AND a.shared_attrs IS NOT NULL
@@ -169,11 +170,12 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 	}
 	log.Printf("GetLastLocation called - org='%s' space_slug='%s' device_id='%s'", org, spaceSlug, deviceID)
 
-	query := `SELECT s.reported_at, e.device_id::text, e.space_slug, a.shared_attrs
+	query := `SELECT s.reported_at, e.device_id::text, sp.space_slug, a.shared_attrs
 		FROM entity_states s
 		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN spaces sp ON e.space_id = sp.space_id
 		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
-		WHERE e.device_id::text = $1 AND e.space_slug = $2
+		WHERE e.device_id::text = $1 AND sp.space_slug = $2
 			AND e.category = 'location'
 			AND a.shared_attrs IS NOT NULL
 			AND a.shared_attrs ? 'latitude' AND a.shared_attrs ? 'longitude'

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/crc32"
-	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/stephenafamo/bob"
@@ -20,10 +19,10 @@ const (
 
 // Pagination constants
 const (
-	DefaultPage          = 1
-	DefaultPageSize      = 20
-	MaxPageSize          = 100
-	DefaultEventLimit    = 100
+	DefaultPage       = 1
+	DefaultPageSize   = 20
+	MaxPageSize       = 100
+	DefaultEventLimit = 100
 )
 
 // GetEventsByDevice retrieves all events for a specific entity.
@@ -61,11 +60,12 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 
 		// Complete the query
 		query := fmt.Sprintf(`
-			SELECT e.event_id, e.event_type_id, e.data_id, e.space_slug,
+			SELECT e.event_id, e.event_type_id, e.data_id, sp.space_slug,
 				   e.trigger_id, e.time_fired_ts, et.event_type, ed.shared_data
 			FROM events e
 			JOIN event_types et ON e.event_type_id = et.event_type_id
 			LEFT JOIN event_data ed ON e.data_id = ed.data_id
+			LEFT JOIN spaces sp ON e.space_id = sp.space_id
 			WHERE %s
 			ORDER BY e.time_fired_ts DESC
 			LIMIT $%d
@@ -75,7 +75,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 		if err != nil {
 			return fmt.Errorf("failed to query events by device: %w", err)
 		}
-		defer func(){
+		defer func() {
 			_ = rows.Close()
 		}()
 
@@ -117,23 +117,35 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 	return events, nil
 }
 
-// populateEventRuleResponse populates an EventRuleResponse from request data and times
-func populateEventRuleResponse(result *models.EventRuleResponse, req *models.EventRuleRequest, startTime, endTime *time.Time) {
+// populateEventRuleResponse populates an EventRuleResponse from request data
+func populateEventRuleResponse(result *models.EventRuleResponse, req *models.EventRuleRequest) {
 	if req.DeviceID != nil {
 		result.DeviceID = req.DeviceID
+	}
+	if req.SpaceID != nil {
+		result.SpaceID = req.SpaceID
+	}
+	if req.GeofenceID != nil {
+		result.GeofenceID = req.GeofenceID
 	}
 	if req.RuleKey != nil {
 		result.RuleKey = req.RuleKey
 	}
-	if req.Operator != nil {
-		result.Operator = req.Operator
+	if req.Definition != nil {
+		result.Definition = req.Definition
 	}
-	result.Operand = req.Operand
 	if req.IsActive != nil {
 		result.IsActive = req.IsActive
 	}
-	result.StartTime = startTime
-	result.EndTime = endTime
+	if req.RepeatAble != nil {
+		result.RepeatAble = req.RepeatAble
+	}
+	if req.CooldownSec != nil {
+		result.CooldownSec = req.CooldownSec
+	}
+	if req.Description != nil {
+		result.Description = req.Description
+	}
 }
 
 // GetEventRules retrieves event rules with pagination
@@ -174,8 +186,9 @@ func (c *Client) GetEventRules(ctx context.Context, deviceID string, page, pageS
 
 		// Query rules
 		query := `
-			SELECT er.event_rule_id, er.device_id, er.rule_key, er.operator, er.operand,
-				   er.is_active, er.start_time, er.end_time, er.allow_new_event, er.created_at, er.updated_at
+			SELECT er.event_rule_id, er.device_id, er.space_id, er.geofence_id, er.rule_key,
+				   er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
+				   er.created_at, er.updated_at
 			FROM event_rules er
 		` + whereClause + ` ORDER BY er.created_at DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
 		args = append(args, pageSize, offset)
@@ -189,8 +202,9 @@ func (c *Client) GetEventRules(ctx context.Context, deviceID string, page, pageS
 		for rows.Next() {
 			var r models.EventRule
 			if err := rows.Scan(
-				&r.EventRuleID, &r.DeviceID, &r.RuleKey, &r.Operator, &r.Operand, 
-				&r.IsActive, &r.StartTime, &r.EndTime, &r.AllowNewEvent, &r.CreatedAt, &r.UpdatedAt,
+				&r.EventRuleID, &r.DeviceID, &r.SpaceID, &r.GeofenceID, &r.RuleKey,
+				&r.Definition, &r.IsActive, &r.RepeatAble, &r.CooldownSec, &r.Description,
+				&r.CreatedAt, &r.UpdatedAt,
 			); err != nil {
 				return err
 			}
@@ -221,15 +235,22 @@ func (c *Client) GetActiveRulesForDevice(ctx context.Context, deviceID string) (
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Query automation rules for this specific device only
-		// Filter by time range to exclude expired rules
 		query := `
-			SELECT er.event_rule_id, er.device_id, er.rule_key, er.operator, er.operand,
-				   er.is_active, er.start_time, er.end_time, er.allow_new_event, er.created_at, er.updated_at
+			SELECT er.event_rule_id, er.device_id, er.space_id, er.geofence_id, er.rule_key,
+				   er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
+				   er.created_at, er.updated_at
 			FROM event_rules er
 			WHERE er.is_active = true
-			  AND er.device_id = $1
-			  AND (er.start_time IS NULL OR er.start_time <= NOW())
-			  AND (er.end_time IS NULL OR er.end_time > NOW())
+			  AND (
+			    er.device_id = $1
+			    OR (
+			      er.geofence_id IS NOT NULL
+			      AND er.device_id IS NULL
+			      AND er.space_id = (
+			        SELECT e.space_id FROM entities e WHERE e.device_id = $1 LIMIT 1
+			      )
+			    )
+			  )
 			ORDER BY er.created_at DESC
 		`
 
@@ -242,12 +263,64 @@ func (c *Client) GetActiveRulesForDevice(ctx context.Context, deviceID string) (
 		for rows.Next() {
 			var r models.EventRule
 			if err := rows.Scan(
-				&r.EventRuleID, &r.DeviceID, &r.RuleKey, &r.Operator, &r.Operand,
-				&r.IsActive, &r.StartTime, &r.EndTime, &r.AllowNewEvent, &r.CreatedAt, &r.UpdatedAt,
+				&r.EventRuleID, &r.DeviceID, &r.SpaceID, &r.GeofenceID, &r.RuleKey,
+				&r.Definition, &r.IsActive, &r.RepeatAble, &r.CooldownSec, &r.Description,
+				&r.CreatedAt, &r.UpdatedAt,
 			); err != nil {
 				return err
 			}
 
+			rules = append(rules, r)
+		}
+
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return rules, nil
+}
+
+// GetEventRulesByGeofenceID retrieves event rules for a specific geofence
+func (c *Client) GetEventRulesByGeofenceID(ctx context.Context, geofenceID string) ([]models.EventRule, error) {
+	if geofenceID == "" {
+		return nil, fmt.Errorf("geofence_id is required")
+	}
+
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	var rules []models.EventRule
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		query := `
+			SELECT er.event_rule_id, er.device_id, er.space_id, er.geofence_id, er.rule_key,
+			       er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
+			       er.created_at, er.updated_at
+			FROM event_rules er
+			WHERE er.geofence_id = $1
+			ORDER BY er.created_at DESC
+		`
+
+		rows, err := tx.QueryContext(txCtx, query, geofenceID)
+		if err != nil {
+			return fmt.Errorf("failed to query event rules: %w", err)
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var r models.EventRule
+			if err := rows.Scan(
+				&r.EventRuleID, &r.DeviceID, &r.SpaceID, &r.GeofenceID, &r.RuleKey,
+				&r.Definition, &r.IsActive, &r.RepeatAble, &r.CooldownSec, &r.Description,
+				&r.CreatedAt, &r.UpdatedAt,
+			); err != nil {
+				return fmt.Errorf("failed to scan event rule: %w", err)
+			}
 			rules = append(rules, r)
 		}
 
@@ -275,37 +348,20 @@ func (c *Client) CreateEventRule(ctx context.Context, req *models.EventRuleReque
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Parse start and end times
-		var startTime, endTime *time.Time
-		if req.StartTime != nil {
-			t, parseErr := time.Parse(time.RFC3339, *req.StartTime)
-			if parseErr != nil {
-				return fmt.Errorf("invalid start_time format: %w", parseErr)
-			}
-			startTime = &t
-		}
-		if req.EndTime != nil {
-			t, parseErr := time.Parse(time.RFC3339, *req.EndTime)
-			if parseErr != nil {
-				return fmt.Errorf("invalid end_time format: %w", parseErr)
-			}
-			endTime = &t
-		}
-
 		// Insert event rule
 		err := tx.QueryRowContext(txCtx, `
-			INSERT INTO event_rules (device_id, rule_key, operator, operand, is_active, allow_new_event, start_time, end_time)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO event_rules (device_id, space_id, geofence_id, rule_key, definition, is_active, repeat_able, cooldown_sec, description)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING event_rule_id, created_at, updated_at
-		`, req.DeviceID, req.RuleKey, req.Operator, req.Operand,
-			req.IsActive, req.AllowNewEvent, startTime, endTime).Scan(
+		`, req.DeviceID, req.SpaceID, req.GeofenceID, req.RuleKey, req.Definition,
+			req.IsActive, req.RepeatAble, req.CooldownSec, req.Description).Scan(
 			&result.EventRuleID, &result.CreatedAt, &result.UpdatedAt,
 		)
 
 		if err != nil {
 			return fmt.Errorf("failed to insert event rule: %w", err)
 		}
-		populateEventRuleResponse(&result, req, startTime, endTime)
+		populateEventRuleResponse(&result, req)
 
 		return nil
 	})
@@ -334,39 +390,22 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, req *models
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Parse start and end times
-		var startTime, endTime *time.Time
-		if req.StartTime != nil {
-			t, parseErr := time.Parse(time.RFC3339, *req.StartTime)
-			if parseErr != nil {
-				return fmt.Errorf("invalid start_time format: %w", parseErr)
-			}
-			startTime = &t
-		}
-		if req.EndTime != nil {
-			t, parseErr := time.Parse(time.RFC3339, *req.EndTime)
-			if parseErr != nil {
-				return fmt.Errorf("invalid end_time format: %w", parseErr)
-			}
-			endTime = &t
-		}
-
 		// Update event rule
 		err := tx.QueryRowContext(txCtx, `
 			UPDATE event_rules
-			SET device_id = $1, rule_key = $2, operator = $3, operand = $4,
-			    is_active = $5, allow_new_event = $6, start_time = $7, end_time = $8, updated_at = NOW()
-			WHERE event_rule_id = $9
+			SET device_id = $1, space_id = $2, geofence_id = $3, rule_key = $4, definition = $5,
+			    is_active = $6, repeat_able = $7, cooldown_sec = $8, description = $9, updated_at = NOW()
+			WHERE event_rule_id = $10
 			RETURNING event_rule_id, created_at, updated_at
-		`, req.DeviceID, req.RuleKey, req.Operator, req.Operand,
-			req.IsActive, req.AllowNewEvent, startTime, endTime, ruleID).Scan(
+		`, req.DeviceID, req.SpaceID, req.GeofenceID, req.RuleKey, req.Definition,
+			req.IsActive, req.RepeatAble, req.CooldownSec, req.Description, ruleID).Scan(
 			&result.EventRuleID, &result.CreatedAt, &result.UpdatedAt,
 		)
 
 		if err != nil {
 			return fmt.Errorf("failed to update event rule: %w", err)
 		}
-		populateEventRuleResponse(&result, req, startTime, endTime)
+		populateEventRuleResponse(&result, req)
 
 		return nil
 	})
@@ -458,8 +497,8 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 		_, err = tx.ExecContext(txCtx, `
 			INSERT INTO events (
 				event_type_id, data_id, event_level, event_rule_id,
-				space_slug, entity_id, state_id, time_fired_ts
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				space_id, entity_id, state_id, time_fired_ts
+			) VALUES ($1, $2, $3, $4, (SELECT space_id FROM spaces WHERE space_slug = $5 LIMIT 1), $6, $7, $8)
 		`, eventTypeID, dataID, event.EventLevel, event.EventRuleID, spaceSlug, event.EntityID, event.StateID, event.Timestamp)
 
 		if err != nil {
@@ -469,4 +508,3 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 		return nil
 	})
 }
-

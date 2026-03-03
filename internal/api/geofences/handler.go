@@ -1,6 +1,7 @@
 package geofences
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,7 +73,7 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 		}
 
 		return c.JSON(http.StatusOK, apimodels.GeofencesListResponse{
-			Geofences:  convertGeofencesToResponses(geofences),
+			Geofences:  convertGeofencesToResponsesWithEventRules(ctx, tsClient, geofences),
 			TotalCount: total,
 			Page:       req.Page,
 			PageSize:   req.PageSize,
@@ -112,7 +113,7 @@ func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 			})
 		}
 
-		return c.JSON(http.StatusOK, convertGeofenceToResponse(geofence))
+		return c.JSON(http.StatusOK, convertGeofenceToResponseWithEventRule(ctx, tsClient, geofence))
 	}
 }
 
@@ -126,6 +127,25 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
+		// Resolve space_id from X-Space header
+		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+				Error: "X-Space header is required",
+			})
+		}
+
+		spaceID, err := tsClient.GetSpaceIDBySlug(c.Request().Context(), orgToUse, spaceSlug)
+		if err != nil {
+			logger.Error("failed to resolve space from X-Space header",
+				zap.String("space_slug", spaceSlug),
+				zap.String("org", orgToUse),
+				zap.Error(err))
+			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+				Error: fmt.Sprintf("Space '%s' not found", spaceSlug),
+			})
+		}
+
 		var req apimodels.CreateGeofenceRequest
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
@@ -133,25 +153,91 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
-		// Convert features array to MultiPolygon geometry
-		multiPolygonGeoJSON, err := convertFeaturesToMultiPolygon(req.Features)
+		// Override space_id with the one resolved from header
+		req.SpaceID = &spaceID
+
+		// Convert geometry array to MultiPolygon geometry
+		multiPolygonGeoJSON, err := convertFeaturesToMultiPolygon(req.Geometry)
 		if err != nil {
-			logger.Error("failed to convert features to multipolygon", zap.Error(err))
+			logger.Error("failed to convert geometry to multipolygon", zap.Error(err))
 			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
-				Error: "Invalid features geometry format",
+				Error: "Invalid geometry format",
 			})
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.SpaceID, req.IsActive)
 		if err != nil {
-			logger.Error("failed to create geofence", zap.Error(err))
+			logger.Error("failed to create geofence", 
+				zap.String("name", req.Name),
+				zap.String("type", req.Type),
+				zap.String("error_detail", err.Error()),
+				zap.Error(err))
+			
+			// Return more specific error message for debugging
+			errorMsg := "Failed to create geofence"
+			if err.Error() != "" {
+				errorMsg = fmt.Sprintf("Failed to create geofence: %s", err.Error())
+			}
+			
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
-				Error: "Failed to create geofence",
+				Error: errorMsg,
 			})
 		}
 
-		// Build response with original features
+		// Create event rule with rule_key="geofence" for the geofence
+		ruleKey := "geofence"
+		isActive := true
+		geofenceIDStr := geofence.GeofenceID.String()
+		description := geofence.Name
+
+		eventRuleReq := &models.EventRuleRequest{
+			RuleKey:     &ruleKey,
+			GeofenceID:  &geofenceIDStr,
+			IsActive:    &isActive,
+			Description: &description,
+		}
+
+		// Add definition from request if provided
+		if len(req.Definition) > 0 {
+			defStr := string(req.Definition)
+			eventRuleReq.Definition = &defStr
+		}
+
+		// Add SpaceID if provided
+		if geofence.SpaceID != nil {
+			spaceIDStr := geofence.SpaceID.String()
+			eventRuleReq.SpaceID = &spaceIDStr
+		}
+
+		_, err = tsClient.CreateEventRule(ctx, eventRuleReq)
+		if err != nil {
+			logger.Warn("failed to create event rule for geofence",
+				zap.String("geofence_id", geofence.GeofenceID.String()),
+				zap.Error(err))
+		} else {
+			logger.Info("successfully created event rule for geofence",
+				zap.String("geofence_id", geofence.GeofenceID.String()),
+				zap.String("rule_key", ruleKey))
+		}
+
+		// Fetch the created event rule for the response
+		var eventRuleInfo *apimodels.EventRuleInfo
+		eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofence.GeofenceID.String())
+		if err == nil && len(eventRules) > 0 {
+			eventRule := eventRules[0]
+			eventRuleInfo = &apimodels.EventRuleInfo{
+				EventRuleID: eventRule.EventRuleID,
+				RuleKey:     *eventRule.RuleKey,
+				IsActive:    *eventRule.IsActive,
+				CreatedAt:   eventRule.CreatedAt,
+			}
+			if eventRule.Definition != nil {
+				eventRuleInfo.Definition = json.RawMessage(*eventRule.Definition)
+			}
+		}
+
+		// Build response with event rule information
 		response := apimodels.CreateGeofenceResponse{
 			Message: "Geofence created successfully",
 			Geofence: apimodels.GeofenceResponse{
@@ -159,7 +245,7 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 				Name:       geofence.Name,
 				TypeZone:   geofence.TypeZone,
 				Geometry:   json.RawMessage(geofence.Geometry),
-				Features:   req.Features,
+				EventRule:  eventRuleInfo,
 				IsActive:   geofence.IsActive,
 				SpaceID:    geofence.SpaceID,
 				CreatedAt:  geofence.CreatedAt,
@@ -196,14 +282,14 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
-		// Convert features array to MultiPolygon geometry if provided
+		// Convert geometry array to MultiPolygon geometry if provided
 		var geometryJSON []byte
-		if len(req.Features) > 0 {
-			geometryJSON, err = convertFeaturesToMultiPolygon(req.Features)
+		if len(req.Geometry) > 0 {
+			geometryJSON, err = convertFeaturesToMultiPolygon(req.Geometry)
 			if err != nil {
-				logger.Error("failed to convert features to multipolygon", zap.Error(err))
+				logger.Error("failed to convert geometry to multipolygon", zap.Error(err))
 				return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
-					Error: "Invalid features geometry format",
+					Error: "Invalid geometry format",
 				})
 			}
 		}
@@ -216,20 +302,66 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 					Error: "Geofence not found",
 				})
 			}
-			logger.Error("failed to update geofence", zap.String("geofence_id", geofenceIDStr), zap.Error(err))
+			logger.Error("failed to update geofence", 
+				zap.String("geofence_id", geofenceIDStr), 
+				zap.String("error_detail", err.Error()),
+				zap.Error(err))
+			
+			// Return more specific error message for debugging
+			errorMsg := "Failed to update geofence"
+			if err.Error() != "" {
+				errorMsg = fmt.Sprintf("Failed to update geofence: %s", err.Error())
+			}
+			
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
-				Error: "Failed to update geofence",
+				Error: errorMsg,
 			})
 		}
 
-		// Build response with features if provided
+		// Update event rule definition if provided
+		if len(req.Definition) > 0 {
+			eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofenceID.String())
+			if err == nil && len(eventRules) > 0 {
+				eventRule := eventRules[0]
+				defStr := string(req.Definition)
+				updateReq := &models.EventRuleRequest{
+					RuleKey:    eventRule.RuleKey,
+					GeofenceID: eventRule.GeofenceID,
+					Definition: &defStr,
+					IsActive:   eventRule.IsActive,
+				}
+
+				_, err = tsClient.UpdateEventRule(ctx, eventRule.EventRuleID, updateReq)
+				if err != nil {
+					logger.Warn("failed to update event rule definition",
+						zap.String("geofence_id", geofenceIDStr),
+						zap.String("event_rule_id", eventRule.EventRuleID),
+						zap.Error(err))
+				}
+			}
+		}
+
+		// Build response with event rule information
 		response := apimodels.UpdateGeofenceResponse{
 			Message: "Geofence updated successfully",
 		}
 		respGeofence := convertModelGeofenceToResponse(geofence)
-		if req.Features != nil {
-			respGeofence.Features = req.Features
+
+		// Fetch event rules for this geofence
+		eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofence.GeofenceID.String())
+		if err == nil && len(eventRules) > 0 {
+			eventRule := eventRules[0]
+			respGeofence.EventRule = &apimodels.EventRuleInfo{
+				EventRuleID: eventRule.EventRuleID,
+				RuleKey:     *eventRule.RuleKey,
+				IsActive:    *eventRule.IsActive,
+				CreatedAt:   eventRule.CreatedAt,
+			}
+			if eventRule.Definition != nil {
+				respGeofence.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+			}
 		}
+
 		response.Geofence = respGeofence
 
 		return c.JSON(http.StatusOK, response)
@@ -255,6 +387,19 @@ func deleteGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+
+		eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofenceID.String())
+		if err == nil {
+			for _, eventRule := range eventRules {
+				if deleteErr := tsClient.DeleteEventRule(ctx, eventRule.EventRuleID); deleteErr != nil {
+					logger.Warn("failed to delete associated event rule",
+						zap.String("geofence_id", geofenceIDStr),
+						zap.String("event_rule_id", eventRule.EventRuleID),
+						zap.Error(deleteErr))
+				}
+			}
+		}
+
 		if err := tsClient.DeleteGeofence(ctx, geofenceID); err != nil {
 			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
@@ -301,22 +446,23 @@ func getGeofencesByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo
 
 		return c.JSON(http.StatusOK, apimodels.GeofencesByDeviceResponse{
 			DeviceID:  deviceID,
-			Geofences: convertGeofencesToResponses(geofences),
+			Geofences: convertGeofencesToResponsesWithEventRules(ctx, tsClient, geofences),
 			Count:     len(geofences),
 		})
 	}
 }
 
-// Helper functions to convert models
-func convertGeofencesToResponses(geofences []models.GeofenceWithSpace) []apimodels.GeofenceResponse {
+// convertGeofencesToResponsesWithEventRules converts geofences to responses including event rule information
+func convertGeofencesToResponsesWithEventRules(ctx context.Context, tsClient *timescaledb.Client, geofences []models.GeofenceWithSpace) []apimodels.GeofenceResponse {
 	responses := make([]apimodels.GeofenceResponse, len(geofences))
 	for i, g := range geofences {
-		responses[i] = convertGeofenceToResponse(&g)
+		responses[i] = convertGeofenceToResponseWithEventRule(ctx, tsClient, &g)
 	}
 	return responses
 }
 
-func convertGeofenceToResponse(g *models.GeofenceWithSpace) apimodels.GeofenceResponse {
+// convertGeofenceToResponseWithEventRule converts a single geofence to response including event rule information
+func convertGeofenceToResponseWithEventRule(ctx context.Context, tsClient *timescaledb.Client, g *models.GeofenceWithSpace) apimodels.GeofenceResponse {
 	resp := apimodels.GeofenceResponse{
 		GeofenceID: g.GeofenceID,
 		Name:       g.Name,
@@ -330,6 +476,22 @@ func convertGeofenceToResponse(g *models.GeofenceWithSpace) apimodels.GeofenceRe
 		SpaceSlug:  g.SpaceSlug,
 		SpaceLogo:  g.SpaceLogo,
 	}
+
+	// Fetch event rules for this geofence
+	eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, g.GeofenceID.String())
+	if err == nil && len(eventRules) > 0 {
+		eventRule := eventRules[0]
+		resp.EventRule = &apimodels.EventRuleInfo{
+			EventRuleID: eventRule.EventRuleID,
+			RuleKey:     *eventRule.RuleKey,
+			IsActive:    *eventRule.IsActive,
+			CreatedAt:   eventRule.CreatedAt,
+		}
+		if eventRule.Definition != nil {
+			resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+		}
+	}
+
 	return resp
 }
 
@@ -357,8 +519,8 @@ func convertFeaturesToMultiPolygon(features []apimodels.GeofenceFeature) ([]byte
 
 	for _, feature := range features {
 		var geom struct {
-			Type        string          `json:"type"`
-			Coordinates [][][]float64  `json:"coordinates"`
+			Type        string        `json:"type"`
+			Coordinates [][][]float64 `json:"coordinates"`
 		}
 
 		if err := json.Unmarshal(feature.Geometry, &geom); err != nil {

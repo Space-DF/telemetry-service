@@ -13,13 +13,15 @@ import (
 
 // Evaluator handles rule evaluation logic
 type Evaluator struct {
-	logger *zap.Logger
+	logger             *zap.Logger
+	conditionEvaluator *ConditionEvaluator
 }
 
 // NewEvaluator creates a new rule evaluator
 func NewEvaluator(logger *zap.Logger) *Evaluator {
 	return &Evaluator{
-		logger: logger,
+		logger:             logger,
+		conditionEvaluator: NewConditionEvaluator(logger),
 	}
 }
 
@@ -30,8 +32,8 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 		return nil
 	}
 
-	// Check if rule allows creating new events
-	if !rule.AllowNewEvent {
+	// Check if rule allows repeating events
+	if !rule.RepeatAble {
 		return nil
 	}
 
@@ -81,7 +83,7 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 	}
 
 	// Check if rule allows creating new events
-	if rule.AllowNewEvent != nil && !*rule.AllowNewEvent {
+	if rule.RepeatAble != nil && !*rule.RepeatAble {
 		return nil
 	}
 
@@ -94,38 +96,28 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 		return nil
 	}
 
-	// Get the value from entity based on rule_key
-	value, exists := e.getEntityValue(entity, ruleKey)
-	if !exists {
+	// Parse and evaluate definition conditions
+	if rule.Definition == nil || *rule.Definition == "" {
+		e.logger.Warn("Rule definition is null or empty",
+			zap.String("rule_key", ruleKey))
 		return nil
 	}
 
-	// Parse the operand as float64
-	operand, ok := events.ParseFloat64(rule.Operand)
-	if !ok {
-		e.logger.Warn("Failed to parse operand as float64",
+	// Evaluate definition using condition evaluator
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinition(*rule.Definition, entity, deviceID)
+	if err != nil {
+		e.logger.Warn("Failed to evaluate rule definition",
 			zap.String("rule_key", ruleKey),
-			zap.String("operand", rule.Operand))
+			zap.String("definition", *rule.Definition),
+			zap.Error(err))
 		return nil
 	}
-
-	// Get operator
-	operator := ""
-	if rule.Operator != nil {
-		operator = *rule.Operator
-	}
-	if operator == "" {
-		operator = "eq" // default
-	}
-
-	// Evaluate the condition
-	matched := events.CompareValues(value, operand, operator, e.logger)
 	if !matched {
 		return nil
 	}
 
-	// Build description
-	description := fmt.Sprintf("Rule %s matched: %.2f %s %.2f", ruleKey, value, operator, operand)
+	// Build description from match details
+	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
 
 	matchedEvent := &models.MatchedEvent{
 		EntityID:    deviceID,
@@ -134,12 +126,70 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 		EventType:   "device_event",
 		EventLevel:  "automation",
 		Description: description,
-		Value:       value,
-		Threshold:   operand,
-		Operator:    operator,
+		Value:       0,
+		Threshold:   0,
+		Operator:    "complex",
 		Timestamp:   time.Now().UnixMilli(),
 		EventRuleID: &rule.EventRuleID,
 		StateID:     entity.StateID,
+	}
+
+	return matchedEvent
+}
+
+// EvaluateRuleDBWithEntities evaluates a database rule against ALL entities combined into a single context.
+func (e *Evaluator) EvaluateRuleDBWithEntities(rule models.EventRule, deviceID string, entities []models.TelemetryEntity, deviceInfo map[string]interface{}) *models.MatchedEvent {
+	// Skip inactive rules
+	if rule.IsActive != nil && !*rule.IsActive {
+		return nil
+	}
+
+	// Check if rule allows creating new events
+	if rule.RepeatAble != nil && !*rule.RepeatAble {
+		return nil
+	}
+
+	// Get rule key from database rule
+	ruleKey := ""
+	if rule.RuleKey != nil {
+		ruleKey = *rule.RuleKey
+	}
+
+	// Parse and evaluate definition conditions
+	if rule.Definition == nil || *rule.Definition == "" {
+		return nil
+	}
+
+	// Build unified context from ALL entities
+	context := e.conditionEvaluator.BuildUnifiedContext(entities, deviceID, deviceInfo)
+
+	// Evaluate definition using condition evaluator with unified context
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(*rule.Definition, context)
+	if err != nil {
+		return nil
+	}
+	if !matched {
+		return nil
+	}
+
+	// Build description from match details or use rule's description
+	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
+	if rule.Description != nil && *rule.Description != "" {
+		description = *rule.Description
+	}
+
+	matchedEvent := &models.MatchedEvent{
+		EntityID:    deviceID,
+		EntityType:  "automation",
+		RuleKey:     ruleKey,
+		EventType:   "device_event",
+		EventLevel:  "automation",
+		Description: description,
+		Value:       0,
+		Threshold:   0,
+		Operator:    "complex",
+		Timestamp:   time.Now().UnixMilli(),
+		EventRuleID: &rule.EventRuleID,
 	}
 
 	return matchedEvent
@@ -150,7 +200,7 @@ func (e *Evaluator) getEntityValue(entity models.TelemetryEntity, ruleKey string
 	if entity.State == nil {
 		return 0, false
 	}
-	
+
 	switch s := entity.State.(type) {
 	case map[string]interface{}:
 		if val, ok := s[ruleKey]; ok {
