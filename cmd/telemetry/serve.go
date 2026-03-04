@@ -28,6 +28,7 @@ import (
 
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	amqp "github.com/Space-DF/telemetry-service/internal/amqp/multi-tenant"
+	celeryconsumer "github.com/Space-DF/telemetry-service/internal/celery"
 	"github.com/Space-DF/telemetry-service/internal/api"
 	"github.com/Space-DF/telemetry-service/internal/events/registry"
 	"github.com/Space-DF/telemetry-service/internal/health"
@@ -110,6 +111,16 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		return fmt.Errorf("failed to connect to AMQP: %w", err)
 	}
 
+	// Initialize Celery task consumer for space synchronization
+	celeryConsumer := celeryconsumer.NewTaskConsumer(appConfig.AMQP.BrokerURL, tsClient, logger)
+	if err := celeryConsumer.Connect(); err != nil {
+		logger.Warn("Failed to connect Celery task consumer (space sync will be unavailable)", zap.Error(err))
+		// Don't fail startup - Celery consumer is optional
+		celeryConsumer = nil
+	} else {
+		logger.Info("Celery task consumer connected for space synchronization")
+	}
+
 	// Initialize Echo
 	e := echo.New()
 	e.HideBanner = true
@@ -145,6 +156,17 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 			cancel()
 		}
 	}()
+
+	// Start Celery task consumer (if connected)
+	if celeryConsumer != nil {
+		go func() {
+			logger.Info("Starting Celery task consumer")
+			if err := celeryConsumer.Start(srvCtx); err != nil {
+				logger.Error("Celery task consumer error", zap.Error(err))
+				// Don't cancel context - Celery consumer is optional
+			}
+		}()
+	}
 
 	// Setup reload signal for alert processors and event rules
 	reloadChan := make(chan os.Signal, 1)
@@ -182,6 +204,13 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	// Stop AMQP consumer
 	if err := consumer.Stop(); err != nil {
 		logger.Error("Error stopping AMQP consumer", zap.Error(err))
+	}
+
+	// Stop Celery task consumer
+	if celeryConsumer != nil {
+		if err := celeryConsumer.Stop(); err != nil {
+			logger.Error("Error stopping Celery task consumer", zap.Error(err))
+		}
 	}
 
 	// Wait for batch writer to finish draining with timeout

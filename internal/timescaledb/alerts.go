@@ -54,7 +54,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 	whereClause := fmt.Sprintf(`
 		e.is_enabled = true
 		AND e.category = $1
-		AND e.space_slug = $2
+		AND sp.space_slug = $2
 		AND e.device_id::text = $3
 		AND %s
 		AND s.reported_at >= $4
@@ -194,12 +194,13 @@ const alertsQueryTemplate = `
 		e.id as entity_id,
 		e.name as entity_name,
 		e.device_id,
-		e.space_slug,
+		sp.space_slug,
 		s.state,
 		s.reported_at,
 		loc.latitude,
 		loc.longitude
 	FROM entities e
+	LEFT JOIN spaces sp ON e.space_id = sp.space_id
 	INNER JOIN entity_states s ON s.entity_id = e.id
 	LEFT JOIN LATERAL (
 		SELECT 
@@ -224,6 +225,7 @@ const alertsQueryTemplate = `
 const alertsCountQueryTemplate = `
 	SELECT COUNT(*) 
 	FROM entities e
+	LEFT JOIN spaces sp ON e.space_id = sp.space_id
 	INNER JOIN entity_states s ON s.entity_id = e.id
 	WHERE %s
 `

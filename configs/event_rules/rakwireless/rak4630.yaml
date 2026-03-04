@@ -12,7 +12,7 @@ rules:
     event_type: "device_event"
     event_level: "system"
     description: "Battery voltage is low (< 3.3V)"
-    allow_new_event: true
+    repeat_able: true
     is_active: true
 
   # Battery Critical Warning
@@ -22,7 +22,7 @@ rules:
     event_type: "device_event"
     event_level: "system"
     description: "Battery voltage is critically low (< 3.0V)"
-    allow_new_event: true
+    repeat_able: true
     is_active: true
 
   # High Temperature Warning
@@ -32,17 +32,17 @@ rules:
     event_type: "device_event"
     event_level: "system"
     description: "Temperature is high (> 50°C)"
-    allow_new_event: true
+    repeat_able: true
     is_active: true
 
   # Low Temperature Warning
   - rule_key: "temperature"
     operator: "lt"
-    oper`nd: "-10"
+    operand: "-10"
     event_type: "device_event"
     event_level: "system"
     description: "Temperature is very low (< -10°C)"
-    allow_new_event: true
+    repeat_able: true
     is_active: true
 
   # High Humidity Warning
@@ -52,7 +52,7 @@ rules:
     event_type: "device_event"
     event_level: "system"
     description: "Humidity is very high (> 90%)"
-    allow_new_event: true
+    repeat_able: true
     is_active: true
 
   # Low Humidity Warning
@@ -62,5 +62,5 @@ rules:
     event_type: "device_event"
     event_level: "system"
     description: "Humidity is very low (< 10%)"
-    allow_new_event: true
+    repeat_able: true
     is_active: true

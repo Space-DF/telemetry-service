@@ -5,6 +5,7 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/api/data"
 	"github.com/Space-DF/telemetry-service/internal/api/entities"
 	"github.com/Space-DF/telemetry-service/internal/api/events"
+	"github.com/Space-DF/telemetry-service/internal/api/geofences"
 	"github.com/Space-DF/telemetry-service/internal/api/location"
 	"github.com/Space-DF/telemetry-service/internal/api/widget"
 	"github.com/Space-DF/telemetry-service/internal/config"
@@ -21,4 +22,5 @@ func Setup(cfg *config.Config, e *echo.Group, logger *zap.Logger, tsClient *time
 	widget.RegisterRoutes(group, logger, tsClient)
 	data.RegisterRoutes(group, logger, tsClient)
 	events.RegisterRoutes(group, cfg, logger, tsClient)
+	geofences.RegisterRoutes(group, cfg, logger, tsClient)
 }

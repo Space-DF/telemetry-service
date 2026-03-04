@@ -22,43 +22,47 @@ type EventData struct {
 
 // EventRule represents an automation rule for triggering events based on conditions
 type EventRule struct {
-	EventRuleID   string     `json:"event_rule_id" db:"event_rule_id"`
-	DeviceID      *string    `json:"device_id,omitempty" db:"device_id"`
-	RuleKey       *string    `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
-	Operator      *string    `json:"operator,omitempty" db:"operator"`   // eq, ne, gt, lt, gte, lte,...
-	Operand       string     `json:"operand" db:"operand"`
-	IsActive      *bool      `json:"is_active,omitempty" db:"is_active"`
-	StartTime     *time.Time `json:"start_time,omitempty" db:"start_time"`
-	EndTime       *time.Time `json:"end_time,omitempty" db:"end_time"`
-	AllowNewEvent *bool      `json:"allow_new_event,omitempty" db:"allow_new_event"`
-	CreatedAt     time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at" db:"updated_at"`
+	EventRuleID  string  `json:"event_rule_id" db:"event_rule_id"`
+	DeviceID     *string `json:"device_id,omitempty" db:"device_id"`
+	SpaceID      *string `json:"space_id,omitempty" db:"space_id"`
+	GeofenceID   *string `json:"geofence_id,omitempty" db:"geofence_id"`
+	RuleKey      *string `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
+	Definition   *string `json:"definition,omitempty" db:"definition"`
+	IsActive     *bool   `json:"is_active,omitempty" db:"is_active"`
+	RepeatAble   *bool   `json:"repeat_able,omitempty" db:"repeat_able"`
+	CooldownSec  *int    `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
+	Description  *string `json:"description,omitempty" db:"description"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // EventRuleRequest represents a request to create or update an event rule
 type EventRuleRequest struct {
-	DeviceID      *string `json:"device_id,omitempty" validate:"required,uuid"`
-	RuleKey       *string `json:"rule_key,omitempty" validate:"required"`
-	Operator      *string `json:"operator,omitempty" validate:"omitempty,oneof=eq ne gt lt gte lte contains"`
-	Operand       string  `json:"operand" validate:"required"`
-	IsActive      *bool   `json:"is_active,omitempty"`
-	AllowNewEvent *bool   `json:"allow_new_event,omitempty"`
-	StartTime     *string `json:"start_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
-	EndTime       *string `json:"end_time,omitempty" validate:"omitempty,datetime=2006-01-02T15:04:05Z07:00"`
+	DeviceID     *string `json:"device_id,omitempty" validate:"omitempty,uuid"`
+	SpaceID      *string `json:"space_id,omitempty" validate:"omitempty,uuid"`
+	GeofenceID   *string `json:"geofence_id,omitempty" validate:"omitempty,uuid"`
+	RuleKey      *string `json:"rule_key,omitempty" validate:"required"`
+	Definition   *string `json:"definition,omitempty"`
+	IsActive     *bool   `json:"is_active,omitempty"`
+	RepeatAble   *bool   `json:"repeat_able,omitempty"`
+	CooldownSec  *int    `json:"cooldown_sec,omitempty"`
+	Description  *string `json:"description,omitempty"`
 }
 
 // EventRuleResponse represents an event rule response
 type EventRuleResponse struct {
-	EventRuleID string     `json:"event_rule_id"`
-	DeviceID    *string    `json:"device_id,omitempty"`
-	RuleKey     *string    `json:"rule_key,omitempty"`
-	Operator    *string    `json:"operator,omitempty"`
-	Operand     string     `json:"operand"`
-	IsActive    *bool      `json:"is_active,omitempty"`
-	StartTime   *time.Time `json:"start_time,omitempty"`
-	EndTime     *time.Time `json:"end_time,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	EventRuleID  string    `json:"event_rule_id"`
+	DeviceID     *string   `json:"device_id,omitempty"`
+	SpaceID      *string   `json:"space_id,omitempty"`
+	GeofenceID   *string   `json:"geofence_id,omitempty"`
+	RuleKey      *string   `json:"rule_key,omitempty"`
+	Definition   *string   `json:"definition,omitempty"`
+	IsActive     *bool     `json:"is_active,omitempty"`
+	RepeatAble   *bool     `json:"repeat_able,omitempty"`
+	CooldownSec  *int      `json:"cooldown_sec,omitempty"`
+	Description  *string   `json:"description,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // EventRulesListResponse represents a paginated list of event rules
