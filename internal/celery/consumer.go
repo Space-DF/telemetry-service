@@ -84,7 +84,7 @@ func (c *TaskConsumer) Connect() error {
 		true,     // durable
 		false,
 		false,
-		true, // wait
+		false, // wait
 		nil,
 	)
 	if err != nil {

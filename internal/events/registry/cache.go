@@ -75,32 +75,9 @@ func (c *DeviceRulesCache) Stop() {
 	close(c.stopped)
 }
 
-// Get retrieves device automation rules from cache or database
+// Get fetches device automation rules from database and populates cache
 func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []models.EventRule {
 	now := time.Now()
-
-	// Try cache first (read lock)
-	c.mu.RLock()
-	entry, found := c.cache[deviceID]
-	c.mu.RUnlock()
-
-	if found && now.Before(entry.ExpiresAt) {
-		// Cache hit - valid entry
-		c.hits.Add(1)
-		c.logger.Debug("Device rules cache hit",
-			zap.String("device_id", deviceID),
-			zap.Int("rule_count", len(entry.Rules)))
-		return entry.Rules
-	}
-
-	// Cache miss or expired
-	c.misses.Add(1)
-
-	if found {
-		c.logger.Debug("Device rules cache expired",
-			zap.String("device_id", deviceID),
-			zap.Time("expired_at", entry.ExpiresAt))
-	}
 
 	// Fetch from database
 	rules, err := c.db.GetActiveRulesForDevice(ctx, deviceID)
@@ -115,7 +92,7 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []models.Ev
 	rulesByKey := c.groupRulesByKey(rules)
 
 	// Store in cache (write lock)
-	entry = &DeviceRulesCacheEntry{
+	entry := &DeviceRulesCacheEntry{
 		Rules:      rules,
 		RulesByKey: rulesByKey,
 		CachedAt:   now,
@@ -150,18 +127,19 @@ func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[
 	}
 
 	// Cache miss - call Get() which will populate the cache
-	c.Get(ctx, deviceID)
+	c.misses.Add(1)
+	rules := c.Get(ctx, deviceID)
 
-	// Try cache again
-	c.mu.RLock()
-	entry, found = c.cache[deviceID]
-	c.mu.RUnlock()
+	// Return from cache if Get() successfully populated it
+  c.mu.RLock()
+  entry, found = c.cache[deviceID]
+  c.mu.RUnlock()
 
-	if found && now.Before(entry.ExpiresAt) {
-		return entry.RulesByKey
-	}
+  if found {
+		return entry.RulesByKey  // Use pre-computed grouping
+  }
 
-	return nil
+	return c.groupRulesByKey(rules)
 }
 
 // groupRulesByKey groups rules by their rule_key for O(1) lookup

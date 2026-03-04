@@ -168,18 +168,18 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.SpaceID, req.IsActive)
 		if err != nil {
-			logger.Error("failed to create geofence", 
+			logger.Error("failed to create geofence",
 				zap.String("name", req.Name),
 				zap.String("type", req.Type),
 				zap.String("error_detail", err.Error()),
 				zap.Error(err))
-			
+
 			// Return more specific error message for debugging
 			errorMsg := "Failed to create geofence"
 			if err.Error() != "" {
 				errorMsg = fmt.Sprintf("Failed to create geofence: %s", err.Error())
 			}
-			
+
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
 				Error: errorMsg,
 			})
@@ -226,14 +226,20 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofence.GeofenceID.String())
 		if err == nil && len(eventRules) > 0 {
 			eventRule := eventRules[0]
-			eventRuleInfo = &apimodels.EventRuleInfo{
-				EventRuleID: eventRule.EventRuleID,
-				RuleKey:     *eventRule.RuleKey,
-				IsActive:    *eventRule.IsActive,
-				CreatedAt:   eventRule.CreatedAt,
-			}
-			if eventRule.Definition != nil {
-				eventRuleInfo.Definition = json.RawMessage(*eventRule.Definition)
+			if eventRule.RuleKey != nil && eventRule.IsActive != nil {
+				eventRuleInfo = &apimodels.EventRuleInfo{
+					EventRuleID: eventRule.EventRuleID,
+					RuleKey:     *eventRule.RuleKey,
+					IsActive:    *eventRule.IsActive,
+					CreatedAt:   eventRule.CreatedAt,
+				}
+				if eventRule.Definition != nil {
+					eventRuleInfo.Definition = json.RawMessage(*eventRule.Definition)
+				}
+			} else {
+				logger.Warn("event rule has nil RuleKey or IsActive; skipping EventRuleInfo in response",
+					zap.String("geofence_id", geofence.GeofenceID.String()),
+				)
 			}
 		}
 
@@ -302,19 +308,14 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 					Error: "Geofence not found",
 				})
 			}
-			logger.Error("failed to update geofence", 
-				zap.String("geofence_id", geofenceIDStr), 
+			logger.Error("failed to update geofence",
+				zap.String("geofence_id", geofenceIDStr),
 				zap.String("error_detail", err.Error()),
 				zap.Error(err))
-			
-			// Return more specific error message for debugging
-			errorMsg := "Failed to update geofence"
-			if err.Error() != "" {
-				errorMsg = fmt.Sprintf("Failed to update geofence: %s", err.Error())
-			}
-			
+
+			// Return a stable, generic error message to avoid exposing internal details
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
-				Error: errorMsg,
+				Error: "Failed to update geofence",
 			})
 		}
 
@@ -351,10 +352,19 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofence.GeofenceID.String())
 		if err == nil && len(eventRules) > 0 {
 			eventRule := eventRules[0]
+			// Safely handle potentially nil pointer fields
+			var ruleKey string
+			if eventRule.RuleKey != nil {
+				ruleKey = *eventRule.RuleKey
+			}
+			isActive := false
+			if eventRule.IsActive != nil {
+				isActive = *eventRule.IsActive
+			}
 			respGeofence.EventRule = &apimodels.EventRuleInfo{
 				EventRuleID: eventRule.EventRuleID,
-				RuleKey:     *eventRule.RuleKey,
-				IsActive:    *eventRule.IsActive,
+				RuleKey:     ruleKey,
+				IsActive:    isActive,
 				CreatedAt:   eventRule.CreatedAt,
 			}
 			if eventRule.Definition != nil {

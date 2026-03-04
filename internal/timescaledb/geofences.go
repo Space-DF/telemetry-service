@@ -180,7 +180,7 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 	}
 
 	var g models.Geofence
-	isActiveVal := false
+	isActiveVal := true
 	if isActive != nil {
 		isActiveVal = *isActive
 	}
@@ -246,7 +246,7 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 		)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				return fmt.Errorf("geofence not found")
+				return models.ErrGeofenceNotFound
 			}
 			return fmt.Errorf("failed to get geofence: %w", err)
 		}
@@ -295,7 +295,10 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			g.Geometry = models.Geometry(currentGeometry)
 			g.IsActive = currentIsActive
 			if currentSpaceID.Valid {
-				spaceUUID, _ := uuid.Parse(currentSpaceID.String)
+				spaceUUID, err := uuid.Parse(currentSpaceID.String)
+				if err != nil {
+					return fmt.Errorf("failed to parse current space ID %q as UUID: %w", currentSpaceID.String, err)
+				}
 				g.SpaceID = &spaceUUID
 			}
 			return nil

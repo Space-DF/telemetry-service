@@ -88,7 +88,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 
 	// Evaluate custom automation rules if they exist.
 	if len(rulesByKey) > 0 {
-		// Split rules into definition-based and geofence-based (deduplicated)
+		// Split rules into definition-based and geofence-based
 		seenIDs := make(map[string]bool)
 		var definitionRules, geofenceRules []models.EventRule
 

@@ -75,7 +75,6 @@ CREATE INDEX IF NOT EXISTS idx_event_rules_geofence_id ON event_rules (geofence_
 -- Add additional indexes for events table performance
 CREATE INDEX IF NOT EXISTS idx_events_entity_id ON events (entity_id);
 CREATE INDEX IF NOT EXISTS idx_events_space_id ON events (space_id);
-CREATE INDEX IF NOT EXISTS idx_events_time_fired ON events (time_fired_ts);
 CREATE INDEX IF NOT EXISTS idx_entities_space_id ON entities (space_id);
 
 -- migrate:down
@@ -85,7 +84,6 @@ DROP INDEX IF EXISTS idx_event_rules_space_id;
 DROP INDEX IF EXISTS idx_event_rules_geofence_id;
 DROP INDEX IF EXISTS idx_events_entity_id;
 DROP INDEX IF EXISTS idx_events_space_id;
-DROP INDEX IF EXISTS idx_events_time_fired;
 DROP INDEX IF EXISTS idx_entities_space_id;
 
 -- Rename column back to original name
