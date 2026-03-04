@@ -159,7 +159,9 @@ func (c *TaskConsumer) Connect() error {
 		false,
 		nil,
 	); err != nil {
-		c.logger.Warn("Failed to bind update queue", zap.Error(err))
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to bind update queue: %w", err)
 	}
 
 	// Bind delete queue to delete_space exchange
@@ -170,7 +172,9 @@ func (c *TaskConsumer) Connect() error {
 		false,
 		nil,
 	); err != nil {
-		c.logger.Warn("Failed to bind delete queue", zap.Error(err))
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to bind delete queue: %w", err)
 	}
 
 	c.logger.Info("Celery task consumer connected",

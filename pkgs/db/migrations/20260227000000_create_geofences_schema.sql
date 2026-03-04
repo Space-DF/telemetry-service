@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS spaces (
     space_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     logo TEXT,
-    space_slug TEXT NOT NULL,
+    space_slug TEXT NOT NULL UNIQUE,
     description TEXT,
     is_active BOOLEAN DEFAULT true,
     total_devices INT,
