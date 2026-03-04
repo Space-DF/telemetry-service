@@ -332,7 +332,6 @@ func (c *TaskConsumer) handleDeleteSpace(ctx context.Context, body []byte) error
 		return fmt.Errorf("failed to unmarshal delete_space task kwargs: %w", err)
 	}
 
-	// Parse space ID
 	spaceID, err := parseUUID(task.PK)
 	if err != nil {
 		return fmt.Errorf("invalid space ID '%s': %w", task.PK, err)
