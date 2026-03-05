@@ -14,6 +14,19 @@ import (
 )
 
 // getEventsByDevice returns all events for a specific device
+// @Summary Get events by device
+// @Description Retrieve all events for a specific device with optional time range filtering. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param device_id path string true "Device ID"
+// @Param limit query int false "Maximum number of events to return (default 100)"
+// @Param start_time query int64 false "Start time as Unix timestamp (milliseconds)"
+// @Param end_time query int64 false "End time as Unix timestamp (milliseconds)"
+// @Success 200 {object} models.EventsByDeviceResponse
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/events/device/{device_id} [get]
 func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -72,6 +85,18 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 }
 
 // getEventRules returns all event rules
+// @Summary Get event rules
+// @Description Retrieve all event rules with optional filtering by device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param device_id query string false "Filter by device ID"
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20)"
+// @Success 200 {object} models.EventRulesResponse
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/event-rules [get]
 func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -116,6 +141,16 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 }
 
 // createEventRule creates a new event rule
+// @Summary Create event rule
+// @Description Create a new event rule for monitoring and alerting. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param request body models.EventRuleRequest true "Event rule configuration"
+// @Success 201 {object} models.EventRuleItem
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/event-rules [post]
 func createEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -147,6 +182,17 @@ func createEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 }
 
 // updateEventRule updates an existing event rule
+// @Summary Update event rule
+// @Description Update an existing event rule by ID. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param rule_id path string true "Event Rule ID"
+// @Param request body models.EventRuleRequest true "Event rule configuration"
+// @Success 200 {object} models.EventRuleItem
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/event-rules/{rule_id} [put]
 func updateEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -186,6 +232,16 @@ func updateEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 }
 
 // deleteEventRule deletes an event rule
+// @Summary Delete event rule
+// @Description Delete an event rule by ID. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param rule_id path string true "Event Rule ID"
+// @Success 200 {object} models.DeleteEventRuleResponse
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/event-rules/{rule_id} [delete]
 func deleteEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)

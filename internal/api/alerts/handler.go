@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
-	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/api/alerts/models"
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -27,6 +27,24 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 }
 
 // GetAlerts returns alerts based on water level thresholds
+// @Summary Get alerts
+// @Description Retrieve alerts based on configurable thresholds for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags alerts
+// @Accept json
+// @Produce json
+// @Param device_id query string true "Device ID"
+// @Param category query string true "Alert category (e.g., water_level)"
+// @Param start_date query string true "Start date (YYYY-MM-DD format)"
+// @Param end_date query string true "End date (YYYY-MM-DD format)"
+// @Param caution_threshold query number false "Caution threshold value"
+// @Param warning_threshold query number false "Warning threshold value"
+// @Param critical_threshold query number false "Critical threshold value"
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20, max 100)"
+// @Success 200 {object} models.AlertsResponse
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/alerts [get]
 func (h *Handler) GetAlerts(c echo.Context) error {
 	// Resolve organization from hostname or X-Organization header
 	orgSlug := common.ResolveOrgFromRequest(c)

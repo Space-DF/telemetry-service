@@ -1,0 +1,12 @@
+info:
+  contact: {}
+  description: API for telemetry service
+  title: Telemetry API
+  version: "1.0"
+paths: {}
+securityDefinitions:
+  AccessToken:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

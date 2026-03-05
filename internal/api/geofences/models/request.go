@@ -10,7 +10,7 @@ import (
 type GeofenceFeature struct {
 	ID       uuid.UUID       `json:"id"`
 	Type     string          `json:"type"` // "Feature"
-	Geometry json.RawMessage `json:"geometry"`
+	Geometry json.RawMessage `json:"geometry" swaggertype:"object"`
 }
 
 type FeatureProperties struct {
@@ -19,22 +19,22 @@ type FeatureProperties struct {
 
 // CreateGeofenceRequest represents a request to create a new geofence
 type CreateGeofenceRequest struct {
-	Name       string            `json:"name" validate:"required,min=1,max=100"`
-	Type       string            `json:"type_zone" validate:"required,oneof=safe danger normal"` // "type_zone" from frontend
-	Geometry   []GeofenceFeature `json:"geometry" validate:"required"`                           // Multiple polygons
+	Name       string            `json:"name" validate:"required,min=1,max=100" example:"Restricted Area"`
+	Type       string            `json:"type_zone" validate:"required,oneof=safe danger normal" example:"danger"` // "type_zone" from frontend
+	Geometry   []GeofenceFeature `json:"geometry" validate:"required"`                                          // Multiple polygons
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
-	IsActive   *bool             `json:"is_active,omitempty"`
-	Definition json.RawMessage   `json:"definition,omitempty"`
+	IsActive   *bool             `json:"is_active,omitempty" example:"true"`
+	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"`
 }
 
 // UpdateGeofenceRequest represents a request to update a geofence
 type UpdateGeofenceRequest struct {
-	Name       *string           `json:"name,omitempty" validate:"omitempty,min=1,max=100"`
+	Name       *string           `json:"name,omitempty" validate:"omitempty,min=1,max=100" example:"Updated Area Name"`
 	Type       *string           `json:"type_zone,omitempty" validate:"omitempty,oneof=safe danger normal"`
 	Geometry   []GeofenceFeature `json:"geometry,omitempty"`
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty"`
-	Definition json.RawMessage   `json:"definition,omitempty"` // Event rule definition as JSON object
+	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"` // Event rule definition as JSON object
 }
 
 // ListGeofencesRequest represents query parameters for listing geofences

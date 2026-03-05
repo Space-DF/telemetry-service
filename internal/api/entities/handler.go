@@ -12,6 +12,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// GetEntities godoc
+// @Summary Get entities
+// @Description Retrieve a paginated list of entities with optional filtering. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags entities
+// @Accept json
+// @Produce json
+// @Param category query string false "Filter by entity category"
+// @Param device_id query string false "Filter by device ID"
+// @Param display_type query string false "Filter by display type (comma-separated)"
+// @Param search query string false "Search term for filtering"
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20)"
+// @Success 200 {object} models.EntitiesResponse
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/entities [get]
 func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Parse query params

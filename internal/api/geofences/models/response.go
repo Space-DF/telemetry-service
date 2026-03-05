@@ -12,7 +12,7 @@ type GeofenceResponse struct {
 	GeofenceID uuid.UUID       `json:"geofence_id"`
 	Name       string          `json:"name"`
 	TypeZone   string          `json:"type_zone"`
-	Geometry   json.RawMessage `json:"geometry"`
+	Geometry   json.RawMessage `json:"geometry" swaggertype:"object"`
 	EventRule  *EventRuleInfo  `json:"event_rule,omitempty"`
 	IsActive   bool            `json:"is_active"`
 	SpaceID    *uuid.UUID      `json:"space_id,omitempty"`
@@ -29,7 +29,7 @@ type GeofenceResponse struct {
 type EventRuleInfo struct {
 	EventRuleID string          `json:"event_rule_id"`
 	RuleKey     string          `json:"rule_key"`
-	Definition  json.RawMessage `json:"definition,omitempty"`
+	Definition  json.RawMessage `json:"definition,omitempty" swaggertype:"object"`
 	IsActive    bool            `json:"is_active"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
@@ -48,7 +48,7 @@ type GeofenceDetailResponse struct {
 	GeofenceID uuid.UUID       `json:"geofence_id"`
 	Name       string          `json:"name"`
 	TypeZone   string          `json:"type_zone"`
-	Geometry   json.RawMessage `json:"geometry"`
+	Geometry   json.RawMessage `json:"geometry" swaggertype:"object"`
 	EventRule  *EventRuleInfo  `json:"event_rule,omitempty"`
 	IsActive   bool            `json:"is_active"`
 	SpaceID    *uuid.UUID      `json:"space_id,omitempty"`
