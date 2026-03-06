@@ -333,7 +333,7 @@ func (c *TaskConsumer) handleDeleteSpace(ctx context.Context, body []byte) error
 	}
 
 	// Parse space ID
-	spaceID, err := parseUUID(task.PK)
+	spaceID, err := parseUUID(task.PK.String())
 	if err != nil {
 		return fmt.Errorf("invalid space ID '%s': %w", task.PK, err)
 	}
