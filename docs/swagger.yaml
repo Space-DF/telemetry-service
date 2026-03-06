@@ -1,0 +1,971 @@
+definitions:
+  models.AlertsResponse:
+    properties:
+      page:
+        example: 1
+        type: integer
+      page_size:
+        example: 20
+        type: integer
+      results:
+        items: {}
+        type: array
+      total_count:
+        example: 150
+        type: integer
+    type: object
+  models.CreateGeofenceRequest:
+    properties:
+      definition:
+        type: object
+      geometry:
+        description: Multiple polygons
+        items:
+          $ref: '#/definitions/models.GeofenceFeature'
+        type: array
+      is_active:
+        example: true
+        type: boolean
+      name:
+        example: Restricted Area
+        maxLength: 100
+        minLength: 1
+        type: string
+      space_id:
+        type: string
+      type_zone:
+        description: '"type_zone" from frontend'
+        enum:
+        - safe
+        - danger
+        - normal
+        example: danger
+        type: string
+    required:
+    - geometry
+    - name
+    - type_zone
+    type: object
+  models.CreateGeofenceResponse:
+    properties:
+      geofence:
+        $ref: '#/definitions/models.GeofenceResponse'
+      message:
+        type: string
+    type: object
+  models.DeleteEventRuleResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  models.DeleteGeofenceResponse:
+    properties:
+      message:
+        type: string
+    type: object
+  models.EntitiesResponse:
+    properties:
+      count:
+        example: 25
+        type: integer
+      results:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+    type: object
+  models.ErrorResponse:
+    properties:
+      error:
+        type: string
+      message:
+        type: string
+    type: object
+  models.EventItem:
+    properties:
+      entity_id:
+        type: string
+      event_data:
+        additionalProperties: true
+        type: object
+      event_id:
+        type: integer
+      event_level:
+        type: string
+      event_type:
+        type: string
+      space_slug:
+        type: string
+      time_fired:
+        type: string
+    type: object
+  models.EventRuleInfo:
+    properties:
+      created_at:
+        type: string
+      definition:
+        type: object
+      event_rule_id:
+        type: string
+      is_active:
+        type: boolean
+      rule_key:
+        type: string
+    type: object
+  models.EventRuleItem:
+    properties:
+      cooldown_sec:
+        type: integer
+      created_at:
+        type: string
+      definition:
+        type: string
+      description:
+        type: string
+      device_id:
+        type: string
+      event_rule_id:
+        type: string
+      geofence_id:
+        type: string
+      is_active:
+        type: boolean
+      repeat_able:
+        type: boolean
+      rule_key:
+        type: string
+      space_id:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.EventRuleRequest:
+    properties:
+      cooldown_sec:
+        type: integer
+      definition:
+        type: string
+      description:
+        type: string
+      device_id:
+        type: string
+      geofence_id:
+        type: string
+      is_active:
+        type: boolean
+      repeat_able:
+        type: boolean
+      rule_key:
+        type: string
+      space_id:
+        type: string
+    required:
+    - rule_key
+    type: object
+  models.EventRulesResponse:
+    properties:
+      page:
+        type: integer
+      page_size:
+        type: integer
+      rules:
+        items:
+          $ref: '#/definitions/models.EventRuleItem'
+        type: array
+      total_count:
+        type: integer
+    type: object
+  models.EventsByDeviceResponse:
+    properties:
+      count:
+        type: integer
+      device_id:
+        type: string
+      events:
+        items:
+          $ref: '#/definitions/models.EventItem'
+        type: array
+    type: object
+  models.GeofenceFeature:
+    properties:
+      geometry:
+        type: object
+      id:
+        type: string
+      type:
+        description: '"Feature"'
+        type: string
+    type: object
+  models.GeofenceResponse:
+    properties:
+      created_at:
+        type: string
+      event_rule:
+        $ref: '#/definitions/models.EventRuleInfo'
+      geofence_id:
+        type: string
+      geometry:
+        type: object
+      is_active:
+        type: boolean
+      name:
+        type: string
+      space_id:
+        type: string
+      space_logo:
+        type: string
+      space_name:
+        description: Optional joined fields
+        type: string
+      space_slug:
+        type: string
+      type_zone:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  models.GeofencesByDeviceResponse:
+    properties:
+      count:
+        type: integer
+      device_id:
+        type: string
+      geofences:
+        items:
+          $ref: '#/definitions/models.GeofenceResponse'
+        type: array
+    type: object
+  models.GeofencesListResponse:
+    properties:
+      geofences:
+        items:
+          $ref: '#/definitions/models.GeofenceResponse'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total_count:
+        type: integer
+    type: object
+  models.LocationHistoryResponse:
+    properties:
+      count:
+        example: 100
+        type: integer
+      locations:
+        items:
+          $ref: '#/definitions/models.LocationResponse'
+        type: array
+    type: object
+  models.LocationResponse:
+    properties:
+      device_id:
+        example: device-123
+        type: string
+      latitude:
+        example: 37.7749
+        type: number
+      longitude:
+        example: -122.4194
+        type: number
+      timestamp:
+        example: "2024-01-15T10:30:00Z"
+        type: string
+    type: object
+  models.UpdateGeofenceRequest:
+    properties:
+      definition:
+        description: Event rule definition as JSON object
+        type: object
+      geometry:
+        items:
+          $ref: '#/definitions/models.GeofenceFeature'
+        type: array
+      is_active:
+        type: boolean
+      name:
+        example: Updated Area Name
+        maxLength: 100
+        minLength: 1
+        type: string
+      space_id:
+        type: string
+      type_zone:
+        enum:
+        - safe
+        - danger
+        - normal
+        type: string
+    type: object
+  models.UpdateGeofenceResponse:
+    properties:
+      geofence:
+        $ref: '#/definitions/models.GeofenceResponse'
+      message:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: API for telemetry service
+  title: Telemetry API
+  version: "1.0"
+paths:
+  /telemetry/v1/alerts:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve alerts based on configurable thresholds for a specific
+        device. Organization is resolved from X-Organization header or hostname (e.g.,
+        {org}.localhost)
+      parameters:
+      - description: Device ID
+        in: query
+        name: device_id
+        required: true
+        type: string
+      - description: Alert category (e.g., water_level)
+        in: query
+        name: category
+        required: true
+        type: string
+      - description: Start date (YYYY-MM-DD format)
+        in: query
+        name: start_date
+        required: true
+        type: string
+      - description: End date (YYYY-MM-DD format)
+        in: query
+        name: end_date
+        required: true
+        type: string
+      - description: Caution threshold value
+        in: query
+        name: caution_threshold
+        type: number
+      - description: Warning threshold value
+        in: query
+        name: warning_threshold
+        type: number
+      - description: Critical threshold value
+        in: query
+        name: critical_threshold
+        type: number
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.AlertsResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get alerts
+      tags:
+      - alerts
+  /telemetry/v1/data/latest:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve the latest properties/attributes for a specific device
+        in a space. Organization is resolved from X-Organization header or hostname
+        (e.g., {org}.localhost)
+      parameters:
+      - description: Device ID
+        in: query
+        name: device_id
+        required: true
+        type: string
+      - description: Space slug
+        in: query
+        name: space_slug
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Device properties as key-value pairs
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get device properties
+      tags:
+      - data
+  /telemetry/v1/entities:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a paginated list of entities with optional filtering.
+        Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Filter by entity category
+        in: query
+        name: category
+        type: string
+      - description: Filter by device ID
+        in: query
+        name: device_id
+        type: string
+      - description: Filter by display type (comma-separated)
+        in: query
+        name: display_type
+        type: string
+      - description: Search term for filtering
+        in: query
+        name: search
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.EntitiesResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get entities
+      tags:
+      - entities
+  /telemetry/v1/event-rules:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all event rules with optional filtering by device. Organization
+        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Filter by device ID
+        in: query
+        name: device_id
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.EventRulesResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get event rules
+      tags:
+      - events
+    post:
+      consumes:
+      - application/json
+      description: Create a new event rule for monitoring and alerting. Organization
+        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Event rule configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.EventRuleRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.EventRuleItem'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Create event rule
+      tags:
+      - events
+  /telemetry/v1/event-rules/{rule_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete an event rule by ID. Organization is resolved from X-Organization
+        header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Event Rule ID
+        in: path
+        name: rule_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.DeleteEventRuleResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Delete event rule
+      tags:
+      - events
+    put:
+      consumes:
+      - application/json
+      description: Update an existing event rule by ID. Organization is resolved from
+        X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Event Rule ID
+        in: path
+        name: rule_id
+        required: true
+        type: string
+      - description: Event rule configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.EventRuleRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.EventRuleItem'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Update event rule
+      tags:
+      - events
+  /telemetry/v1/events/device/{device_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all events for a specific device with optional time range
+        filtering. Organization is resolved from X-Organization header or hostname
+        (e.g., {org}.localhost)
+      parameters:
+      - description: Device ID
+        in: path
+        name: device_id
+        required: true
+        type: string
+      - description: Maximum number of events to return (default 100)
+        in: query
+        name: limit
+        type: integer
+      - description: Start time as Unix timestamp (milliseconds)
+        format: int64
+        in: query
+        name: start_time
+        type: integer
+      - description: End time as Unix timestamp (milliseconds)
+        format: int64
+        in: query
+        name: end_time
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.EventsByDeviceResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get events by device
+      tags:
+      - events
+  /telemetry/v1/geofences:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all geofences with optional filtering by space and active
+        status. Organization is resolved from X-Organization header or hostname (e.g.,
+        {org}.localhost)
+      parameters:
+      - description: Filter by Space UUID
+        in: query
+        name: space_id
+        type: string
+      - description: Filter by active status
+        in: query
+        name: is_active
+        type: boolean
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Page size (default 20, max 100)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GeofencesListResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get geofences
+      tags:
+      - geofences
+    post:
+      consumes:
+      - application/json
+      description: Create a new geofence with polygon geometry for a space. Organization
+        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Geofence configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.CreateGeofenceRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/models.CreateGeofenceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Create geofence
+      tags:
+      - geofences
+  /telemetry/v1/geofences/{geofence_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a geofence by ID. Organization is resolved from X-Organization
+        header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Geofence UUID
+        in: path
+        name: geofence_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.DeleteGeofenceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Delete geofence
+      tags:
+      - geofences
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a single geofence by its UUID. Organization is resolved
+        from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Geofence UUID
+        in: path
+        name: geofence_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GeofenceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get geofence by ID
+      tags:
+      - geofences
+    put:
+      consumes:
+      - application/json
+      description: Update an existing geofence by ID. Organization is resolved from
+        X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Geofence UUID
+        in: path
+        name: geofence_id
+        required: true
+        type: string
+      - description: Geofence updates
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.UpdateGeofenceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.UpdateGeofenceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Update geofence
+      tags:
+      - geofences
+  /telemetry/v1/geofences/device/{device_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all geofences associated with a specific device. Organization
+        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Device ID
+        in: path
+        name: device_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.GeofencesByDeviceResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get geofences by device
+      tags:
+      - geofences
+  /telemetry/v1/location/history:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve historical location data for a specific device within
+        a space. Organization is resolved from X-Organization header or hostname (e.g.,
+        {org}.localhost)
+      parameters:
+      - description: Device ID
+        in: query
+        name: device_id
+        required: true
+        type: string
+      - description: Space slug
+        in: query
+        name: space_slug
+        required: true
+        type: string
+      - description: Start time (RFC3339 format)
+        in: query
+        name: start
+        required: true
+        type: string
+      - description: End time (RFC3339 format, defaults to now)
+        in: query
+        name: end
+        type: string
+      - description: Maximum number of records to return (default 100, max 40320)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/models.LocationHistoryResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get device location history
+      tags:
+      - location
+  /telemetry/v1/widget/data/{entity_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve data for dashboard widgets based on display type (gauge,
+        switch, chart, histogram, table, map, slider, value). Organization is resolved
+        from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Entity ID
+        in: path
+        name: entity_id
+        required: true
+        type: string
+      - description: Display type (gauge, switch, chart, histogram, table, map, slider,
+          value)
+        in: query
+        name: display_type
+        required: true
+        type: string
+      - description: Start time (RFC3339 format, required for chart, histogram, table)
+        in: query
+        name: start_time
+        type: string
+      - description: End time (RFC3339 format, required for chart, histogram, table)
+        in: query
+        name: end_time
+        type: string
+      - description: Aggregation method (mean, min, max, sum, count)
+        in: query
+        name: aggregation
+        type: string
+      - description: Time interval for grouping (e.g., 1m, 5m, 1h, 1d)
+        in: query
+        name: interval
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Widget data based on display type
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Get widget data
+      tags:
+      - widget
+securityDefinitions:
+  API Key:
+    in: header
+    name: X-API-Key
+    type: apiKey
+  Access Token:
+    in: header
+    name: Authorization
+    type: apiKey
+  Organization slug name:
+    in: header
+    name: X-Organization
+    type: apiKey
+  Space slug name:
+    in: header
+    name: X-Space
+    type: apiKey
+swagger: "2.0"

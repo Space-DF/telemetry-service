@@ -1,0 +1,17 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API for telemetry service",
+        "title": "Telemetry API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "paths": {},
+    "securityDefinitions": {
+        "AccessToken": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

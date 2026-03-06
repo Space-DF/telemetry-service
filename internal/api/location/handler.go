@@ -15,6 +15,21 @@ const (
 	MaxLimit     = 24 * 3600 / 30 * 7 // one week
 )
 
+// GetLocationHistory godoc
+// @Summary Get device location history
+// @Description Retrieve historical location data for a specific device within a space. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags location
+// @Accept json
+// @Produce json
+// @Param device_id query string true "Device ID"
+// @Param space_slug query string true "Space slug"
+// @Param start query string true "Start time (RFC3339 format)"
+// @Param end query string false "End time (RFC3339 format, defaults to now)"
+// @Param limit query int false "Maximum number of records to return (default 100, max 40320)"
+// @Success 200 {object} models.LocationHistoryResponse
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/location/history [get]
 func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var r models.LocationHistoryRequest

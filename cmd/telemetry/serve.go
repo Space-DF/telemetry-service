@@ -26,10 +26,11 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/Space-DF/telemetry-service/docs"
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	amqp "github.com/Space-DF/telemetry-service/internal/amqp/multi-tenant"
-	celeryconsumer "github.com/Space-DF/telemetry-service/internal/celery"
 	"github.com/Space-DF/telemetry-service/internal/api"
+	celeryconsumer "github.com/Space-DF/telemetry-service/internal/celery"
 	"github.com/Space-DF/telemetry-service/internal/events/registry"
 	"github.com/Space-DF/telemetry-service/internal/health"
 	"github.com/Space-DF/telemetry-service/internal/services"
@@ -37,6 +38,7 @@ import (
 	"github.com/Space-DF/telemetry-service/pkgs/db"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	echoSwagger "github.com/swaggo/echo-swagger"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
 )
@@ -130,6 +132,9 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
+
+	// Setup Swagger docs endpoint
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	group := e.Group("/api/telemetry")
 	api.Setup(appConfig, group, logger, tsClient)

@@ -18,6 +18,19 @@ import (
 )
 
 // getGeofences returns all geofences with optional filters
+// @Summary Get geofences
+// @Description Retrieve all geofences with optional filtering by space and active status. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags geofences
+// @Accept json
+// @Produce json
+// @Param space_id query string false "Filter by Space UUID"
+// @Param is_active query bool false "Filter by active status"
+// @Param page query int false "Page number (default 1)"
+// @Param page_size query int false "Page size (default 20, max 100)"
+// @Success 200 {object} models.GeofencesListResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /telemetry/v1/geofences [get]
 func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -82,6 +95,17 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 }
 
 // getGeofenceByID returns a single geofence by ID
+// @Summary Get geofence by ID
+// @Description Retrieve a single geofence by its UUID. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags geofences
+// @Accept json
+// @Produce json
+// @Param geofence_id path string true "Geofence UUID"
+// @Success 200 {object} models.GeofenceResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /telemetry/v1/geofences/{geofence_id} [get]
 func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -118,6 +142,16 @@ func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 }
 
 // createGeofence creates a new geofence
+// @Summary Create geofence
+// @Description Create a new geofence with polygon geometry for a space. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags geofences
+// @Accept json
+// @Produce json
+// @Param request body models.CreateGeofenceRequest true "Geofence configuration"
+// @Success 201 {object} models.CreateGeofenceResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /telemetry/v1/geofences [post]
 func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -264,6 +298,18 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 }
 
 // updateGeofence updates an existing geofence
+// @Summary Update geofence
+// @Description Update an existing geofence by ID. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags geofences
+// @Accept json
+// @Produce json
+// @Param geofence_id path string true "Geofence UUID"
+// @Param request body models.UpdateGeofenceRequest true "Geofence updates"
+// @Success 200 {object} models.UpdateGeofenceResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /telemetry/v1/geofences/{geofence_id} [put]
 func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -379,6 +425,17 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 }
 
 // deleteGeofence deletes a geofence
+// @Summary Delete geofence
+// @Description Delete a geofence by ID. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags geofences
+// @Accept json
+// @Produce json
+// @Param geofence_id path string true "Geofence UUID"
+// @Success 200 {object} models.DeleteGeofenceResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 404 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /telemetry/v1/geofences/{geofence_id} [delete]
 func deleteGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -429,6 +486,16 @@ func deleteGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 }
 
 // getGeofencesByDevice returns geofences associated with a device
+// @Summary Get geofences by device
+// @Description Retrieve all geofences associated with a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags geofences
+// @Accept json
+// @Produce json
+// @Param device_id path string true "Device ID"
+// @Success 200 {object} models.GeofencesByDeviceResponse
+// @Failure 400 {object} models.ErrorResponse
+// @Failure 500 {object} models.ErrorResponse
+// @Router /telemetry/v1/geofences/device/{device_id} [get]
 func getGeofencesByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)

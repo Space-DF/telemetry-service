@@ -11,6 +11,22 @@ import (
 	"go.uber.org/zap"
 )
 
+// GetWidgetData godoc
+// @Summary Get widget data
+// @Description Retrieve data for dashboard widgets based on display type (gauge, switch, chart, histogram, table, map, slider, value). Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags widget
+// @Accept json
+// @Produce json
+// @Param entity_id path string true "Entity ID"
+// @Param display_type query string true "Display type (gauge, switch, chart, histogram, table, map, slider, value)"
+// @Param start_time query string false "Start time (RFC3339 format, required for chart, histogram, table)"
+// @Param end_time query string false "End time (RFC3339 format, required for chart, histogram, table)"
+// @Param aggregation query string false "Aggregation method (mean, min, max, sum, count)"
+// @Param interval query string false "Time interval for grouping (e.g., 1m, 5m, 1h, 1d)"
+// @Success 200 {object} map[string]interface{} "Widget data based on display type"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /telemetry/v1/widget/data/{entity_id} [get]
 func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req models.WidgetDataRequest
