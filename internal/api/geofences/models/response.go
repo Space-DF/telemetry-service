@@ -9,10 +9,10 @@ import (
 
 // GeofenceResponse represents a geofence in API responses
 type GeofenceResponse struct {
-	GeofenceID uuid.UUID       `json:"geofence_id"`
+	GeofenceID uuid.UUID       `json:"id"`
 	Name       string          `json:"name"`
 	TypeZone   string          `json:"type_zone"`
-	Geometry   json.RawMessage `json:"geometry"`
+	Geometry   json.RawMessage `json:"geometry" swaggertype:"object"`
 	EventRule  *EventRuleInfo  `json:"event_rule,omitempty"`
 	IsActive   bool            `json:"is_active"`
 	SpaceID    *uuid.UUID      `json:"space_id,omitempty"`
@@ -29,14 +29,14 @@ type GeofenceResponse struct {
 type EventRuleInfo struct {
 	EventRuleID string          `json:"event_rule_id"`
 	RuleKey     string          `json:"rule_key"`
-	Definition  json.RawMessage `json:"definition,omitempty"`
+	Definition  json.RawMessage `json:"definition,omitempty" swaggertype:"object"`
 	IsActive    bool            `json:"is_active"`
 	CreatedAt   time.Time       `json:"created_at"`
 }
 
 // GeofencesListResponse represents a paginated list of geofences
 type GeofencesListResponse struct {
-	Geofences  []GeofenceResponse `json:"geofences"`
+	Results    []GeofenceResponse `json:"results"`
 	TotalCount int                `json:"total_count"`
 	Page       int                `json:"page"`
 	PageSize   int                `json:"page_size"`
@@ -45,10 +45,10 @@ type GeofencesListResponse struct {
 
 // GeofenceDetailResponse represents a detailed geofence with additional info
 type GeofenceDetailResponse struct {
-	GeofenceID uuid.UUID       `json:"geofence_id"`
+	GeofenceID uuid.UUID       `json:"id"`
 	Name       string          `json:"name"`
 	TypeZone   string          `json:"type_zone"`
-	Geometry   json.RawMessage `json:"geometry"`
+	Geometry   json.RawMessage `json:"geometry" swaggertype:"object"`
 	EventRule  *EventRuleInfo  `json:"event_rule,omitempty"`
 	IsActive   bool            `json:"is_active"`
 	SpaceID    *uuid.UUID      `json:"space_id,omitempty"`
@@ -92,13 +92,13 @@ type SpaceItem struct {
 // GeofencesByDeviceResponse represents geofences associated with a device
 type GeofencesByDeviceResponse struct {
 	DeviceID  string             `json:"device_id"`
-	Geofences []GeofenceResponse `json:"geofences"`
+	Results  []GeofenceResponse `json:"results"`
 	Count     int                `json:"count"`
 }
 
 // PointInGeofenceResponse represents the result of a point-in-geofence check
 type PointInGeofenceResponse struct {
-	GeofenceID uuid.UUID `json:"geofence_id"`
+	GeofenceID uuid.UUID `json:"id"`
 	Name       string    `json:"name"`
 	IsInside   bool      `json:"is_inside"`
 }
@@ -149,4 +149,24 @@ type DeleteSpaceResponse struct {
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Message string `json:"message,omitempty"`
+}
+
+// TestGeofenceResponse represents the result of testing a geofence configuration against all devices
+type TestGeofenceResponse struct {
+	Name      string                 `json:"name,omitempty"` // Optional name provided in request
+	TypeZone  string                 `json:"type_zone"`      // Zone type from request
+	Devices   []DeviceGeofenceResult `json:"devices"`        // Test results per device
+	Total     int                    `json:"total"`          // Total devices tested
+	Triggered int                    `json:"triggered"`      // Number of devices that triggered
+}
+
+// DeviceGeofenceResult represents the geofence test result for a single device
+type DeviceGeofenceResult struct {
+	DeviceID   string  `json:"device_id"`
+	Latitude   float64 `json:"latitude"`
+	Longitude  float64 `json:"longitude"`
+	IsInside   bool    `json:"is_inside"`
+	DistanceKm float64 `json:"distance_km"`
+	Triggered  bool    `json:"triggered"`
+	Reason     string  `json:"reason"`
 }

@@ -96,8 +96,8 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 				var categoryCol, unit, imageURL sql.NullString
 				var displayType pq.StringArray
 				var isEnabled bool
-				var createdAt, updatedAt pq.NullTime
-				var timeStart, timeEnd pq.NullTime
+				var createdAt, updatedAt sql.NullTime
+				var timeStart, timeEnd sql.NullTime
 
 				if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &imageURL, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 					return err
@@ -146,8 +146,8 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 			var categoryCol, unit, imageURL sql.NullString
 			var displayType pq.StringArray
 			var isEnabled bool
-			var createdAt, updatedAt pq.NullTime
-			var timeStart, timeEnd pq.NullTime
+			var createdAt, updatedAt sql.NullTime
+			var timeStart, timeEnd sql.NullTime
 
 			if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &imageURL, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 				return nil, 0, err

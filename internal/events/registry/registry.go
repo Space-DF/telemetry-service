@@ -109,7 +109,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 
 		// Evaluate definition rules against unified context from ALL entities
 		for _, rule := range definitionRules {
-			if matched := r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, nil); matched != nil {
+			if matched := r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, map[string]interface{}{}); matched != nil {
 				matchedEvents = append(matchedEvents, *matched)
 				if rule.RuleKey != nil && *rule.RuleKey != "" {
 					matchedRuleKeys[*rule.RuleKey] = true
@@ -138,7 +138,11 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 
 					// If rule has a definition, also check those conditions
 					if rule.Definition != nil && *rule.Definition != "" {
-						if r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, nil) == nil {
+						extraCtx := map[string]interface{}{}
+						if distKm, err := r.db.DistanceToGeofenceKm(ctx, *rule.GeofenceID, lat, lon); err == nil {
+							extraCtx["distance_from_geofence_km"] = distKm
+						}
+						if r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, extraCtx) == nil {
 							continue // Definition conditions not met
 						}
 					}

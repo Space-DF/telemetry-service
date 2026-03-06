@@ -138,7 +138,7 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 }
 
 // EvaluateRuleDBWithEntities evaluates a database rule against ALL entities combined into a single context.
-func (e *Evaluator) EvaluateRuleDBWithEntities(rule models.EventRule, deviceID string, entities []models.TelemetryEntity, deviceInfo map[string]interface{}) *models.MatchedEvent {
+func (e *Evaluator) EvaluateRuleDBWithEntities(rule models.EventRule, deviceID string, entities []models.TelemetryEntity, deviceInfo map[string]interface{}, extraContext map[string]interface{}) *models.MatchedEvent {
 	// Skip inactive rules
 	if rule.IsActive != nil && !*rule.IsActive {
 		return nil
@@ -162,6 +162,11 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule models.EventRule, deviceID s
 
 	// Build unified context from ALL entities
 	context := e.conditionEvaluator.BuildUnifiedContext(entities, deviceID, deviceInfo)
+
+	// Merge extra context (e.g. distance_from_geofence_km)
+	for k, v := range extraContext {
+		context[k] = v
+	}
 
 	// Evaluate definition using condition evaluator with unified context
 	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(*rule.Definition, context)
