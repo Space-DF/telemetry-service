@@ -7,6 +7,37 @@ import (
 	"github.com/google/uuid"
 )
 
+// DjangoUUID represents a UUID that can be unmarshaled from either
+// a plain string or Django's UUID object format
+type DjangoUUID string
+
+func (d *DjangoUUID) UnmarshalJSON(data []byte) error {
+	// Try plain string first
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		*d = DjangoUUID(str)
+		return nil
+	}
+
+	// Django UUID object format: {"__type__": "uuid", "__value__": {"hex": "..."}}
+	var djangoID struct {
+		Type  string `json:"__type__"`
+		Value struct {
+			Hex string `json:"hex"`
+		} `json:"__value__"`
+	}
+	if err := json.Unmarshal(data, &djangoID); err == nil && djangoID.Type == "uuid" {
+		*d = DjangoUUID(djangoID.Value.Hex)
+		return nil
+	}
+
+	return fmt.Errorf("cannot unmarshal %s into DjangoUUID", string(data))
+}
+
+func (d DjangoUUID) String() string {
+	return string(d)
+}
+
 // SpaceData represents the space data sent in Celery update_space task
 type SpaceData struct {
 	ID           uuid.UUID `json:"-"`
@@ -20,16 +51,8 @@ type SpaceData struct {
 	CreatedBy    uuid.UUID `json:"-"`
 }
 
-// djangoUUID represents Django's UUID serialization format
-type djangoUUID struct {
-	Type  string `json:"__type__"`
-	Value struct {
-		Hex string `json:"hex"`
-	} `json:"__value__"`
-}
-
 // UnmarshalJSON implements custom JSON unmarshaling for SpaceData
-// to handle UUID and datetime fields that come in Django's special format
+// to handle UUID fields that come in Django's special format
 func (s *SpaceData) UnmarshalJSON(data []byte) error {
 	// Parse raw JSON
 	var raw map[string]json.RawMessage
@@ -37,11 +60,11 @@ func (s *SpaceData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Handle special Django types first
+	// Handle id field
 	if idRaw, ok := raw["id"]; ok {
-		var djangoID djangoUUID
-		if err := json.Unmarshal(idRaw, &djangoID); err == nil && djangoID.Type == "uuid" {
-			parsedID, err := uuid.Parse(djangoID.Value.Hex)
+		var djangoID DjangoUUID
+		if err := json.Unmarshal(idRaw, &djangoID); err == nil && djangoID != "" {
+			parsedID, err := uuid.Parse(djangoID.String())
 			if err != nil {
 				return fmt.Errorf("invalid id UUID: %w", err)
 			}
@@ -49,10 +72,11 @@ func (s *SpaceData) UnmarshalJSON(data []byte) error {
 		}
 	}
 
+	// Handle created_by field
 	if createdByRaw, ok := raw["created_by"]; ok {
-		var djangoCreatedBy djangoUUID
-		if err := json.Unmarshal(createdByRaw, &djangoCreatedBy); err == nil && djangoCreatedBy.Type == "uuid" {
-			parsedCreatedBy, err := uuid.Parse(djangoCreatedBy.Value.Hex)
+		var djangoCreatedBy DjangoUUID
+		if err := json.Unmarshal(createdByRaw, &djangoCreatedBy); err == nil && djangoCreatedBy != "" {
+			parsedCreatedBy, err := uuid.Parse(djangoCreatedBy.String())
 			if err != nil {
 				return fmt.Errorf("invalid created_by UUID: %w", err)
 			}
@@ -60,7 +84,7 @@ func (s *SpaceData) UnmarshalJSON(data []byte) error {
 		}
 	}
 
-	// Remove special fields from raw so they don't interfere with standard unmarshaling
+	// Remove special fields so they don't interfere with standard unmarshaling
 	delete(raw, "id")
 	delete(raw, "created_by")
 	delete(raw, "created_at")
@@ -110,6 +134,6 @@ type UpdateSpaceTask struct {
 
 // DeleteSpaceTask represents the Celery task kwargs for delete_space
 type DeleteSpaceTask struct {
-	OrganizationSlugName string `json:"organization_slug_name"`
-	PK                   string `json:"pk"` // Space ID as string
+	OrganizationSlugName string      `json:"organization_slug_name"`
+	PK                   DjangoUUID  `json:"pk"`
 }
