@@ -6,6 +6,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// GeofenceFeature represents a single polygon feature in a geofence
+type GeofenceFeature struct {
+	ID       uuid.UUID       `json:"id"`
+	Type     string          `json:"type"` // "Feature"
+	Geometry json.RawMessage `json:"geometry" swaggertype:"object"`
+}
+
 type FeatureProperties struct {
 	Mode string `json:"mode"`
 }
