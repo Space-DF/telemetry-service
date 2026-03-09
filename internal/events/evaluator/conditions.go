@@ -214,19 +214,36 @@ func (c *ConditionEvaluator) evaluateOrCondition(orConditions interface{}, conte
 
 // evaluateNotCondition evaluates NOT logic
 func (c *ConditionEvaluator) evaluateNotCondition(notCondition interface{}, context map[string]interface{}) (bool, string) {
-	condMap, ok := notCondition.(map[string]interface{})
+	conditions, ok := notCondition.([]interface{})
 	if !ok {
 		return false, "invalid not condition format"
 	}
 
-	result, detail := c.evaluateCondition(condMap, context)
-	return !result, fmt.Sprintf("NOT(%s)", detail)
+	var details []string
+	for _, cond := range conditions {
+		condMap, ok := cond.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		result, detail := c.evaluateCondition(condMap, context)
+		if result {
+			return false, fmt.Sprintf("NOT failed on: %s", detail)
+		}
+		details = append(details, detail)
+	}
+
+	return true, fmt.Sprintf("NOT(%s)", strings.Join(details, ", "))
 }
 
 // evaluateSpecialCondition handles special condition types
 func (c *ConditionEvaluator) evaluateSpecialCondition(condition map[string]interface{}, context map[string]interface{}) (bool, string, bool) {
 	if weekdayRule, ok := condition["weekday_between"]; ok {
 		return c.evaluateWeekdayBetween(weekdayRule, context), "weekday_between", true
+	}
+
+	if weekdayInRule, ok := condition["weekday_in"]; ok {
+		return c.evaluateWeekdayIn(weekdayInRule, context), "weekday_in", true
 	}
 
 	if timeRule, ok := condition["time_between"]; ok {
@@ -314,6 +331,30 @@ func (c *ConditionEvaluator) evaluateWeekdayBetween(rule interface{}, context ma
 
 	weekday := int(reportedAt.Weekday())
 	return from <= weekday && weekday <= to
+}
+
+// evaluateWeekdayIn checks if the current weekday is in the given list.
+func (c *ConditionEvaluator) evaluateWeekdayIn(rule interface{}, context map[string]interface{}) bool {
+	days, ok := rule.([]interface{})
+	if !ok {
+		return false
+	}
+
+	reportedAt, ok := context["reported_at"].(time.Time)
+	if !ok {
+		return false
+	}
+
+	weekday := int(reportedAt.Weekday())
+	c.logger.Info("Evaluating weekday_in condition", zap.Int("weekday", weekday), zap.Any("days", days))
+	for _, d := range days {
+		day, ok := c.convertToInt(d)
+		if ok && day == weekday {
+			return true
+		}
+	}
+
+	return false
 }
 
 // evaluateTimeBetween evaluates time range conditions

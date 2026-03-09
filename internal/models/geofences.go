@@ -1,6 +1,7 @@
 package models
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -78,9 +79,17 @@ type GeofenceWithSpace struct {
 	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
 
 	// Joined space fields
-	SpaceName   *string `json:"space_name,omitempty" db:"space_name"`
-	SpaceSlug   *string `json:"space_slug,omitempty" db:"space_slug"`
-	SpaceLogo   *string `json:"space_logo,omitempty" db:"space_logo"`
+	SpaceName *string `json:"space_name,omitempty" db:"space_name"`
+	SpaceSlug *string `json:"space_slug,omitempty" db:"space_slug"`
+	SpaceLogo *string `json:"space_logo,omitempty" db:"space_logo"`
 }
 
-
+// DeviceGeofenceCheck holds the result of a spatial check between a device's last location and a geofence.
+type DeviceGeofenceCheck struct {
+	DeviceID   string
+	Latitude   float64
+	Longitude  float64
+	IsInside   bool
+	ReportedAt sql.NullTime
+	DistanceKm float64
+}

@@ -19,9 +19,9 @@ type FeatureProperties struct {
 
 // CreateGeofenceRequest represents a request to create a new geofence
 type CreateGeofenceRequest struct {
-	Name       string            `json:"name" validate:"required,min=1,max=100" example:"Restricted Area"`
-	Type       string            `json:"type_zone" validate:"required,oneof=safe danger normal" example:"danger"` // "type_zone" from frontend
-	Geometry   []GeofenceFeature `json:"geometry" validate:"required"`                                          // Multiple polygons
+	Name       string            `json:"name" validate:"required,min=1,max=100"`
+	Type       string            `json:"type_zone" validate:"required,oneof=safe danger normal"` // "type_zone" from frontend
+	Geometry   []json.RawMessage `json:"geometry" validate:"required"`                           // Multiple polygons
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty" example:"true"`
 	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"`
@@ -31,7 +31,7 @@ type CreateGeofenceRequest struct {
 type UpdateGeofenceRequest struct {
 	Name       *string           `json:"name,omitempty" validate:"omitempty,min=1,max=100" example:"Updated Area Name"`
 	Type       *string           `json:"type_zone,omitempty" validate:"omitempty,oneof=safe danger normal"`
-	Geometry   []GeofenceFeature `json:"geometry,omitempty"`
+	Geometry   []json.RawMessage `json:"geometry,omitempty"`
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty"`
 	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"` // Event rule definition as JSON object
@@ -43,6 +43,7 @@ type ListGeofencesRequest struct {
 	IsActive *bool      `query:"is_active"`
 	Page     int        `query:"page" validate:"omitempty,min=1"`
 	PageSize int        `query:"page_size" validate:"omitempty,min=1,max=100"`
+	Search   string     `query:"search" validate:"omitempty"`
 }
 
 // ListSpacesRequest represents query parameters for listing spaces
@@ -71,4 +72,12 @@ type CheckPointInAnyGeofenceRequest struct {
 type GetGeofencesByDeviceRequest struct {
 	DeviceID uuid.UUID `param:"device_id" validate:"required,uuid"`
 	IsActive *bool     `query:"is_active"`
+}
+
+// TestGeofenceRequest represents a request to test a geofence configuration against all devices in a space
+type TestGeofenceRequest struct {
+	Geometry   []json.RawMessage `json:"geometry" validate:"required"`  // Array of GeoJSON geometries
+	TypeZone   string            `json:"type_zone" validate:"required"` // "safe", "danger", etc.
+	Name       string            `json:"name,omitempty"`                // Optional name for display
+	Definition json.RawMessage   `json:"definition,omitempty"`          // Optional condition definition
 }

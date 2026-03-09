@@ -12,7 +12,7 @@ import (
 )
 
 // GetGeofences retrieves geofences with optional filters and pagination
-func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
+func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
 	if page <= 0 {
 		page = DefaultPage
 	}
@@ -44,6 +44,11 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 		if isActive != nil {
 			whereClause += fmt.Sprintf(" AND g.is_active = $%d", argIdx)
 			args = append(args, *isActive)
+			argIdx++
+		}
+		if search != "" {
+			whereClause += fmt.Sprintf(" AND g.name ILIKE $%d", argIdx)
+			args = append(args, "%"+search+"%")
 			argIdx++
 		}
 
@@ -457,4 +462,94 @@ func (c *Client) IsPointInGeofence(ctx context.Context, geofenceID string, lat, 
 	}
 
 	return isInside, typeZone, nil
+}
+
+// DistanceToGeofenceKm returns the distance in kilometers from a point to the nearest
+// edge of the given geofence. Returns 0 if the point is inside the geofence.
+func (c *Client) DistanceToGeofenceKm(ctx context.Context, geofenceID string, lat, lon float64) (float64, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return 0, fmt.Errorf("organization not found in context")
+	}
+
+	var distanceKm float64
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		return tx.QueryRowContext(txCtx, `
+			SELECT ST_Distance(
+				geometry::geography,
+				ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+			) / 1000.0
+			FROM geofences
+			WHERE geofence_id::text = $1 AND is_active = true
+		`, geofenceID, lon, lat).Scan(&distanceKm)
+	})
+
+	if err != nil {
+		return 0, err
+	}
+
+	return distanceKm, nil
+}
+
+// TestGeofenceWithGeometry checks all devices' last locations in a space against a provided geofence geometry
+// in a single PostGIS query. Returns is_inside and distance_km for each device.
+func (c *Client) TestGeofenceWithGeometry(ctx context.Context, spaceID string, geometry string) ([]models.DeviceGeofenceCheck, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	var results []models.DeviceGeofenceCheck
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		query := `
+			WITH last_locations AS (
+				SELECT DISTINCT ON (e.device_id)
+					e.device_id::text AS device_id,
+					(a.shared_attrs->>'latitude')::float8  AS lat,
+					(a.shared_attrs->>'longitude')::float8 AS lon,
+					s.reported_at
+				FROM entity_states s
+				JOIN entities e ON s.entity_id = e.id
+				JOIN spaces sp ON e.space_id = sp.space_id
+				LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
+				WHERE sp.space_id::text = $1
+					AND e.category = 'location'
+					AND a.shared_attrs IS NOT NULL
+					AND a.shared_attrs ? 'latitude'
+					AND a.shared_attrs ? 'longitude'
+				ORDER BY e.device_id, s.reported_at DESC
+			)
+			SELECT
+				ll.device_id,
+				ll.lat,
+				ll.lon,
+				ll.reported_at,
+				ST_Contains(ST_GeomFromGeoJSON($2), ST_SetSRID(ST_MakePoint(ll.lon, ll.lat), 4326)) AS is_inside,
+				ST_Distance(
+					ST_SetSRID(ST_MakePoint(ll.lon, ll.lat), 4326)::geography,
+					ST_GeomFromGeoJSON($2)::geography
+				) / 1000.0 AS distance_km
+			FROM last_locations ll`
+
+		rows, err := tx.QueryContext(txCtx, query, spaceID, geometry)
+		if err != nil {
+			return fmt.Errorf("failed to test geofence with geometry: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var r models.DeviceGeofenceCheck
+			if err := rows.Scan(&r.DeviceID, &r.Latitude, &r.Longitude, &r.ReportedAt, &r.IsInside, &r.DistanceKm); err != nil {
+				return err
+			}
+			results = append(results, r)
+		}
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
 }
