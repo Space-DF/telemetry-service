@@ -9,20 +9,16 @@ import (
 
 // GeofenceResponse represents a geofence in API responses
 type GeofenceResponse struct {
-	GeofenceID uuid.UUID       `json:"id"`
-	Name       string          `json:"name"`
-	TypeZone   string          `json:"type_zone"`
-	Geometry   json.RawMessage `json:"geometry" swaggertype:"object"`
-	EventRule  *EventRuleInfo  `json:"event_rule,omitempty"`
-	IsActive   bool            `json:"is_active"`
-	SpaceID    *uuid.UUID      `json:"space_id,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
-
-	// Optional joined fields
-	SpaceName *string `json:"space_name,omitempty"`
-	SpaceSlug *string `json:"space_slug,omitempty"`
-	SpaceLogo *string `json:"space_logo,omitempty"`
+	GeofenceID uuid.UUID         `json:"id"`
+	Name       string            `json:"name"`
+	TypeZone   string            `json:"type_zone"`
+	Features   []json.RawMessage `json:"features"`
+	Color      string            `json:"color"`
+	EventRule  *EventRuleInfo    `json:"event_rule,omitempty"`
+	IsActive   bool              `json:"is_active"`
+	SpaceID    *uuid.UUID        `json:"space_id,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
 // EventRuleInfo represents basic event rule information
@@ -41,7 +37,6 @@ type GeofencesListResponse struct {
 	Page       int                `json:"page"`
 	PageSize   int                `json:"page_size"`
 }
-
 
 // GeofenceDetailResponse represents a detailed geofence with additional info
 type GeofenceDetailResponse struct {
@@ -91,9 +86,9 @@ type SpaceItem struct {
 
 // GeofencesByDeviceResponse represents geofences associated with a device
 type GeofencesByDeviceResponse struct {
-	DeviceID  string             `json:"device_id"`
+	DeviceID string             `json:"device_id"`
 	Results  []GeofenceResponse `json:"results"`
-	Count     int                `json:"count"`
+	Count    int                `json:"count"`
 }
 
 // PointInGeofenceResponse represents the result of a point-in-geofence check
@@ -149,6 +144,11 @@ type DeleteSpaceResponse struct {
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Message string `json:"message,omitempty"`
+}
+
+// ResultResponse represents a result response
+type ResultResponse struct {
+	Result  string `json:"result"`
 }
 
 // TestGeofenceResponse represents the result of testing a geofence configuration against all devices

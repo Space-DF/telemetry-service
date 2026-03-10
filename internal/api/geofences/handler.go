@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"time"
 
+	"strings"
+
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	apimodels "github.com/Space-DF/telemetry-service/internal/api/geofences/models"
 	"github.com/Space-DF/telemetry-service/internal/events/evaluator"
@@ -83,7 +85,34 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 			req.Search = search
 		}
 
+		// Parse bbox query parameter
+		var bboxEnvelope *[4]float64
+		bboxStr := c.QueryParam("bbox")
+		parts := strings.Split(bboxStr, ",")
+		if bboxStr != "" && len(parts) != 4 {
+			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+				Error: "Invalid bbox format. Expected: west,south,east,north",
+			})
+		}
+
+		if bboxStr != "" {
+			var envelope [4]float64
+			for index, part := range parts {
+				value, err := strconv.ParseFloat(strings.TrimSpace(part), 64)
+				if err != nil {
+					return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+						Error: "Invalid bbox format. Expected: west,south,east,north",
+					})
+				}
+				envelope[index] = value
+			}
+			bboxEnvelope = &envelope
+		}
+
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+		if bboxEnvelope != nil {
+			ctx = context.WithValue(ctx, "bboxEnvelope", bboxEnvelope)
+		}
 		geofences, total, err := tsClient.GetGeofences(ctx, req.SpaceID, req.IsActive, req.Search, req.Page, req.PageSize)
 		if err != nil {
 			logger.Error("failed to get geofences", zap.Error(err))
@@ -131,9 +160,9 @@ func testGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 			})
 		}
 
-		if len(req.Geometry) == 0 {
+		if len(req.Features) == 0 {
 			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
-				Error: "geometry is required",
+				Error: "features are required",
 			})
 		}
 
@@ -177,11 +206,11 @@ func testGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 			condEvaluator = evaluator.NewConditionEvaluator(logger)
 		}
 
-		// Convert array of GeoJSON geometries to MultiPolygon or Polygon
-		multiPolygonGeoJSON, err := convertFeaturesToMultiPolygon(req.Geometry)
+		// Convert array of GeoJSON features to MultiPolygon or Polygon
+		multiPolygonGeoJSON, err := convertFeaturesToMultiPolygon(req.Features)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
-				Error: "Invalid geometry format",
+				Error: "Invalid features format",
 			})
 		}
 
@@ -190,20 +219,20 @@ func testGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{Error: "Failed to test geofence"})
 		}
 		if len(checks) == 0 {
-			return c.JSON(http.StatusOK, map[string]string{"error": "No devices found in space"})
+			return c.JSON(http.StatusOK, apimodels.ResultResponse{Result: "No devices found in space"})
 		}
 
 		totalDevices := len(checks)
 		for _, check := range checks {
 			if req.TypeZone == "safe" && !check.IsInside {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Device is outside the safe geofence",
+				return c.JSON(http.StatusBadRequest, apimodels.ResultResponse{
+					Result: "Device is outside the safe geofence",
 				})
 			}
 
 			if req.TypeZone == "danger" && check.IsInside {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Device is inside the danger geofence",
+				return c.JSON(http.StatusBadRequest, apimodels.ResultResponse{
+					Result: "Device is inside the danger geofence",
 				})
 			}
 
@@ -220,13 +249,13 @@ func testGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 				}
 			}
 
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": fmt.Sprintf("Device %s failed geofence test", check.DeviceID),
+			return c.JSON(http.StatusBadRequest, apimodels.ResultResponse{
+				Result: fmt.Sprintf("Device %s failed geofence test", check.DeviceID),
 			})
 		}
 
-		return c.JSON(http.StatusOK, map[string]string{
-			"error": fmt.Sprintf("All %d devices passed geofence test", totalDevices),
+		return c.JSON(http.StatusOK, apimodels.ResultResponse{
+			Result: fmt.Sprintf("All %d devices passed geofence test", totalDevices),
 		})
 	}
 }
@@ -327,12 +356,19 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		// Override space_id with the one resolved from header
 		req.SpaceID = &spaceID
 
-		if len(req.Geometry) == 0 {
+		if len(req.Features) == 0 {
 			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
-				Error: "geometry is required and must be a non-empty array of Polygon objects",
+				Error: "features is required and must be a non-empty array of GeoJSON Feature objects",
 			})
 		}
-		multiPolygonGeoJSON, err := convertFeaturesToMultiPolygon(req.Geometry)
+
+		if req.Color == "" {
+			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+				Error: "color is required",
+			})
+		}
+
+		multiPolygonGeoJSON, err := convertFeaturesToMultiPolygon(req.Features)
 		if err != nil {
 			logger.Error("failed to convert geometry to multipolygon", zap.Error(err))
 			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
@@ -341,7 +377,7 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.SpaceID, req.IsActive)
+		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.Features, req.Color, req.SpaceID, req.IsActive)
 		if err != nil {
 			logger.Error("failed to create geofence",
 				zap.String("name", req.Name),
@@ -425,7 +461,8 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 				GeofenceID: geofence.GeofenceID,
 				Name:       geofence.Name,
 				TypeZone:   geofence.TypeZone,
-				Geometry:   extractPolygonsFromMultiPolygon(json.RawMessage(geofence.Geometry)),
+				Features:   geofence.Features,
+				Color:      geofence.Color,
 				EventRule:  eventRuleInfo,
 				IsActive:   geofence.IsActive,
 				SpaceID:    geofence.SpaceID,
@@ -477,8 +514,8 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 
 		// Convert geometry array to MultiPolygon geometry if provided
 		var geometryJSON []byte
-		if len(req.Geometry) > 0 {
-			geometryJSON, err = convertFeaturesToMultiPolygon(req.Geometry)
+		if len(req.Features) > 0 {
+			geometryJSON, err = convertFeaturesToMultiPolygon(req.Features)
 			if err != nil {
 				logger.Error("failed to convert geometry to multipolygon", zap.Error(err))
 				return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
@@ -488,7 +525,7 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.SpaceID, req.IsActive)
+		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.Features, req.Color, req.SpaceID, req.IsActive)
 		if err != nil {
 			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
@@ -530,10 +567,11 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		// Build response with event rule information
-		response := apimodels.UpdateGeofenceResponse{
-			Message: "Geofence updated successfully",
-		}
 		respGeofence := convertModelGeofenceToResponse(geofence)
+		response := apimodels.UpdateGeofenceResponse{
+			Message:  "Geofence updated successfully",
+			Geofence: respGeofence,
+		}
 
 		// Fetch event rules for this geofence
 		eventRules, err := tsClient.GetEventRulesByGeofenceID(ctx, geofence.GeofenceID.String())
@@ -558,8 +596,6 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 				respGeofence.EventRule.Definition = json.RawMessage(*eventRule.Definition)
 			}
 		}
-
-		response.Geofence = respGeofence
 
 		return c.JSON(http.StatusOK, response)
 	}
@@ -685,14 +721,12 @@ func convertGeofenceToResponseWithEventRule(ctx context.Context, tsClient *times
 		GeofenceID: g.GeofenceID,
 		Name:       g.Name,
 		TypeZone:   g.TypeZone,
-		Geometry:   extractPolygonsFromMultiPolygon(json.RawMessage(g.Geometry)),
+		Features:   g.Features,
+		Color:      g.Color,
 		IsActive:   g.IsActive,
 		SpaceID:    g.SpaceID,
 		CreatedAt:  g.CreatedAt,
 		UpdatedAt:  g.UpdatedAt,
-		SpaceName:  g.SpaceName,
-		SpaceSlug:  g.SpaceSlug,
-		SpaceLogo:  g.SpaceLogo,
 	}
 
 	// Fetch event rules for this geofence
@@ -718,40 +752,13 @@ func convertModelGeofenceToResponse(g *models.Geofence) apimodels.GeofenceRespon
 		GeofenceID: g.GeofenceID,
 		Name:       g.Name,
 		TypeZone:   g.TypeZone,
-		Geometry:   extractPolygonsFromMultiPolygon(json.RawMessage(g.Geometry)),
+		Features:   g.Features,
+		Color:      g.Color,
 		IsActive:   g.IsActive,
 		SpaceID:    g.SpaceID,
 		CreatedAt:  g.CreatedAt,
 		UpdatedAt:  g.UpdatedAt,
 	}
-}
-
-// extractPolygonsFromMultiPolygon takes a MultiPolygon GeoJSON and returns a JSON array of Polygon objects
-func extractPolygonsFromMultiPolygon(multiPolygonRaw json.RawMessage) json.RawMessage {
-	var multiPolygon struct {
-		Type        string                   `json:"type"`
-		Coordinates [][][][]float64          `json:"coordinates"`
-		Properties  []map[string]interface{} `json:"properties,omitempty"`
-	}
-	if err := json.Unmarshal(multiPolygonRaw, &multiPolygon); err != nil || multiPolygon.Type != "MultiPolygon" {
-		return multiPolygonRaw
-	}
-	var polygons []map[string]interface{}
-	for i, coords := range multiPolygon.Coordinates {
-		polygon := map[string]interface{}{
-			"type":        "Polygon",
-			"coordinates": coords,
-		}
-		if len(multiPolygon.Properties) > i {
-			polygon["properties"] = multiPolygon.Properties[i]
-		}
-		polygons = append(polygons, polygon)
-	}
-	result, err := json.Marshal(polygons)
-	if err != nil {
-		return multiPolygonRaw
-	}
-	return result
 }
 
 // Converts an array of GeoJSON Polygon objects to a MultiPolygon GeoJSON
@@ -761,13 +768,11 @@ func convertFeaturesToMultiPolygon(features []json.RawMessage) ([]byte, error) {
 	}
 
 	var allCoordinates [][][][]float64
-	var allProperties []map[string]interface{}
 
 	for _, feature := range features {
 		var geom struct {
-			Type        string                 `json:"type"`
-			Coordinates [][][]float64          `json:"coordinates"`
-			Properties  map[string]interface{} `json:"properties,omitempty"`
+			Type        string        `json:"type"`
+			Coordinates [][][]float64 `json:"coordinates"`
 		}
 		if err := json.Unmarshal(feature, &geom); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal feature geometry: %w", err)
@@ -778,17 +783,11 @@ func convertFeaturesToMultiPolygon(features []json.RawMessage) ([]byte, error) {
 		}
 
 		allCoordinates = append(allCoordinates, geom.Coordinates)
-		if geom.Properties != nil {
-			allProperties = append(allProperties, geom.Properties)
-		} else {
-			allProperties = append(allProperties, map[string]interface{}{})
-		}
 	}
 
 	multiPolygon := map[string]interface{}{
 		"type":        "MultiPolygon",
 		"coordinates": allCoordinates,
-		"properties":  allProperties,
 	}
 
 	return json.Marshal(multiPolygon)

@@ -57,31 +57,28 @@ func (g *Geometry) UnmarshalJSON(data []byte) error {
 
 // Geofence represents a geofence boundary
 type Geofence struct {
-	GeofenceID uuid.UUID  `json:"geofence_id" db:"geofence_id"`
-	Name       string     `json:"name" db:"name"`
-	TypeZone   string     `json:"type_zone" db:"type_zone"`
-	Geometry   Geometry   `json:"geometry" db:"geometry"`
-	IsActive   bool       `json:"is_active" db:"is_active"`
-	SpaceID    *uuid.UUID `json:"space_id,omitempty" db:"space_id"`
-	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
+	GeofenceID uuid.UUID         `json:"geofence_id" db:"geofence_id"`
+	Name       string            `json:"name" db:"name"`
+	TypeZone   string            `json:"type_zone" db:"type_zone"`
+	Features   []json.RawMessage `json:"features" db:"features"`
+	Color      string            `json:"color" db:"color"`
+	IsActive   bool              `json:"is_active" db:"is_active"`
+	SpaceID    *uuid.UUID        `json:"space_id,omitempty" db:"space_id"`
+	CreatedAt  time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at" db:"updated_at"`
 }
 
 // GeofenceWithSpace represents a geofence with its associated space details
 type GeofenceWithSpace struct {
-	GeofenceID uuid.UUID  `json:"geofence_id" db:"geofence_id"`
-	Name       string     `json:"name" db:"name"`
-	TypeZone   string     `json:"type_zone" db:"type_zone"`
-	Geometry   Geometry   `json:"geometry" db:"geometry"`
-	IsActive   bool       `json:"is_active" db:"is_active"`
-	SpaceID    *uuid.UUID `json:"space_id,omitempty" db:"space_id"`
-	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
-
-	// Joined space fields
-	SpaceName *string `json:"space_name,omitempty" db:"space_name"`
-	SpaceSlug *string `json:"space_slug,omitempty" db:"space_slug"`
-	SpaceLogo *string `json:"space_logo,omitempty" db:"space_logo"`
+	GeofenceID uuid.UUID         `json:"geofence_id" db:"geofence_id"`
+	Name       string            `json:"name" db:"name"`
+	TypeZone   string            `json:"type_zone" db:"type_zone"`
+	Features   []json.RawMessage `json:"features" db:"features"`
+	Color      string            `json:"color" db:"color"`
+	IsActive   bool              `json:"is_active" db:"is_active"`
+	SpaceID    *uuid.UUID        `json:"space_id,omitempty" db:"space_id"`
+	CreatedAt  time.Time         `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at" db:"updated_at"`
 }
 
 // DeviceGeofenceCheck holds the result of a spatial check between a device's last location and a geofence.
