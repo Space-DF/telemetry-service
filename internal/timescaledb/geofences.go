@@ -13,7 +13,7 @@ import (
 )
 
 // GetGeofences retrieves geofences with optional filters and pagination
-func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
+func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, bboxEnvelope *[4]float64, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
 	if page <= 0 {
 		page = DefaultPage
 	}
@@ -54,9 +54,17 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 		}
 
 		// Add spatial bbox filter if provided
-		if bboxEnvelope, ok := ctx.Value("bboxEnvelope").(*[4]float64); ok && bboxEnvelope != nil {
-			whereClause += fmt.Sprintf(" AND ST_Intersects(g.geometry, ST_MakeEnvelope($%d, $%d, $%d, $%d, 4326))", argIdx, argIdx+1, argIdx+2, argIdx+3)
-			args = append(args, bboxEnvelope[0], bboxEnvelope[1], bboxEnvelope[2], bboxEnvelope[3])
+		if bboxEnvelope != nil {
+			whereClause += fmt.Sprintf(
+				" AND ST_Intersects(g.geometry, ST_MakeEnvelope($%d,$%d,$%d,$%d,4326))",
+				argIdx, argIdx+1, argIdx+2, argIdx+3,
+			)
+			args = append(args,
+				bboxEnvelope[0],
+				bboxEnvelope[1],
+				bboxEnvelope[2],
+				bboxEnvelope[3],
+			)
 			argIdx += 4
 		}
 

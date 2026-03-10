@@ -111,13 +111,7 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
-		type bboxEnvelopeKeyType struct{}
-		var bboxEnvelopeKey = bboxEnvelopeKeyType{}
-
-		if bboxEnvelope != nil {
-			ctx = context.WithValue(ctx, bboxEnvelopeKey, bboxEnvelope)
-		}
-		geofences, total, err := tsClient.GetGeofences(ctx, req.SpaceID, req.IsActive, req.Search, req.Page, req.PageSize)
+		geofences, total, err := tsClient.GetGeofences(ctx, req.SpaceID, req.IsActive, req.Search, bboxEnvelope, req.Page, req.PageSize)
 		if err != nil {
 			logger.Error("failed to get geofences", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
