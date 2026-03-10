@@ -102,7 +102,9 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 			}
 
 			if len(featuresJSON) > 0 {
-				_ = json.Unmarshal(featuresJSON, &g.Features)
+				if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+					return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+				}
 			}
 			if color.Valid {
 				g.Color = color.String
@@ -161,7 +163,9 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 		}
 
 		if len(featuresJSON) > 0 {
-			_ = json.Unmarshal(featuresJSON, &g.Features)
+			if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+				return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+			}
 		}
 		if color.Valid {
 			g.Color = color.String
@@ -190,14 +194,19 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Insert geofence with geometry from GeoJSON
-		featuresJSON, _ := json.Marshal(features)
+
+		featuresJSON, err := json.Marshal(features)
+		if err != nil {
+			return fmt.Errorf("failed to marshal features to JSON: %w", err)
+		}
+
 		query := `
 			INSERT INTO geofences (name, type_zone, geometry, features, color, is_active, space_id)
 			VALUES ($1, $2, ST_GeomFromGeoJSON($3), $4, $5, $6, $7)
 			RETURNING geofence_id, created_at, updated_at
 		`
 
-		err := tx.QueryRowContext(txCtx, query,
+		err = tx.QueryRowContext(txCtx, query,
 			name, typeZone, geometry, featuresJSON, color, isActiveVal, spaceID).Scan(
 			&g.GeofenceID, &g.CreatedAt, &g.UpdatedAt,
 		)
@@ -258,7 +267,9 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			}
 			return fmt.Errorf("failed to get geofence: %w", err)
 		}
-		json.Unmarshal(featuresRaw, &currentFeatures)
+		if err := json.Unmarshal(featuresRaw, &currentFeatures); err != nil {
+			return fmt.Errorf("failed to unmarshal current features JSON: %w", err)
+		}
 
 		// Use current values if not provided in update request
 		var setClauses []string
@@ -301,7 +312,10 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			argIdx++
 		}
 		if features != nil {
-			featuresJSON, _ := json.Marshal(features)
+			featuresJSON, err := json.Marshal(features)
+			if err != nil {
+				return fmt.Errorf("failed to marshal features JSON: %w", err)
+			}
 			setClauses = append(setClauses, fmt.Sprintf("features = $%d", argIdx))
 			args = append(args, featuresJSON)
 			argIdx++
@@ -438,7 +452,9 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 			}
 
 			if len(featuresJSON) > 0 {
-				_ = json.Unmarshal(featuresJSON, &g.Features)
+				if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+					return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+				}
 			}
 			if color.Valid {
 				g.Color = color.String
