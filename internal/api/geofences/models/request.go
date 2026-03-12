@@ -21,7 +21,8 @@ type FeatureProperties struct {
 type CreateGeofenceRequest struct {
 	Name       string            `json:"name" validate:"required,min=1,max=100"`
 	Type       string            `json:"type_zone" validate:"required,oneof=safe danger normal"` // "type_zone" from frontend
-	Geometry   []json.RawMessage `json:"geometry" validate:"required"`                           // Multiple polygons
+	Color      string            `json:"color" validate:"required"`
+	Features   []json.RawMessage `json:"features" validate:"required"` // GeoJSON features
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty" example:"true"`
 	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"`
@@ -31,7 +32,8 @@ type CreateGeofenceRequest struct {
 type UpdateGeofenceRequest struct {
 	Name       *string           `json:"name,omitempty" validate:"omitempty,min=1,max=100" example:"Updated Area Name"`
 	Type       *string           `json:"type_zone,omitempty" validate:"omitempty,oneof=safe danger normal"`
-	Geometry   []json.RawMessage `json:"geometry,omitempty"`
+	Color      *string           `json:"color,omitempty" validate:"omitempty"`
+	Features   []json.RawMessage `json:"features" validate:"required"`
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty"`
 	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"` // Event rule definition as JSON object
@@ -76,7 +78,7 @@ type GetGeofencesByDeviceRequest struct {
 
 // TestGeofenceRequest represents a request to test a geofence configuration against all devices in a space
 type TestGeofenceRequest struct {
-	Geometry   []json.RawMessage `json:"geometry" validate:"required"`  // Array of GeoJSON geometries
+	Features   []json.RawMessage `json:"features" validate:"required"`  // Array of GeoJSON features
 	TypeZone   string            `json:"type_zone" validate:"required"` // "safe", "danger", etc.
 	Name       string            `json:"name,omitempty"`                // Optional name for display
 	Definition json.RawMessage   `json:"definition,omitempty"`          // Optional condition definition

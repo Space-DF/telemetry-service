@@ -3,6 +3,7 @@ package timescaledb
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 )
 
 // GetGeofences retrieves geofences with optional filters and pagination
-func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
+func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, bboxEnvelope *[4]float64, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
 	if page <= 0 {
 		page = DefaultPage
 	}
@@ -52,6 +53,21 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 			argIdx++
 		}
 
+		// Add spatial bbox filter if provided
+		if bboxEnvelope != nil {
+			whereClause += fmt.Sprintf(
+				" AND ST_Intersects(g.geometry, ST_MakeEnvelope($%d,$%d,$%d,$%d,4326))",
+				argIdx, argIdx+1, argIdx+2, argIdx+3,
+			)
+			args = append(args,
+				bboxEnvelope[0],
+				bboxEnvelope[1],
+				bboxEnvelope[2],
+				bboxEnvelope[3],
+			)
+			argIdx += 4
+		}
+
 		// Count total
 		countQuery := `SELECT COUNT(*) FROM geofences g ` + whereClause
 		err := tx.QueryRowContext(txCtx, countQuery, args...).Scan(&total)
@@ -62,9 +78,9 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 		// Query geofences with space join
 		args = append(args, pageSize, offset)
 		query := fmt.Sprintf(`
-			SELECT g.geofence_id, g.name, g.type_zone, ST_AsGeoJSON(g.geometry)::json,
-				   g.is_active, g.space_id, g.created_at, g.updated_at,
-				   s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
+			SELECT g.geofence_id, g.name, g.type_zone, g.features, g.color,
+				g.is_active, g.space_id, g.created_at, g.updated_at,
+				s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
 			FROM geofences g
 			LEFT JOIN spaces s ON g.space_id = s.space_id
 			%s
@@ -80,11 +96,12 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 
 		for rows.Next() {
 			var g models.GeofenceWithSpace
-			var geometryJSON []byte
+			var featuresJSON []byte
+			var color sql.NullString
 			var spaceName, spaceSlug, spaceLogo sql.NullString
 
 			err := rows.Scan(
-				&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON,
+				&g.GeofenceID, &g.Name, &g.TypeZone, &featuresJSON, &color,
 				&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
 				&spaceName, &spaceSlug, &spaceLogo,
 			)
@@ -92,16 +109,13 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 				return err
 			}
 
-			g.Geometry = models.Geometry(geometryJSON)
-
-			if spaceName.Valid {
-				g.SpaceName = &spaceName.String
+			if len(featuresJSON) > 0 {
+				if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+					return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+				}
 			}
-			if spaceSlug.Valid {
-				g.SpaceSlug = &spaceSlug.String
-			}
-			if spaceLogo.Valid {
-				g.SpaceLogo = &spaceLogo.String
+			if color.Valid {
+				g.Color = color.String
 			}
 
 			geofences = append(geofences, g)
@@ -131,20 +145,21 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		var geometryJSON []byte
+		var featuresJSON []byte
+		var color sql.NullString
 		var spaceName, spaceSlug, spaceLogo sql.NullString
 
 		query := `
-			SELECT g.geofence_id, g.name, g.type_zone, ST_AsGeoJSON(g.geometry)::json,
-				   g.is_active, g.space_id, g.created_at, g.updated_at,
-				   s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
+			SELECT g.geofence_id, g.name, g.type_zone, g.features, g.color,
+				g.is_active, g.space_id, g.created_at, g.updated_at,
+				s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
 			FROM geofences g
 			LEFT JOIN spaces s ON g.space_id = s.space_id
 			WHERE g.geofence_id = $1
 		`
 
 		err := tx.QueryRowContext(txCtx, query, geofenceID).Scan(
-			&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON,
+			&g.GeofenceID, &g.Name, &g.TypeZone, &featuresJSON, &color,
 			&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
 			&spaceName, &spaceSlug, &spaceLogo,
 		)
@@ -155,30 +170,25 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 			return fmt.Errorf("failed to query geofence: %w", err)
 		}
 
-		g.Geometry = models.Geometry(geometryJSON)
-
-		if spaceName.Valid {
-			g.SpaceName = &spaceName.String
+		if len(featuresJSON) > 0 {
+			if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+				return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+			}
 		}
-		if spaceSlug.Valid {
-			g.SpaceSlug = &spaceSlug.String
-		}
-		if spaceLogo.Valid {
-			g.SpaceLogo = &spaceLogo.String
+		if color.Valid {
+			g.Color = color.String
 		}
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
-
 	return &g, nil
 }
 
 // CreateGeofence creates a new geofence
-func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geometry []byte, spaceID *uuid.UUID, isActive *bool) (*models.Geofence, error) {
+func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geometry []byte, features []json.RawMessage, color string, spaceID *uuid.UUID, isActive *bool) (*models.Geofence, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
@@ -192,14 +202,20 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Insert geofence with geometry from GeoJSON
+
+		featuresJSON, err := json.Marshal(features)
+		if err != nil {
+			return fmt.Errorf("failed to marshal features to JSON: %w", err)
+		}
+
 		query := `
-			INSERT INTO geofences (name, type_zone, geometry, is_active, space_id)
-			VALUES ($1, $2, ST_GeomFromGeoJSON($3), $4, $5)
+			INSERT INTO geofences (name, type_zone, geometry, features, color, is_active, space_id)
+			VALUES ($1, $2, ST_GeomFromGeoJSON($3), $4, $5, $6, $7)
 			RETURNING geofence_id, created_at, updated_at
 		`
 
-		err := tx.QueryRowContext(txCtx, query,
-			name, typeZone, geometry, isActiveVal, spaceID).Scan(
+		err = tx.QueryRowContext(txCtx, query,
+			name, typeZone, geometry, featuresJSON, color, isActiveVal, spaceID).Scan(
 			&g.GeofenceID, &g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
@@ -208,7 +224,8 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 
 		g.Name = name
 		g.TypeZone = typeZone
-		g.Geometry = models.Geometry(geometry)
+		g.Features = features
+		g.Color = color
 		g.IsActive = isActiveVal
 		g.SpaceID = spaceID
 
@@ -223,7 +240,7 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 }
 
 // UpdateGeofence updates an existing geofence
-func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name, typeZone *string, geometry []byte, spaceID *uuid.UUID, isActive *bool) (*models.Geofence, error) {
+func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name, typeZone *string, geometry []byte, features []json.RawMessage, color *string, spaceID *uuid.UUID, isActive *bool) (*models.Geofence, error) {
 	if geofenceID == uuid.Nil {
 		return nil, fmt.Errorf("geofence_id is required")
 	}
@@ -238,22 +255,28 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// First get current geofence
 		var currentGeometry []byte
+		var currentFeatures []json.RawMessage
+		var currentColor string
 		var currentName, currentTypeZone string
 		var currentIsActive bool
 		var currentSpaceID sql.NullString
 
 		getQuery := `
-			SELECT name, type_zone, ST_AsGeoJSON(geometry), is_active, space_id
+			SELECT name, type_zone, ST_AsGeoJSON(geometry), features, color, is_active, space_id
 			FROM geofences WHERE geofence_id = $1
 		`
+		var featuresRaw []byte
 		err := tx.QueryRowContext(txCtx, getQuery, geofenceID).Scan(
-			&currentName, &currentTypeZone, &currentGeometry, &currentIsActive, &currentSpaceID,
+			&currentName, &currentTypeZone, &currentGeometry, &featuresRaw, &currentColor, &currentIsActive, &currentSpaceID,
 		)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				return models.ErrGeofenceNotFound
 			}
 			return fmt.Errorf("failed to get geofence: %w", err)
+		}
+		if err := json.Unmarshal(featuresRaw, &currentFeatures); err != nil {
+			return fmt.Errorf("failed to unmarshal current features JSON: %w", err)
 		}
 
 		// Use current values if not provided in update request
@@ -291,14 +314,28 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			}
 			argIdx++
 		}
+		if color != nil {
+			setClauses = append(setClauses, fmt.Sprintf("color = $%d", argIdx))
+			args = append(args, *color)
+			argIdx++
+		}
+		if features != nil {
+			featuresJSON, err := json.Marshal(features)
+			if err != nil {
+				return fmt.Errorf("failed to marshal features JSON: %w", err)
+			}
+			setClauses = append(setClauses, fmt.Sprintf("features = $%d", argIdx))
+			args = append(args, featuresJSON)
+			argIdx++
+		}
 
 		// If no fields to update, return current geofence
 		if len(setClauses) == 0 {
 			g.GeofenceID = geofenceID
 			g.Name = currentName
 			g.TypeZone = currentTypeZone
-			g.Geometry = models.Geometry(currentGeometry)
 			g.IsActive = currentIsActive
+			g.Color = currentColor
 			if currentSpaceID.Valid {
 				spaceUUID, err := uuid.Parse(currentSpaceID.String)
 				if err != nil {
@@ -315,12 +352,13 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			UPDATE geofences
 			SET %s
 			WHERE geofence_id = $%d
-			RETURNING geofence_id, name, type_zone, ST_AsGeoJSON(geometry)::json, is_active, space_id, created_at, updated_at
+			RETURNING geofence_id, name, type_zone, ST_AsGeoJSON(geometry)::json, features, color, is_active, space_id, created_at, updated_at
 		`, strings.Join(setClauses, ", "), argIdx)
 
 		var geometryJSON []byte
+		var featuresJSON []byte
 		err = tx.QueryRowContext(txCtx, query, args...).Scan(
-			&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON,
+			&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON, &featuresJSON, &g.Color,
 			&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
@@ -330,7 +368,11 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			return fmt.Errorf("failed to update geofence: %w", err)
 		}
 
-		g.Geometry = models.Geometry(geometryJSON)
+		if len(featuresJSON) > 0 {
+			if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+				return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+			}
+		}
 		return nil
 	})
 
@@ -386,7 +428,7 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Query geofences that are referenced by event_rules for this device
 		query := `
-			SELECT DISTINCT g.geofence_id, g.name, g.type_zone, ST_AsGeoJSON(g.geometry)::json,
+			SELECT DISTINCT g.geofence_id, g.name, g.type_zone, g.features, g.color,
 				g.is_active, g.space_id, g.created_at, g.updated_at,
 				s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
 			FROM geofences g
@@ -404,11 +446,12 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 
 		for rows.Next() {
 			var g models.GeofenceWithSpace
-			var geometryJSON []byte
+			var featuresJSON []byte
+			var color sql.NullString
 			var spaceName, spaceSlug, spaceLogo sql.NullString
 
 			err := rows.Scan(
-				&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON,
+				&g.GeofenceID, &g.Name, &g.TypeZone, &featuresJSON, &color,
 				&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
 				&spaceName, &spaceSlug, &spaceLogo,
 			)
@@ -416,16 +459,13 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 				return err
 			}
 
-			g.Geometry = models.Geometry(geometryJSON)
-
-			if spaceName.Valid {
-				g.SpaceName = &spaceName.String
+			if len(featuresJSON) > 0 {
+				if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
+					return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+				}
 			}
-			if spaceSlug.Valid {
-				g.SpaceSlug = &spaceSlug.String
-			}
-			if spaceLogo.Valid {
-				g.SpaceLogo = &spaceLogo.String
+			if color.Valid {
+				g.Color = color.String
 			}
 
 			geofences = append(geofences, g)
