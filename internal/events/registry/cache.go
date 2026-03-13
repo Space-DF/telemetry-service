@@ -131,13 +131,13 @@ func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[
 	rules := c.Get(ctx, deviceID)
 
 	// Return from cache if Get() successfully populated it
-  c.mu.RLock()
-  entry, found = c.cache[deviceID]
-  c.mu.RUnlock()
+	c.mu.RLock()
+	entry, found = c.cache[deviceID]
+	c.mu.RUnlock()
 
-  if found {
-		return entry.RulesByKey  // Use pre-computed grouping
-  }
+	if found {
+		return entry.RulesByKey // Use pre-computed grouping
+	}
 
 	return c.groupRulesByKey(rules)
 }

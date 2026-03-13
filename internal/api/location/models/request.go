@@ -11,7 +11,6 @@ type LocationHistoryRequest struct {
 	SpaceSlug string    `query:"space_slug" validate:"required"`
 	Start     time.Time `query:"start"`
 	End       time.Time `query:"end"`
-	Limit     int       `query:"limit"`
 }
 
 func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {

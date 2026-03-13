@@ -77,14 +77,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page number (default 1)",
-                        "name": "page",
+                        "description": "Number of results per page (default 20)",
+                        "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20, max 100)",
-                        "name": "page_size",
+                        "description": "Number of results to skip (default 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -92,19 +92,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.AlertsResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request parameters",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -202,14 +208,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page number (default 1)",
-                        "name": "page",
+                        "description": "Number of results per page (default 20)",
+                        "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
-                        "name": "page_size",
+                        "description": "Number of results to skip (default 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -217,7 +223,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.EntitiesResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -237,7 +243,7 @@ const docTemplate = `{
         },
         "/telemetry/v1/event-rules": {
             "get": {
-                "description": "Retrieve all event rules with optional filtering by device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
+                "description": "Retrieve event rules with optional filtering by device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
                 "consumes": [
                     "application/json"
                 ],
@@ -257,14 +263,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page number (default 1)",
-                        "name": "page",
+                        "description": "Number of results per page (default 20)",
+                        "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20)",
-                        "name": "page_size",
+                        "description": "Number of results to skip (default 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -272,19 +278,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.EventRulesResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request parameters",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "500": {
                         "description": "Internal server error",
                         "schema": {
-                            "$ref": "#/definitions/models.ErrorResponse"
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     }
                 }
@@ -316,7 +328,7 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/models.EventRuleItem"
+                            "$ref": "#/definitions/models.EventRuleResponse"
                         }
                     },
                     "400": {
@@ -369,7 +381,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.EventRuleItem"
+                            "$ref": "#/definitions/models.EventRuleResponse"
                         }
                     },
                     "400": {
@@ -495,7 +507,7 @@ const docTemplate = `{
         },
         "/telemetry/v1/geofences": {
             "get": {
-                "description": "Retrieve all geofences with optional filtering by space and active status. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
+                "description": "Retrieve a paginated list of geofences with optional filtering by space and active status. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
                 "consumes": [
                     "application/json"
                 ],
@@ -508,12 +520,6 @@ const docTemplate = `{
                 "summary": "Get geofences",
                 "parameters": [
                     {
-                        "type": "string",
-                        "description": "Filter by Space UUID",
-                        "name": "space_id",
-                        "in": "query"
-                    },
-                    {
                         "type": "boolean",
                         "description": "Filter by active status",
                         "name": "is_active",
@@ -521,14 +527,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Page number (default 1)",
-                        "name": "page",
+                        "description": "Number of results per page (default 20)",
+                        "name": "limit",
                         "in": "query"
                     },
                     {
                         "type": "integer",
-                        "description": "Page size (default 20, max 100)",
-                        "name": "page_size",
+                        "description": "Number of results to skip (default 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -536,7 +542,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.GeofencesListResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -799,7 +805,7 @@ const docTemplate = `{
         },
         "/telemetry/v1/location/history": {
             "get": {
-                "description": "Retrieve historical location data for a specific device within a space. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
+                "description": "Retrieve paginated historical location data for a specific device within a space. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
                 "consumes": [
                     "application/json"
                 ],
@@ -840,8 +846,14 @@ const docTemplate = `{
                     },
                     {
                         "type": "integer",
-                        "description": "Maximum number of records to return (default 100, max 40320)",
+                        "description": "Number of results per page (default 100)",
                         "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Number of results to skip (default 0)",
+                        "name": "offset",
                         "in": "query"
                     }
                 ],
@@ -849,7 +861,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/models.LocationHistoryResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -945,43 +957,41 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "models.AlertsResponse": {
+        "common.PaginatedResponse": {
             "type": "object",
             "properties": {
-                "page": {
-                    "type": "integer",
-                    "example": 1
+                "count": {
+                    "type": "integer"
                 },
-                "page_size": {
-                    "type": "integer",
-                    "example": 20
+                "next": {
+                    "type": "string"
                 },
-                "results": {
-                    "type": "array",
-                    "items": {}
+                "previous": {
+                    "type": "string"
                 },
-                "total_count": {
-                    "type": "integer",
-                    "example": 150
-                }
+                "results": {}
             }
         },
         "models.CreateGeofenceRequest": {
             "type": "object",
             "required": [
-                "geometry",
+                "color",
+                "features",
                 "name",
                 "type_zone"
             ],
             "properties": {
+                "color": {
+                    "type": "string"
+                },
                 "definition": {
                     "type": "object"
                 },
-                "geometry": {
-                    "description": "Multiple polygons",
+                "features": {
+                    "description": "GeoJSON features",
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/models.GeofenceFeature"
+                        "type": "object"
                     }
                 },
                 "is_active": {
@@ -991,8 +1001,7 @@ const docTemplate = `{
                 "name": {
                     "type": "string",
                     "maxLength": 100,
-                    "minLength": 1,
-                    "example": "Restricted Area"
+                    "minLength": 1
                 },
                 "space_id": {
                     "type": "string"
@@ -1004,8 +1013,7 @@ const docTemplate = `{
                         "safe",
                         "danger",
                         "normal"
-                    ],
-                    "example": "danger"
+                    ]
                 }
             }
         },
@@ -1033,22 +1041,6 @@ const docTemplate = `{
             "properties": {
                 "message": {
                     "type": "string"
-                }
-            }
-        },
-        "models.EntitiesResponse": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer",
-                    "example": 25
-                },
-                "results": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": true
-                    }
                 }
             }
         },
@@ -1110,7 +1102,42 @@ const docTemplate = `{
                 }
             }
         },
-        "models.EventRuleItem": {
+        "models.EventRuleRequest": {
+            "type": "object",
+            "required": [
+                "rule_key"
+            ],
+            "properties": {
+                "cooldown_sec": {
+                    "type": "integer"
+                },
+                "definition": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "device_id": {
+                    "type": "string"
+                },
+                "geofence_id": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "repeat_able": {
+                    "type": "boolean"
+                },
+                "rule_key": {
+                    "type": "string"
+                },
+                "space_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.EventRuleResponse": {
             "type": "object",
             "properties": {
                 "cooldown_sec": {
@@ -1151,61 +1178,6 @@ const docTemplate = `{
                 }
             }
         },
-        "models.EventRuleRequest": {
-            "type": "object",
-            "required": [
-                "rule_key"
-            ],
-            "properties": {
-                "cooldown_sec": {
-                    "type": "integer"
-                },
-                "definition": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "device_id": {
-                    "type": "string"
-                },
-                "geofence_id": {
-                    "type": "string"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "repeat_able": {
-                    "type": "boolean"
-                },
-                "rule_key": {
-                    "type": "string"
-                },
-                "space_id": {
-                    "type": "string"
-                }
-            }
-        },
-        "models.EventRulesResponse": {
-            "type": "object",
-            "properties": {
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "rules": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.EventRuleItem"
-                    }
-                },
-                "total_count": {
-                    "type": "integer"
-                }
-            }
-        },
         "models.EventsByDeviceResponse": {
             "type": "object",
             "properties": {
@@ -1223,35 +1195,26 @@ const docTemplate = `{
                 }
             }
         },
-        "models.GeofenceFeature": {
-            "type": "object",
-            "properties": {
-                "geometry": {
-                    "type": "object"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "type": {
-                    "description": "\"Feature\"",
-                    "type": "string"
-                }
-            }
-        },
         "models.GeofenceResponse": {
             "type": "object",
             "properties": {
+                "color": {
+                    "type": "string"
+                },
                 "created_at": {
                     "type": "string"
                 },
                 "event_rule": {
                     "$ref": "#/definitions/models.EventRuleInfo"
                 },
-                "geofence_id": {
-                    "type": "string"
+                "features": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    }
                 },
-                "geometry": {
-                    "type": "object"
+                "id": {
+                    "type": "string"
                 },
                 "is_active": {
                     "type": "boolean"
@@ -1260,16 +1223,6 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "space_id": {
-                    "type": "string"
-                },
-                "space_logo": {
-                    "type": "string"
-                },
-                "space_name": {
-                    "description": "Optional joined fields",
-                    "type": "string"
-                },
-                "space_slug": {
                     "type": "string"
                 },
                 "type_zone": {
@@ -1289,81 +1242,31 @@ const docTemplate = `{
                 "device_id": {
                     "type": "string"
                 },
-                "geofences": {
+                "results": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/models.GeofenceResponse"
                     }
-                }
-            }
-        },
-        "models.GeofencesListResponse": {
-            "type": "object",
-            "properties": {
-                "geofences": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.GeofenceResponse"
-                    }
-                },
-                "page": {
-                    "type": "integer"
-                },
-                "page_size": {
-                    "type": "integer"
-                },
-                "total_count": {
-                    "type": "integer"
-                }
-            }
-        },
-        "models.LocationHistoryResponse": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer",
-                    "example": 100
-                },
-                "locations": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/models.LocationResponse"
-                    }
-                }
-            }
-        },
-        "models.LocationResponse": {
-            "type": "object",
-            "properties": {
-                "device_id": {
-                    "type": "string",
-                    "example": "device-123"
-                },
-                "latitude": {
-                    "type": "number",
-                    "example": 37.7749
-                },
-                "longitude": {
-                    "type": "number",
-                    "example": -122.4194
-                },
-                "timestamp": {
-                    "type": "string",
-                    "example": "2024-01-15T10:30:00Z"
                 }
             }
         },
         "models.UpdateGeofenceRequest": {
             "type": "object",
+            "required": [
+                "features"
+            ],
             "properties": {
+                "color": {
+                    "type": "string"
+                },
                 "definition": {
                     "description": "Event rule definition as JSON object",
                     "type": "object"
                 },
-                "geometry": {
+                "features": {
                     "type": "array",
                     "items": {
-                        "$ref": "#/definitions/models.GeofenceFeature"
+                        "type": "object"
                     }
                 },
                 "is_active": {

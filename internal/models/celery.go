@@ -134,6 +134,6 @@ type UpdateSpaceTask struct {
 
 // DeleteSpaceTask represents the Celery task kwargs for delete_space
 type DeleteSpaceTask struct {
-	OrganizationSlugName string      `json:"organization_slug_name"`
-	PK                   DjangoUUID  `json:"pk"`
+	OrganizationSlugName string     `json:"organization_slug_name"`
+	PK                   DjangoUUID `json:"pk"`
 }

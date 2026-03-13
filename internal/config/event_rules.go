@@ -11,21 +11,21 @@ import (
 
 // EventRuleConfig represents a single event rule configuration
 type EventRuleConfig struct {
-	RuleKey         string `yaml:"rule_key"`
-	Operator        string `yaml:"operator"`
-	Operand         string `yaml:"operand"`
-	EventType       string `yaml:"event_type"`
-	EventLevel      string `yaml:"event_level"`
-	Description     string `yaml:"description"`
-	Status          string `yaml:"status"`
-	IsActive        bool   `yaml:"is_active"`
+	RuleKey     string `yaml:"rule_key"`
+	Operator    string `yaml:"operator"`
+	Operand     string `yaml:"operand"`
+	EventType   string `yaml:"event_type"`
+	EventLevel  string `yaml:"event_level"`
+	Description string `yaml:"description"`
+	Status      string `yaml:"status"`
+	IsActive    bool   `yaml:"is_active"`
 }
 
 // DeviceModelRules represents event rules for a specific device model
 type DeviceModelRules struct {
-	DeviceModel   string             `yaml:"device_model"`
-	DisplayName   string             `yaml:"display_name"`
-	Rules         []EventRuleConfig  `yaml:"rules"`
+	DeviceModel string            `yaml:"device_model"`
+	DisplayName string            `yaml:"display_name"`
+	Rules       []EventRuleConfig `yaml:"rules"`
 }
 
 // EventRulesConfig represents the aggregated event rules configuration

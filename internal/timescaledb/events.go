@@ -7,22 +7,9 @@ import (
 	"fmt"
 	"hash/crc32"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/stephenafamo/bob"
-)
-
-// EventType constants
-const (
-	EventTypeStateChanged = "state_changed"
-	EventTypeAutomation   = "automation_triggered"
-)
-
-// Pagination constants
-const (
-	DefaultPage       = 1
-	DefaultPageSize   = 20
-	MaxPageSize       = 100
-	DefaultEventLimit = 100
 )
 
 // GetEventsByDevice retrieves all events for a specific entity.
@@ -34,7 +21,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 		return nil, fmt.Errorf("device_id is required")
 	}
 	if limit <= 0 {
-		limit = DefaultEventLimit
+		limit = common.DefaultLimit
 	}
 
 	var events []models.Event
@@ -149,15 +136,13 @@ func populateEventRuleResponse(result *models.EventRuleResponse, req *models.Eve
 }
 
 // GetEventRules retrieves event rules with pagination
-func (c *Client) GetEventRules(ctx context.Context, deviceID string, page, pageSize int) ([]models.EventRule, int, error) {
-	if page <= 0 {
-		page = DefaultPage
+func (c *Client) GetEventRules(ctx context.Context, deviceID string, limit, offset int) ([]models.EventRule, int, error) {
+	if limit <= 0 {
+		limit = common.DefaultLimit
 	}
-	if pageSize <= 0 || pageSize > MaxPageSize {
-		pageSize = DefaultPageSize
+	if offset < 0 {
+		offset = 0
 	}
-
-	offset := (page - 1) * pageSize
 
 	var rules []models.EventRule
 	var total int
@@ -191,7 +176,7 @@ func (c *Client) GetEventRules(ctx context.Context, deviceID string, page, pageS
 				   er.created_at, er.updated_at
 			FROM event_rules er
 		` + whereClause + ` ORDER BY er.created_at DESC LIMIT $` + fmt.Sprintf("%d", len(args)+1) + ` OFFSET $` + fmt.Sprintf("%d", len(args)+2)
-		args = append(args, pageSize, offset)
+		args = append(args, limit, offset)
 
 		rows, err := tx.QueryContext(txCtx, query, args...)
 		if err != nil {

@@ -22,70 +22,62 @@ type EventData struct {
 
 // EventRule represents an automation rule for triggering events based on conditions
 type EventRule struct {
-	EventRuleID  string  `json:"event_rule_id" db:"event_rule_id"`
-	DeviceID     *string `json:"device_id,omitempty" db:"device_id"`
-	SpaceID      *string `json:"space_id,omitempty" db:"space_id"`
-	GeofenceID   *string `json:"geofence_id,omitempty" db:"geofence_id"`
-	RuleKey      *string `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
-	Definition   *string `json:"definition,omitempty" db:"definition"`
-	IsActive     *bool   `json:"is_active,omitempty" db:"is_active"`
-	RepeatAble   *bool   `json:"repeat_able,omitempty" db:"repeat_able"`
-	CooldownSec  *int    `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
-	Description  *string `json:"description,omitempty" db:"description"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	EventRuleID string    `json:"event_rule_id" db:"event_rule_id"`
+	DeviceID    *string   `json:"device_id,omitempty" db:"device_id"`
+	SpaceID     *string   `json:"space_id,omitempty" db:"space_id"`
+	GeofenceID  *string   `json:"geofence_id,omitempty" db:"geofence_id"`
+	RuleKey     *string   `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
+	Definition  *string   `json:"definition,omitempty" db:"definition"`
+	IsActive    *bool     `json:"is_active,omitempty" db:"is_active"`
+	RepeatAble  *bool     `json:"repeat_able,omitempty" db:"repeat_able"`
+	CooldownSec *int      `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
+	Description *string   `json:"description,omitempty" db:"description"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // EventRuleRequest represents a request to create or update an event rule
 type EventRuleRequest struct {
-	DeviceID     *string `json:"device_id,omitempty" validate:"omitempty,uuid"`
-	SpaceID      *string `json:"space_id,omitempty" validate:"omitempty,uuid"`
-	GeofenceID   *string `json:"geofence_id,omitempty" validate:"omitempty,uuid"`
-	RuleKey      *string `json:"rule_key,omitempty" validate:"required"`
-	Definition   *string `json:"definition,omitempty"`
-	IsActive     *bool   `json:"is_active,omitempty"`
-	RepeatAble   *bool   `json:"repeat_able,omitempty"`
-	CooldownSec  *int    `json:"cooldown_sec,omitempty"`
-	Description  *string `json:"description,omitempty"`
+	DeviceID    *string `json:"device_id,omitempty" validate:"omitempty,uuid"`
+	SpaceID     *string `json:"space_id,omitempty" validate:"omitempty,uuid"`
+	GeofenceID  *string `json:"geofence_id,omitempty" validate:"omitempty,uuid"`
+	RuleKey     *string `json:"rule_key,omitempty" validate:"required"`
+	Definition  *string `json:"definition,omitempty"`
+	IsActive    *bool   `json:"is_active,omitempty"`
+	RepeatAble  *bool   `json:"repeat_able,omitempty"`
+	CooldownSec *int    `json:"cooldown_sec,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // EventRuleResponse represents an event rule response
 type EventRuleResponse struct {
-	EventRuleID  string    `json:"event_rule_id"`
-	DeviceID     *string   `json:"device_id,omitempty"`
-	SpaceID      *string   `json:"space_id,omitempty"`
-	GeofenceID   *string   `json:"geofence_id,omitempty"`
-	RuleKey      *string   `json:"rule_key,omitempty"`
-	Definition   *string   `json:"definition,omitempty"`
-	IsActive     *bool     `json:"is_active,omitempty"`
-	RepeatAble   *bool     `json:"repeat_able,omitempty"`
-	CooldownSec  *int      `json:"cooldown_sec,omitempty"`
-	Description  *string   `json:"description,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
-
-// EventRulesListResponse represents a paginated list of event rules
-type EventRulesListResponse struct {
-	Rules      []EventRule `json:"rules"`
-	TotalCount int         `json:"total_count"`
-	Page       int         `json:"page"`
-	PageSize   int         `json:"page_size"`
+	EventRuleID string    `json:"event_rule_id"`
+	DeviceID    *string   `json:"device_id,omitempty"`
+	SpaceID     *string   `json:"space_id,omitempty"`
+	GeofenceID  *string   `json:"geofence_id,omitempty"`
+	RuleKey     *string   `json:"rule_key,omitempty"`
+	Definition  *string   `json:"definition,omitempty"`
+	IsActive    *bool     `json:"is_active,omitempty"`
+	RepeatAble  *bool     `json:"repeat_able,omitempty"`
+	CooldownSec *int      `json:"cooldown_sec,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Event represents an event occurrence
 type Event struct {
-	EventID       int64           `json:"event_id" db:"event_id"`
-	EventTypeID   int             `json:"event_type_id" db:"event_type_id"`
-	DataID        *int64          `json:"data_id,omitempty" db:"data_id"`
-	EventLevel    *string         `json:"event_level,omitempty" db:"event_level"` // manufacturer, system, automation
-	EventRuleID   *string         `json:"event_rule_id,omitempty" db:"event_rule_id"`
-	SpaceSlug     string          `json:"space_slug,omitempty" db:"space_slug"`
-	EntityID      *string         `json:"entity_id,omitempty" db:"entity_id"`
-	StateID       *int64          `json:"state_id,omitempty" db:"state_id"`
-	TriggerID     *string         `json:"trigger_id,omitempty" db:"trigger_id"`
-	TimeFiredTs   int64           `json:"time_fired_ts" db:"time_fired_ts"`
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	EventID     int64     `json:"event_id" db:"event_id"`
+	EventTypeID int       `json:"event_type_id" db:"event_type_id"`
+	DataID      *int64    `json:"data_id,omitempty" db:"data_id"`
+	EventLevel  *string   `json:"event_level,omitempty" db:"event_level"` // manufacturer, system, automation
+	EventRuleID *string   `json:"event_rule_id,omitempty" db:"event_rule_id"`
+	SpaceSlug   string    `json:"space_slug,omitempty" db:"space_slug"`
+	EntityID    *string   `json:"entity_id,omitempty" db:"entity_id"`
+	StateID     *int64    `json:"state_id,omitempty" db:"state_id"`
+	TriggerID   *string   `json:"trigger_id,omitempty" db:"trigger_id"`
+	TimeFiredTs int64     `json:"time_fired_ts" db:"time_fired_ts"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 
 	// Joined fields
 	EventType  string          `json:"event_type,omitempty" db:"event_type"`
@@ -101,22 +93,22 @@ type StatesMeta struct {
 
 // StateAttributes represents shared state attributes (deduplicated by hash)
 type StateAttributes struct {
-	AttributesID  int             `json:"attributes_id" db:"attributes_id"`
-	Hash          int64           `json:"hash" db:"hash"`
-	SharedAttrs   json.RawMessage `json:"shared_attrs" db:"shared_attrs"`
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	AttributesID int             `json:"attributes_id" db:"attributes_id"`
+	Hash         int64           `json:"hash" db:"hash"`
+	SharedAttrs  json.RawMessage `json:"shared_attrs" db:"shared_attrs"`
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
 }
 
 // State represents an entity state with event linkage
 type State struct {
-	StateID       int64           `json:"state_id" db:"state_id"`
-	MetadataID    int             `json:"metadata_id" db:"metadata_id"`
-	State         string          `json:"state" db:"state"`
-	AttributesID  *int            `json:"attributes_id,omitempty" db:"attributes_id"`
-	EventID       *int64          `json:"event_id,omitempty" db:"event_id"`
-	LastChangedTs int64           `json:"last_changed_ts" db:"last_changed_ts"`
-	LastUpdatedTs int64           `json:"last_updated_ts" db:"last_updated_ts"`
-	CreatedAt     time.Time       `json:"created_at" db:"created_at"`
+	StateID       int64     `json:"state_id" db:"state_id"`
+	MetadataID    int       `json:"metadata_id" db:"metadata_id"`
+	State         string    `json:"state" db:"state"`
+	AttributesID  *int      `json:"attributes_id,omitempty" db:"attributes_id"`
+	EventID       *int64    `json:"event_id,omitempty" db:"event_id"`
+	LastChangedTs int64     `json:"last_changed_ts" db:"last_changed_ts"`
+	LastUpdatedTs int64     `json:"last_updated_ts" db:"last_updated_ts"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 
 	// Joined fields
 	EntityID    string          `json:"entity_id,omitempty" db:"entity_id"`
@@ -125,15 +117,15 @@ type State struct {
 
 // StateChangeRequest represents a request to record a state change
 type StateChangeRequest struct {
-	EntityID       string                 `json:"entity_id"`
-	SpaceSlug      string                 `json:"space_slug,omitempty"` // optional, will be resolved from headers if not provided
-	NewState       string                 `json:"new_state"`
-	OldState       string                 `json:"old_state,omitempty"`
-	Attributes     map[string]interface{} `json:"attributes,omitempty"`
-	EventType      string                 `json:"event_type,omitempty"` // defaults to "state_changed"
-	TimeFiredTs    *int64                 `json:"time_fired_ts,omitempty"`
-	ContextID      []byte                 `json:"context_id,omitempty"`
-	TriggerID      *string                `json:"trigger_id,omitempty"`      // for future automations reference
+	EntityID    string                 `json:"entity_id"`
+	SpaceSlug   string                 `json:"space_slug,omitempty"` // optional, will be resolved from headers if not provided
+	NewState    string                 `json:"new_state"`
+	OldState    string                 `json:"old_state,omitempty"`
+	Attributes  map[string]interface{} `json:"attributes,omitempty"`
+	EventType   string                 `json:"event_type,omitempty"` // defaults to "state_changed"
+	TimeFiredTs *int64                 `json:"time_fired_ts,omitempty"`
+	ContextID   []byte                 `json:"context_id,omitempty"`
+	TriggerID   *string                `json:"trigger_id,omitempty"` // for future automations reference
 }
 
 // StateHistoryResponse represents historical state data for an entity
@@ -156,28 +148,28 @@ type EventsListResponse struct {
 
 // StateDetailResponse combines state with metadata and attributes
 type StateDetailResponse struct {
-	StateID         int64        `json:"state_id"`
-	EntityID        string       `json:"entity_id"`
-	State           string       `json:"state"`
+	StateID         int64                  `json:"state_id"`
+	EntityID        string                 `json:"entity_id"`
+	State           string                 `json:"state"`
 	Attributes      map[string]interface{} `json:"attributes,omitempty"`
-	LastChanged     time.Time    `json:"last_changed"`
-	LastUpdated     time.Time    `json:"last_updated"`
-	TriggeringEvent *EventDetail `json:"triggering_event,omitempty"`
+	LastChanged     time.Time              `json:"last_changed"`
+	LastUpdated     time.Time              `json:"last_updated"`
+	TriggeringEvent *EventDetail           `json:"triggering_event,omitempty"`
 }
 
 // EventDetail represents a full event with its type and data
 type EventDetail struct {
-	EventID       int64                  `json:"event_id"`
-	EventType     string                 `json:"event_type"`
-	LevelEventID  *string                `json:"level_event_id,omitempty"`
-	EventRuleID   *string                `json:"event_rule_id,omitempty"`
-	SpaceSlug     string                 `json:"space_slug,omitempty"`
-	EntityID      *string                `json:"entity_id,omitempty"`
-	StateID       *int64                 `json:"state_id,omitempty"`
-	TriggerID     *string                `json:"trigger_id,omitempty"`
-	TimeFired     time.Time              `json:"time_fired"`
-	EventData     map[string]interface{} `json:"event_data,omitempty"`
-	ContextID     []byte                 `json:"context_id,omitempty"`
+	EventID      int64                  `json:"event_id"`
+	EventType    string                 `json:"event_type"`
+	LevelEventID *string                `json:"level_event_id,omitempty"`
+	EventRuleID  *string                `json:"event_rule_id,omitempty"`
+	SpaceSlug    string                 `json:"space_slug,omitempty"`
+	EntityID     *string                `json:"entity_id,omitempty"`
+	StateID      *int64                 `json:"state_id,omitempty"`
+	TriggerID    *string                `json:"trigger_id,omitempty"`
+	TimeFired    time.Time              `json:"time_fired"`
+	EventData    map[string]interface{} `json:"event_data,omitempty"`
+	ContextID    []byte                 `json:"context_id,omitempty"`
 
 	// Joined fields
 	EventRule *EventRule `json:"event_rule,omitempty"`
@@ -259,7 +251,7 @@ type MatchedEvent struct {
 	Value       float64 `json:"value"`
 	Threshold   float64 `json:"threshold"`
 	Operator    string  `json:"operator"`
-	Timestamp   int64   `json:"timestamp"`    // Unix timestamp in milliseconds
-	EventRuleID  *string `json:"event_rule_id,omitempty"`
-	StateID      *string `json:"state_id,omitempty"`
+	Timestamp   int64   `json:"timestamp"` // Unix timestamp in milliseconds
+	EventRuleID *string `json:"event_rule_id,omitempty"`
+	StateID     *string `json:"state_id,omitempty"`
 }

@@ -22,7 +22,7 @@ type CreateGeofenceRequest struct {
 	Name       string            `json:"name" validate:"required,min=1,max=100"`
 	Type       string            `json:"type_zone" validate:"required,oneof=safe danger normal"` // "type_zone" from frontend
 	Color      string            `json:"color" validate:"required"`
-	Features   []json.RawMessage `json:"features" validate:"required"` // GeoJSON features
+	Features   []json.RawMessage `json:"features" validate:"required" swaggertype:"array,object"` // GeoJSON features
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty" example:"true"`
 	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"`
@@ -33,7 +33,7 @@ type UpdateGeofenceRequest struct {
 	Name       *string           `json:"name,omitempty" validate:"omitempty,min=1,max=100" example:"Updated Area Name"`
 	Type       *string           `json:"type_zone,omitempty" validate:"omitempty,oneof=safe danger normal"`
 	Color      *string           `json:"color,omitempty" validate:"omitempty"`
-	Features   []json.RawMessage `json:"features" validate:"required"`
+	Features   []json.RawMessage `json:"features" validate:"required" swaggertype:"array,object"`
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty"`
 	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"` // Event rule definition as JSON object
@@ -43,8 +43,6 @@ type UpdateGeofenceRequest struct {
 type ListGeofencesRequest struct {
 	SpaceID  *uuid.UUID `query:"space_id" validate:"omitempty,uuid"`
 	IsActive *bool      `query:"is_active"`
-	Page     int        `query:"page" validate:"omitempty,min=1"`
-	PageSize int        `query:"page_size" validate:"omitempty,min=1,max=100"`
 	Search   string     `query:"search" validate:"omitempty"`
 }
 

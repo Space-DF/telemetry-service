@@ -12,7 +12,7 @@ type GeofenceResponse struct {
 	GeofenceID uuid.UUID         `json:"id"`
 	Name       string            `json:"name"`
 	TypeZone   string            `json:"type_zone"`
-	Features   []json.RawMessage `json:"features"`
+	Features   []json.RawMessage `json:"features" swaggertype:"array,object"`
 	Color      string            `json:"color"`
 	EventRule  *EventRuleInfo    `json:"event_rule,omitempty"`
 	IsActive   bool              `json:"is_active"`
@@ -28,14 +28,6 @@ type EventRuleInfo struct {
 	Definition  json.RawMessage `json:"definition,omitempty" swaggertype:"object"`
 	IsActive    bool            `json:"is_active"`
 	CreatedAt   time.Time       `json:"created_at"`
-}
-
-// GeofencesListResponse represents a paginated list of geofences
-type GeofencesListResponse struct {
-	Results    []GeofenceResponse `json:"results"`
-	TotalCount int                `json:"total_count"`
-	Page       int                `json:"page"`
-	PageSize   int                `json:"page_size"`
 }
 
 // GeofenceDetailResponse represents a detailed geofence with additional info
@@ -148,7 +140,7 @@ type ErrorResponse struct {
 
 // ResultResponse represents a result response
 type ResultResponse struct {
-	Result  string `json:"result"`
+	Result string `json:"result"`
 }
 
 // TestGeofenceResponse represents the result of testing a geofence configuration against all devices

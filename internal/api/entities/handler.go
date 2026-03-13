@@ -2,7 +2,6 @@ package entities
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
@@ -22,9 +21,9 @@ import (
 // @Param device_id query string false "Filter by device ID"
 // @Param display_type query string false "Filter by display type (comma-separated)"
 // @Param search query string false "Search term for filtering"
-// @Param page query int false "Page number (default 1)"
-// @Param page_size query int false "Page size (default 20)"
-// @Success 200 {object} models.EntitiesResponse
+// @Param limit query int false "Number of results per page (default 20)"
+// @Param offset query int false "Number of results to skip (default 0)"
+// @Success 200 {object} common.PaginatedResponse
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Router /telemetry/v1/entities [get]
@@ -45,18 +44,6 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		}
 		req.SpaceSlug = spaceSlug
 
-		if pageStr := c.QueryParam("page"); pageStr != "" {
-			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				req.Page = p
-			}
-		}
-		if pageSizeStr := c.QueryParam("page_size"); pageSizeStr != "" {
-			if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 {
-				req.PageSize = ps
-			}
-		}
-		req.SetDefaults()
-
 		// Resolve organization from hostname or X-Organization header
 		orgToUse := common.ResolveOrgFromRequest(c)
 		if orgToUse == "" {
@@ -70,16 +57,21 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
-		// Query DB
-		entities, count, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DisplayTypes, req.Search, req.Page, req.PageSize)
+		p := common.ParsePagination(c, common.DefaultLimit)
+
+		entities, total, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DisplayTypes, req.Search, p.Limit, p.Offset)
 		if err != nil {
 			logger.Error("failed to query entities", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query entities"})
 		}
 
-		return c.JSON(http.StatusOK, models.EntitiesResponse{
-			Count:   count,
-			Results: entities,
+		next, previous := common.Paginate(total, p, common.BuildBaseURL(c), common.ExtraParams(c))
+
+		return c.JSON(http.StatusOK, common.PaginatedResponse{
+			Count:    total,
+			Next:     next,
+			Previous: previous,
+			Results:  entities,
 		})
 	}
 }

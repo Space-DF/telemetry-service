@@ -14,20 +14,3 @@ func (r *EventsByDeviceRequest) SetDefaults() {
 		r.Limit = 100
 	}
 }
-
-// EventRulesRequest represents query parameters for event rules list
-type EventRulesRequest struct {
-	Page     int    `query:"page"`
-	PageSize int    `query:"page_size"`
-	DeviceID string `query:"device_id"`
-}
-
-// SetDefaults sets default values
-func (r *EventRulesRequest) SetDefaults() {
-	if r.Page < 1 {
-		r.Page = 1
-	}
-	if r.PageSize < 1 || r.PageSize > 100 {
-		r.PageSize = 20
-	}
-}

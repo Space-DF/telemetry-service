@@ -1,33 +1,29 @@
 definitions:
-  models.AlertsResponse:
+  common.PaginatedResponse:
     properties:
-      page:
-        example: 1
+      count:
         type: integer
-      page_size:
-        example: 20
-        type: integer
-      results:
-        items: {}
-        type: array
-      total_count:
-        example: 150
-        type: integer
+      next:
+        type: string
+      previous:
+        type: string
+      results: {}
     type: object
   models.CreateGeofenceRequest:
     properties:
+      color:
+        type: string
       definition:
         type: object
-      geometry:
-        description: Multiple polygons
+      features:
+        description: GeoJSON features
         items:
-          $ref: '#/definitions/models.GeofenceFeature'
+          type: object
         type: array
       is_active:
         example: true
         type: boolean
       name:
-        example: Restricted Area
         maxLength: 100
         minLength: 1
         type: string
@@ -39,10 +35,10 @@ definitions:
         - safe
         - danger
         - normal
-        example: danger
         type: string
     required:
-    - geometry
+    - color
+    - features
     - name
     - type_zone
     type: object
@@ -62,17 +58,6 @@ definitions:
     properties:
       message:
         type: string
-    type: object
-  models.EntitiesResponse:
-    properties:
-      count:
-        example: 25
-        type: integer
-      results:
-        items:
-          additionalProperties: true
-          type: object
-        type: array
     type: object
   models.ErrorResponse:
     properties:
@@ -112,7 +97,30 @@ definitions:
       rule_key:
         type: string
     type: object
-  models.EventRuleItem:
+  models.EventRuleRequest:
+    properties:
+      cooldown_sec:
+        type: integer
+      definition:
+        type: string
+      description:
+        type: string
+      device_id:
+        type: string
+      geofence_id:
+        type: string
+      is_active:
+        type: boolean
+      repeat_able:
+        type: boolean
+      rule_key:
+        type: string
+      space_id:
+        type: string
+    required:
+    - rule_key
+    type: object
+  models.EventRuleResponse:
     properties:
       cooldown_sec:
         type: integer
@@ -139,42 +147,6 @@ definitions:
       updated_at:
         type: string
     type: object
-  models.EventRuleRequest:
-    properties:
-      cooldown_sec:
-        type: integer
-      definition:
-        type: string
-      description:
-        type: string
-      device_id:
-        type: string
-      geofence_id:
-        type: string
-      is_active:
-        type: boolean
-      repeat_able:
-        type: boolean
-      rule_key:
-        type: string
-      space_id:
-        type: string
-    required:
-    - rule_key
-    type: object
-  models.EventRulesResponse:
-    properties:
-      page:
-        type: integer
-      page_size:
-        type: integer
-      rules:
-        items:
-          $ref: '#/definitions/models.EventRuleItem'
-        type: array
-      total_count:
-        type: integer
-    type: object
   models.EventsByDeviceResponse:
     properties:
       count:
@@ -186,38 +158,25 @@ definitions:
           $ref: '#/definitions/models.EventItem'
         type: array
     type: object
-  models.GeofenceFeature:
-    properties:
-      geometry:
-        type: object
-      id:
-        type: string
-      type:
-        description: '"Feature"'
-        type: string
-    type: object
   models.GeofenceResponse:
     properties:
+      color:
+        type: string
       created_at:
         type: string
       event_rule:
         $ref: '#/definitions/models.EventRuleInfo'
-      geofence_id:
+      features:
+        items:
+          type: object
+        type: array
+      id:
         type: string
-      geometry:
-        type: object
       is_active:
         type: boolean
       name:
         type: string
       space_id:
-        type: string
-      space_logo:
-        type: string
-      space_name:
-        description: Optional joined fields
-        type: string
-      space_slug:
         type: string
       type_zone:
         type: string
@@ -230,57 +189,21 @@ definitions:
         type: integer
       device_id:
         type: string
-      geofences:
+      results:
         items:
           $ref: '#/definitions/models.GeofenceResponse'
         type: array
-    type: object
-  models.GeofencesListResponse:
-    properties:
-      geofences:
-        items:
-          $ref: '#/definitions/models.GeofenceResponse'
-        type: array
-      page:
-        type: integer
-      page_size:
-        type: integer
-      total_count:
-        type: integer
-    type: object
-  models.LocationHistoryResponse:
-    properties:
-      count:
-        example: 100
-        type: integer
-      locations:
-        items:
-          $ref: '#/definitions/models.LocationResponse'
-        type: array
-    type: object
-  models.LocationResponse:
-    properties:
-      device_id:
-        example: device-123
-        type: string
-      latitude:
-        example: 37.7749
-        type: number
-      longitude:
-        example: -122.4194
-        type: number
-      timestamp:
-        example: "2024-01-15T10:30:00Z"
-        type: string
     type: object
   models.UpdateGeofenceRequest:
     properties:
+      color:
+        type: string
       definition:
         description: Event rule definition as JSON object
         type: object
-      geometry:
+      features:
         items:
-          $ref: '#/definitions/models.GeofenceFeature'
+          type: object
         type: array
       is_active:
         type: boolean
@@ -297,6 +220,8 @@ definitions:
         - danger
         - normal
         type: string
+    required:
+    - features
     type: object
   models.UpdateGeofenceResponse:
     properties:
@@ -351,13 +276,13 @@ paths:
         in: query
         name: critical_threshold
         type: number
-      - description: Page number (default 1)
+      - description: Number of results per page (default 20)
         in: query
-        name: page
+        name: limit
         type: integer
-      - description: Page size (default 20, max 100)
+      - description: Number of results to skip (default 0)
         in: query
-        name: page_size
+        name: offset
         type: integer
       produces:
       - application/json
@@ -365,15 +290,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.AlertsResponse'
+            $ref: '#/definitions/common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Get alerts
       tags:
       - alerts
@@ -437,13 +366,13 @@ paths:
         in: query
         name: search
         type: string
-      - description: Page number (default 1)
+      - description: Number of results per page (default 20)
         in: query
-        name: page
+        name: limit
         type: integer
-      - description: Page size (default 20)
+      - description: Number of results to skip (default 0)
         in: query
-        name: page_size
+        name: offset
         type: integer
       produces:
       - application/json
@@ -451,7 +380,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.EntitiesResponse'
+            $ref: '#/definitions/common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -467,20 +396,20 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve all event rules with optional filtering by device. Organization
+      description: Retrieve event rules with optional filtering by device. Organization
         is resolved from X-Organization header or hostname (e.g., {org}.localhost)
       parameters:
       - description: Filter by device ID
         in: query
         name: device_id
         type: string
-      - description: Page number (default 1)
+      - description: Number of results per page (default 20)
         in: query
-        name: page
+        name: limit
         type: integer
-      - description: Page size (default 20)
+      - description: Number of results to skip (default 0)
         in: query
-        name: page_size
+        name: offset
         type: integer
       produces:
       - application/json
@@ -488,15 +417,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.EventRulesResponse'
+            $ref: '#/definitions/common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Get event rules
       tags:
       - events
@@ -518,7 +451,7 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.EventRuleItem'
+            $ref: '#/definitions/models.EventRuleResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -583,7 +516,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.EventRuleItem'
+            $ref: '#/definitions/models.EventRuleResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -644,25 +577,21 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve all geofences with optional filtering by space and active
-        status. Organization is resolved from X-Organization header or hostname (e.g.,
-        {org}.localhost)
+      description: Retrieve a paginated list of geofences with optional filtering
+        by space and active status. Organization is resolved from X-Organization header
+        or hostname (e.g., {org}.localhost)
       parameters:
-      - description: Filter by Space UUID
-        in: query
-        name: space_id
-        type: string
       - description: Filter by active status
         in: query
         name: is_active
         type: boolean
-      - description: Page number (default 1)
+      - description: Number of results per page (default 20)
         in: query
-        name: page
+        name: limit
         type: integer
-      - description: Page size (default 20, max 100)
+      - description: Number of results to skip (default 0)
         in: query
-        name: page_size
+        name: offset
         type: integer
       produces:
       - application/json
@@ -670,7 +599,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.GeofencesListResponse'
+            $ref: '#/definitions/common.PaginatedResponse'
         "400":
           description: Bad Request
           schema:
@@ -852,9 +781,9 @@ paths:
     get:
       consumes:
       - application/json
-      description: Retrieve historical location data for a specific device within
-        a space. Organization is resolved from X-Organization header or hostname (e.g.,
-        {org}.localhost)
+      description: Retrieve paginated historical location data for a specific device
+        within a space. Organization is resolved from X-Organization header or hostname
+        (e.g., {org}.localhost)
       parameters:
       - description: Device ID
         in: query
@@ -875,9 +804,13 @@ paths:
         in: query
         name: end
         type: string
-      - description: Maximum number of records to return (default 100, max 40320)
+      - description: Number of results per page (default 100)
         in: query
         name: limit
+        type: integer
+      - description: Number of results to skip (default 0)
+        in: query
+        name: offset
         type: integer
       produces:
       - application/json
@@ -885,7 +818,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.LocationHistoryResponse'
+            $ref: '#/definitions/common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:

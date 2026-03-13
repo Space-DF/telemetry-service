@@ -23,15 +23,14 @@ import (
 
 // getGeofences returns all geofences with optional filters
 // @Summary Get geofences
-// @Description Retrieve all geofences with optional filtering by space and active status. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Description Retrieve a paginated list of geofences with optional filtering by space and active status. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
 // @Tags geofences
 // @Accept json
 // @Produce json
-// @Param space_id query string false "Filter by Space UUID"
 // @Param is_active query bool false "Filter by active status"
-// @Param page query int false "Page number (default 1)"
-// @Param page_size query int false "Page size (default 20, max 100)"
-// @Success 200 {object} models.GeofencesListResponse
+// @Param limit query int false "Number of results per page (default 20)"
+// @Param offset query int false "Number of results to skip (default 0)"
+// @Success 200 {object} common.PaginatedResponse
 // @Failure 400 {object} models.ErrorResponse
 // @Failure 500 {object} models.ErrorResponse
 // @Router /telemetry/v1/geofences [get]
@@ -44,39 +43,29 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 			})
 		}
 
-		req := &apimodels.ListGeofencesRequest{
-			Page:     1,
-			PageSize: 20,
+		req := &apimodels.ListGeofencesRequest{}
+
+		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+				Error: "X-Space header is required",
+			})
 		}
 
-		// Parse space_id query parameter
-		if spaceIDStr := c.QueryParam("space_id"); spaceIDStr != "" {
-			spaceID, err := uuid.Parse(spaceIDStr)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
-					Error: "Invalid space_id format",
-				})
-			}
-			req.SpaceID = &spaceID
+		spaceID, err := tsClient.GetSpaceIDBySlug(c.Request().Context(), orgToUse, spaceSlug)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, apimodels.ErrorResponse{
+				Error: fmt.Sprintf("Space '%s' not found", spaceSlug),
+			})
 		}
+
+		req.SpaceID = &spaceID
 
 		// Parse is_active query parameter
 		if isActiveStr := c.QueryParam("is_active"); isActiveStr != "" {
 			isActive, err := strconv.ParseBool(isActiveStr)
 			if err == nil {
 				req.IsActive = &isActive
-			}
-		}
-
-		// Parse pagination
-		if pageStr := c.QueryParam("page"); pageStr != "" {
-			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				req.Page = p
-			}
-		}
-		if pageSizeStr := c.QueryParam("page_size"); pageSizeStr != "" {
-			if s, err := strconv.Atoi(pageSizeStr); err == nil && s > 0 && s <= 100 {
-				req.PageSize = s
 			}
 		}
 
@@ -111,7 +100,10 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
-		geofences, total, err := tsClient.GetGeofences(ctx, req.SpaceID, req.IsActive, req.Search, bboxEnvelope, req.Page, req.PageSize)
+		p := common.ParsePagination(c, common.DefaultLimit)
+
+		// Query geofences with limit/offset at DB level
+		geofences, total, err := tsClient.GetGeofences(ctx, req.SpaceID, req.IsActive, req.Search, bboxEnvelope, p.Limit, p.Offset)
 		if err != nil {
 			logger.Error("failed to get geofences", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
@@ -119,11 +111,13 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 			})
 		}
 
-		return c.JSON(http.StatusOK, apimodels.GeofencesListResponse{
-			Results:    convertGeofencesToResponsesWithEventRules(ctx, tsClient, geofences),
-			TotalCount: total,
-			Page:       req.Page,
-			PageSize:   req.PageSize,
+		next, previous := common.Paginate(total, p, common.BuildBaseURL(c), common.ExtraParams(c))
+
+		return c.JSON(http.StatusOK, common.PaginatedResponse{
+			Count:    total,
+			Next:     next,
+			Previous: previous,
+			Results:  convertGeofencesToResponsesWithEventRules(ctx, tsClient, geofences),
 		})
 	}
 }

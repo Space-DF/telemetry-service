@@ -8,11 +8,12 @@ import (
 	"time"
 
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/stephenafamo/bob"
 )
 
 // GetAlerts retrieves alerts for a device/category within a time range.
-func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, page, pageSize int) ([]interface{}, int, error) {
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
@@ -21,7 +22,12 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		return nil, 0, fmt.Errorf("org, space_slug, and device_id are required")
 	}
 
-	offset := (page - 1) * pageSize
+	if limit <= 0 {
+		limit = common.DefaultLimit
+	}
+	if offset < 0 {
+		offset = 0
+	}
 
 	processor, ok := alertregistry.Get(category)
 	if !ok {
@@ -44,7 +50,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		return nil, 0, err
 	}
 
-	args := []interface{}{category, spaceSlug, deviceID, startAt, endAt, pageSize, offset}
+	args := []interface{}{category, spaceSlug, deviceID, startAt, endAt, limit, offset}
 	countArgs := args[:5]
 
 	statePredicate := processor.StatePredicate()
