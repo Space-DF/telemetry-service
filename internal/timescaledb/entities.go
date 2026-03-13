@@ -5,21 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 )
 
 // GetEntities returns entities for a given space with optional filters and pagination.
-func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, page, pageSize int) ([]map[string]interface{}, int, error) {
+func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
 
-	if page < 1 {
-		page = 1
+	if limit <= 0 {
+		limit = common.DefaultLimit
 	}
-	if pageSize <= 0 {
-		pageSize = 100
+	if offset < 0 {
+		offset = 0
 	}
-	offset := (page - 1) * pageSize
 
 	// Build WHERE clauses
 	args := []interface{}{spaceSlug}
@@ -76,7 +76,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		ORDER BY e.created_at DESC
 		LIMIT $%d OFFSET $%d`, where, idx, idx+1)
 
-	args = append(args, pageSize, offset)
+	args = append(args, limit, offset)
 
 	// Run query
 	var results []map[string]interface{}

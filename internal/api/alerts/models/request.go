@@ -4,16 +4,16 @@ import "time"
 
 // AlertsRequest represents query parameters for alerts
 type AlertsRequest struct {
-	SpaceSlug          string     `query:"space_slug"`
-	DeviceID           string     `query:"device_id" validate:"required"`
-	Category           string     `query:"category" validate:"required"`
-	StartDate          string     `query:"start_date"`
-	EndDate            string     `query:"end_date"`
-	Page               int        `query:"page"`
-	PageSize           int        `query:"page_size"`
-	CautionThreshold   float64    `query:"caution_threshold"`
-	WarningThreshold   float64    `query:"warning_threshold"`
-	CriticalThreshold  float64    `query:"critical_threshold"`
+	SpaceSlug         string  `query:"space_slug"`
+	DeviceID          string  `query:"device_id" validate:"required"`
+	Category          string  `query:"category" validate:"required"`
+	StartDate         string  `query:"start_date"`
+	EndDate           string  `query:"end_date"`
+	Page              int     `query:"page"`
+	PageSize          int     `query:"page_size"`
+	CautionThreshold  float64 `query:"caution_threshold"`
+	WarningThreshold  float64 `query:"warning_threshold"`
+	CriticalThreshold float64 `query:"critical_threshold"`
 }
 
 // Alert represents a single alert

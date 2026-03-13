@@ -86,16 +86,16 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 
 // getEventRules returns all event rules
 // @Summary Get event rules
-// @Description Retrieve all event rules with optional filtering by device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Description Retrieve event rules with optional filtering by device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
 // @Tags events
 // @Accept json
 // @Produce json
 // @Param device_id query string false "Filter by device ID"
-// @Param page query int false "Page number (default 1)"
-// @Param page_size query int false "Page size (default 20)"
-// @Success 200 {object} models.EventRulesResponse
-// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
-// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Param limit query int false "Number of results per page (default 20)"
+// @Param offset query int false "Number of results to skip (default 0)"
+// @Success 200 {object} common.PaginatedResponse
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
 // @Router /telemetry/v1/event-rules [get]
 func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -106,23 +106,11 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 			})
 		}
 
-		req := &apimodels.EventRulesRequest{
-			DeviceID: c.QueryParam("device_id"),
-		}
-		if pageStr := c.QueryParam("page"); pageStr != "" {
-			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				req.Page = p
-			}
-		}
-		if sizeStr := c.QueryParam("page_size"); sizeStr != "" {
-			if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
-				req.PageSize = s
-			}
-		}
-		req.SetDefaults()
+		deviceID := c.QueryParam("device_id")
+		p := common.ParsePagination(c, common.DefaultLimit)
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rules, total, err := tsClient.GetEventRules(ctx, req.DeviceID, req.Page, req.PageSize)
+		rules, total, err := tsClient.GetEventRules(ctx, deviceID, p.Limit, p.Offset)
 		if err != nil {
 			logger.Error("failed to get event rules",
 				zap.Error(err))
@@ -131,11 +119,13 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 			})
 		}
 
-		return c.JSON(http.StatusOK, models.EventRulesListResponse{
-			Rules:      rules,
-			TotalCount: total,
-			Page:       req.Page,
-			PageSize:   req.PageSize,
+		next, previous := common.Paginate(total, p, common.BuildBaseURL(c), common.ExtraParams(c))
+
+		return c.JSON(http.StatusOK, common.PaginatedResponse{
+			Count:    total,
+			Next:     next,
+			Previous: previous,
+			Results:  rules,
 		})
 	}
 }
@@ -147,7 +137,7 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 // @Accept json
 // @Produce json
 // @Param request body models.EventRuleRequest true "Event rule configuration"
-// @Success 201 {object} models.EventRuleItem
+// @Success 201 {object} models.EventRuleResponse
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Router /telemetry/v1/event-rules [post]
@@ -189,7 +179,7 @@ func createEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 // @Produce json
 // @Param rule_id path string true "Event Rule ID"
 // @Param request body models.EventRuleRequest true "Event rule configuration"
-// @Success 200 {object} models.EventRuleItem
+// @Success 200 {object} models.EventRuleResponse
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Router /telemetry/v1/event-rules/{rule_id} [put]

@@ -26,9 +26,9 @@ type YAMLRule struct {
 
 // DeviceModelRules represents event rules for a specific device model
 type DeviceModelRules struct {
-	Brand       string     `yaml:"brand"`       // e.g., "rakwireless"
-	Model       string     `yaml:"model"`       // e.g., "rak4630"
-	ModelID     string     `yaml:"model_id"`    // Resolved from device service
+	Brand       string     `yaml:"brand"`    // e.g., "rakwireless"
+	Model       string     `yaml:"model"`    // e.g., "rak4630"
+	ModelID     string     `yaml:"model_id"` // Resolved from device service
 	DisplayName string     `yaml:"display_name"`
 	Rules       []YAMLRule `yaml:"rules"`
 }

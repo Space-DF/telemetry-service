@@ -7,21 +7,20 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/google/uuid"
 	"github.com/stephenafamo/bob"
 )
 
 // GetGeofences retrieves geofences with optional filters and pagination
-func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, bboxEnvelope *[4]float64, page, pageSize int) ([]models.GeofenceWithSpace, int, error) {
-	if page <= 0 {
-		page = DefaultPage
+func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive *bool, search string, bboxEnvelope *[4]float64, limit, offset int) ([]models.GeofenceWithSpace, int, error) {
+	if limit <= 0 {
+		limit = common.DefaultLimit
 	}
-	if pageSize <= 0 || pageSize > MaxPageSize {
-		pageSize = DefaultPageSize
+	if offset < 0 {
+		offset = 0
 	}
-
-	offset := (page - 1) * pageSize
 
 	var geofences []models.GeofenceWithSpace
 	var total int
@@ -76,7 +75,7 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 		}
 
 		// Query geofences with space join
-		args = append(args, pageSize, offset)
+		args = append(args, limit, offset)
 		query := fmt.Sprintf(`
 			SELECT g.geofence_id, g.name, g.type_zone, g.features, g.color,
 				g.is_active, g.space_id, g.created_at, g.updated_at,
