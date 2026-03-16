@@ -57,7 +57,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
-		p := common.ParsePagination(c, common.DefaultLimit)
+		p := common.ParsePagination(c)
 
 		entities, total, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DisplayTypes, req.Search, p.Limit, p.Offset)
 		if err != nil {

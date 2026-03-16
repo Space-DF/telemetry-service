@@ -25,17 +25,27 @@ type PaginationParams struct {
 	Offset int
 }
 
-// ParsePagination extracts limit and offset from query params with defaults.
-func ParsePagination(c echo.Context, defaultLimit int) PaginationParams {
+// ParsePagination extracts limit and offset from the query parameters, applying defaults and bounds.
+func ParsePagination(c echo.Context, defaultLimit ...int) PaginationParams {
+	limitDefault := DefaultLimit
+	if len(defaultLimit) > 0 && defaultLimit[0] > 0 {
+		limitDefault = defaultLimit[0]
+	}
+
 	limit, _ := strconv.Atoi(c.QueryParam("limit"))
 	if limit <= 0 {
-		limit = defaultLimit
+		limit = limitDefault
 	}
+
 	offset, _ := strconv.Atoi(c.QueryParam("offset"))
 	if offset < 0 {
 		offset = 0
 	}
-	return PaginationParams{Limit: limit, Offset: offset}
+
+	return PaginationParams{
+		Limit:  limit,
+		Offset: offset,
+	}
 }
 
 // Paginate takes a total count, pagination params, base URL built from the request, and optional
