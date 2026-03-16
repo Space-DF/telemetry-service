@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 )
@@ -180,4 +181,37 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	return results, total, nil
+}
+
+// GetSpaceIDsByDeviceID returns the distinct space UUIDs associated with a device
+func (c *Client) GetSpaceIDsByDeviceID(ctx context.Context, deviceID string) ([]uuid.UUID, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	var spaceIDs []uuid.UUID
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		rows, err := tx.QueryContext(txCtx,
+			`SELECT DISTINCT space_id FROM entities WHERE device_id = $1 AND space_id IS NOT NULL`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to query space IDs for device: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			spaceIDs = append(spaceIDs, id)
+		}
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return spaceIDs, nil
 }

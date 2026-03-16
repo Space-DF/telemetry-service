@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -78,7 +79,7 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 		args = append(args, limit, offset)
 		query := fmt.Sprintf(`
 			SELECT g.geofence_id, g.name, g.type_zone, g.features, g.color,
-				g.is_active, g.space_id, g.created_at, g.updated_at,
+				g.is_active, g.space_id, g.event_rule_id, g.created_at, g.updated_at,
 				s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
 			FROM geofences g
 			LEFT JOIN spaces s ON g.space_id = s.space_id
@@ -97,11 +98,12 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 			var g models.GeofenceWithSpace
 			var featuresJSON []byte
 			var color sql.NullString
+			var eventRuleID sql.NullString
 			var spaceName, spaceSlug, spaceLogo sql.NullString
 
 			err := rows.Scan(
 				&g.GeofenceID, &g.Name, &g.TypeZone, &featuresJSON, &color,
-				&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
+				&g.IsActive, &g.SpaceID, &eventRuleID, &g.CreatedAt, &g.UpdatedAt,
 				&spaceName, &spaceSlug, &spaceLogo,
 			)
 			if err != nil {
@@ -115,6 +117,12 @@ func (c *Client) GetGeofences(ctx context.Context, spaceID *uuid.UUID, isActive 
 			}
 			if color.Valid {
 				g.Color = color.String
+			}
+			if eventRuleID.Valid {
+				eventRuleUUID, err := uuid.Parse(eventRuleID.String)
+				if err == nil {
+					g.EventRuleID = &eventRuleUUID
+				}
 			}
 
 			geofences = append(geofences, g)
@@ -146,11 +154,12 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		var featuresJSON []byte
 		var color sql.NullString
+		var eventRuleID sql.NullString
 		var spaceName, spaceSlug, spaceLogo sql.NullString
 
 		query := `
 			SELECT g.geofence_id, g.name, g.type_zone, g.features, g.color,
-				g.is_active, g.space_id, g.created_at, g.updated_at,
+				g.is_active, g.space_id, g.event_rule_id, g.created_at, g.updated_at,
 				s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
 			FROM geofences g
 			LEFT JOIN spaces s ON g.space_id = s.space_id
@@ -159,7 +168,7 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 
 		err := tx.QueryRowContext(txCtx, query, geofenceID).Scan(
 			&g.GeofenceID, &g.Name, &g.TypeZone, &featuresJSON, &color,
-			&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
+			&g.IsActive, &g.SpaceID, &eventRuleID, &g.CreatedAt, &g.UpdatedAt,
 			&spaceName, &spaceSlug, &spaceLogo,
 		)
 		if err != nil {
@@ -177,6 +186,12 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 		if color.Valid {
 			g.Color = color.String
 		}
+		if eventRuleID.Valid {
+			eventRuleUUID, err := uuid.Parse(eventRuleID.String)
+			if err == nil {
+				g.EventRuleID = &eventRuleUUID
+			}
+		}
 
 		return nil
 	})
@@ -186,8 +201,8 @@ func (c *Client) GetGeofenceByID(ctx context.Context, geofenceID uuid.UUID) (*mo
 	return &g, nil
 }
 
-// CreateGeofence creates a new geofence
-func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geometry []byte, features []json.RawMessage, color string, spaceID *uuid.UUID, isActive *bool) (*models.Geofence, error) {
+// CreateGeofence creates a new geofence with an associated event rule
+func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geometry []byte, features []json.RawMessage, color string, spaceID *uuid.UUID, isActive *bool, eventRuleID *uuid.UUID, definition *json.RawMessage) (*models.Geofence, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
@@ -200,21 +215,46 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Insert geofence with geometry from GeoJSON
+		// First create the event rule if not provided
+		var ruleID uuid.UUID
+		if eventRuleID != nil {
+			ruleID = *eventRuleID
+		} else {
+			// Create default event rule for geofence
+			isActive := true
+			repeatAble := true
+			cooldownSec := 0
+			ruleKey := "geofence"
+			description := name
+			definitionStr := "{}"
+			if definition != nil && len(*definition) > 0 {
+				definitionStr = string(*definition)
+			}
 
+			err := tx.QueryRowContext(txCtx, `
+				INSERT INTO event_rules (rule_key, definition, is_active, repeat_able, cooldown_sec, description)
+				VALUES ($1, $2::jsonb, $3, $4, $5, $6)
+				RETURNING event_rule_id
+			`, ruleKey, definitionStr, isActive, repeatAble, cooldownSec, description).Scan(&ruleID)
+			if err != nil {
+				return fmt.Errorf("failed to create event rule: %w", err)
+			}
+		}
+
+		// Insert geofence with geometry from GeoJSON
 		featuresJSON, err := json.Marshal(features)
 		if err != nil {
 			return fmt.Errorf("failed to marshal features to JSON: %w", err)
 		}
 
 		query := `
-			INSERT INTO geofences (name, type_zone, geometry, features, color, is_active, space_id)
-			VALUES ($1, $2, ST_GeomFromGeoJSON($3), $4, $5, $6, $7)
+			INSERT INTO geofences (name, type_zone, geometry, features, color, is_active, space_id, event_rule_id)
+			VALUES ($1, $2, ST_GeomFromGeoJSON($3), $4, $5, $6, $7, $8)
 			RETURNING geofence_id, created_at, updated_at
 		`
 
 		err = tx.QueryRowContext(txCtx, query,
-			name, typeZone, geometry, featuresJSON, color, isActiveVal, spaceID).Scan(
+			name, typeZone, geometry, featuresJSON, color, isActiveVal, spaceID, ruleID).Scan(
 			&g.GeofenceID, &g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
@@ -227,6 +267,7 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 		g.Color = color
 		g.IsActive = isActiveVal
 		g.SpaceID = spaceID
+		g.EventRuleID = &ruleID
 
 		return nil
 	})
@@ -239,7 +280,7 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 }
 
 // UpdateGeofence updates an existing geofence
-func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name, typeZone *string, geometry []byte, features []json.RawMessage, color *string, spaceID *uuid.UUID, isActive *bool) (*models.Geofence, error) {
+func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name, typeZone *string, geometry []byte, features []json.RawMessage, color *string, spaceID *uuid.UUID, isActive *bool, eventRuleID *uuid.UUID) (*models.Geofence, error) {
 	if geofenceID == uuid.Nil {
 		return nil, fmt.Errorf("geofence_id is required")
 	}
@@ -259,14 +300,15 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 		var currentName, currentTypeZone string
 		var currentIsActive bool
 		var currentSpaceID sql.NullString
+		var currentEventRuleID sql.NullString
 
 		getQuery := `
-			SELECT name, type_zone, ST_AsGeoJSON(geometry), features, color, is_active, space_id
+			SELECT name, type_zone, ST_AsGeoJSON(geometry), features, color, is_active, space_id, event_rule_id
 			FROM geofences WHERE geofence_id = $1
 		`
 		var featuresRaw []byte
 		err := tx.QueryRowContext(txCtx, getQuery, geofenceID).Scan(
-			&currentName, &currentTypeZone, &currentGeometry, &featuresRaw, &currentColor, &currentIsActive, &currentSpaceID,
+			&currentName, &currentTypeZone, &currentGeometry, &featuresRaw, &currentColor, &currentIsActive, &currentSpaceID, &currentEventRuleID,
 		)
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -327,6 +369,11 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			args = append(args, featuresJSON)
 			argIdx++
 		}
+		if eventRuleID != nil {
+			setClauses = append(setClauses, fmt.Sprintf("event_rule_id = $%d", argIdx))
+			args = append(args, *eventRuleID)
+			argIdx++
+		}
 
 		// If no fields to update, return current geofence
 		if len(setClauses) == 0 {
@@ -335,6 +382,12 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			g.TypeZone = currentTypeZone
 			g.IsActive = currentIsActive
 			g.Color = currentColor
+			if currentEventRuleID.Valid {
+				eventRuleUUID, err := uuid.Parse(currentEventRuleID.String)
+				if err == nil {
+					g.EventRuleID = &eventRuleUUID
+				}
+			}
 			if currentSpaceID.Valid {
 				spaceUUID, err := uuid.Parse(currentSpaceID.String)
 				if err != nil {
@@ -351,14 +404,15 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 			UPDATE geofences
 			SET %s
 			WHERE geofence_id = $%d
-			RETURNING geofence_id, name, type_zone, ST_AsGeoJSON(geometry)::json, features, color, is_active, space_id, created_at, updated_at
+			RETURNING geofence_id, name, type_zone, ST_AsGeoJSON(geometry)::json, features, color, is_active, space_id, event_rule_id, created_at, updated_at
 		`, strings.Join(setClauses, ", "), argIdx)
 
 		var geometryJSON []byte
 		var featuresJSON []byte
+		var eventRuleID sql.NullString
 		err = tx.QueryRowContext(txCtx, query, args...).Scan(
 			&g.GeofenceID, &g.Name, &g.TypeZone, &geometryJSON, &featuresJSON, &g.Color,
-			&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
+			&g.IsActive, &g.SpaceID, &eventRuleID, &g.CreatedAt, &g.UpdatedAt,
 		)
 		if err != nil {
 			if err == sql.ErrNoRows {
@@ -370,6 +424,12 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 		if len(featuresJSON) > 0 {
 			if err := json.Unmarshal(featuresJSON, &g.Features); err != nil {
 				return fmt.Errorf("failed to unmarshal features JSON: %w", err)
+			}
+		}
+		if eventRuleID.Valid {
+			eventRuleUUID, err := uuid.Parse(eventRuleID.String)
+			if err == nil {
+				g.EventRuleID = &eventRuleUUID
 			}
 		}
 		return nil
@@ -394,27 +454,34 @@ func (c *Client) DeleteGeofence(ctx context.Context, geofenceID uuid.UUID) error
 	}
 
 	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		result, err := tx.ExecContext(txCtx, `DELETE FROM geofences WHERE geofence_id = $1`, geofenceID)
+		var eventRuleID string
+
+		// Get associated event rule ID to delete after deleting geofence
+		err := tx.QueryRowContext(txCtx, `DELETE FROM geofences WHERE geofence_id = $1 RETURNING event_rule_id`, geofenceID).Scan(&eventRuleID)
+
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("geofence not found")
+			}
 			return fmt.Errorf("failed to delete geofence: %w", err)
 		}
 
-		rows, err := result.RowsAffected()
+		// Delete associated event rule
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM event_rules WHERE event_rule_id = $1
+		`, eventRuleID)
 		if err != nil {
-			return fmt.Errorf("failed to get rows affected: %w", err)
-		}
-		if rows == 0 {
-			return models.ErrGeofenceNotFound
+			return fmt.Errorf("failed to delete associated event rule: %w", err)
 		}
 
 		return nil
 	})
 }
 
-// GetGeofencesByDevice retrieves geofences associated with a device through event_rules
-func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]models.GeofenceWithSpace, error) {
-	if deviceID == "" {
-		return nil, fmt.Errorf("device_id is required")
+// GetGeofencesBySpace retrieves geofences associated with a space
+func (c *Client) GetGeofencesBySpace(ctx context.Context, spaceID uuid.UUID) ([]models.GeofenceWithSpace, error) {
+	if spaceID == uuid.Nil {
+		return nil, fmt.Errorf("space_id is required")
 	}
 
 	var geofences []models.GeofenceWithSpace
@@ -425,19 +492,19 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Query geofences that are referenced by event_rules for this device
+		// Query geofences in the given space
 		query := `
-			SELECT DISTINCT g.geofence_id, g.name, g.type_zone, g.features, g.color,
-				g.is_active, g.space_id, g.created_at, g.updated_at,
-				s.name as space_name, s.space_slug as space_slug, s.logo as space_logo
+			SELECT g.geofence_id, g.name, g.type_zone, g.features, g.color,
+				g.is_active, g.space_id, g.event_rule_id, g.created_at, g.updated_at,
+				sp.name as space_name, sp.space_slug as space_slug, sp.logo as space_logo
 			FROM geofences g
-			INNER JOIN event_rules er ON er.geofence_id = g.geofence_id
-			LEFT JOIN spaces s ON g.space_id = s.space_id
-			WHERE er.device_id = $1 AND g.is_active = true
+			LEFT JOIN spaces sp ON g.space_id = sp.space_id
+			WHERE g.space_id = $1
+			AND g.is_active = true
 			ORDER BY g.name
 		`
 
-		rows, err := tx.QueryContext(txCtx, query, deviceID)
+		rows, err := tx.QueryContext(txCtx, query, spaceID)
 		if err != nil {
 			return fmt.Errorf("failed to query geofences by device: %w", err)
 		}
@@ -447,11 +514,12 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 			var g models.GeofenceWithSpace
 			var featuresJSON []byte
 			var color sql.NullString
+			var eventRuleID sql.NullString
 			var spaceName, spaceSlug, spaceLogo sql.NullString
 
 			err := rows.Scan(
 				&g.GeofenceID, &g.Name, &g.TypeZone, &featuresJSON, &color,
-				&g.IsActive, &g.SpaceID, &g.CreatedAt, &g.UpdatedAt,
+				&g.IsActive, &g.SpaceID, &eventRuleID, &g.CreatedAt, &g.UpdatedAt,
 				&spaceName, &spaceSlug, &spaceLogo,
 			)
 			if err != nil {
@@ -465,6 +533,12 @@ func (c *Client) GetGeofencesByDevice(ctx context.Context, deviceID string) ([]m
 			}
 			if color.Valid {
 				g.Color = color.String
+			}
+			if eventRuleID.Valid {
+				eventRuleUUID, err := uuid.Parse(eventRuleID.String)
+				if err == nil {
+					g.EventRuleID = &eventRuleUUID
+				}
 			}
 
 			geofences = append(geofences, g)

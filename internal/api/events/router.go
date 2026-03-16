@@ -10,13 +10,4 @@ import (
 func RegisterRoutes(e *echo.Group, cfg *config.Config, logger *zap.Logger, tsClient *timescaledb.Client) {
 	// Get events for a specific device
 	e.GET("/events/device/:device_id", getEventsByDevice(logger, tsClient))
-
-	// Get event rules
-	e.GET("/event-rules", getEventRules(logger, tsClient))
-	// Create a new event rule
-	e.POST("/event-rules", createEventRule(logger, tsClient))
-	// Update an event rule
-	e.PUT("/event-rules/:rule_id", updateEventRule(logger, tsClient))
-	// Delete an event rule
-	e.DELETE("/event-rules/:rule_id", deleteEventRule(logger, tsClient))
 }
