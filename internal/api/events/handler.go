@@ -107,7 +107,7 @@ func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handle
 		}
 
 		deviceID := c.QueryParam("device_id")
-		p := common.ParsePagination(c, common.DefaultLimit)
+		p := common.ParsePagination(c)
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 		rules, total, err := tsClient.GetEventRules(ctx, deviceID, p.Limit, p.Offset)

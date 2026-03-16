@@ -78,7 +78,7 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		})
 	}
 	// Pagination
-	p := common.ParsePagination(c, common.DefaultLimit)
+	p := common.ParsePagination(c)
 
 	cautionThreshold := processor.DefaultCautionThreshold()
 	warningThreshold := processor.DefaultWarningThreshold()

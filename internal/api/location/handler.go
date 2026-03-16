@@ -85,7 +85,7 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 		}
 
 		total := len(allLocationResponses)
-		p := common.ParsePagination(c, DefaultLimit)
+		p := common.ParsePagination(c)
 		start, end := common.SlicePage(total, p)
 
 		next, previous := common.Paginate(total, p, common.BuildBaseURL(c), common.ExtraParams(c))

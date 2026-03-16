@@ -100,7 +100,7 @@ func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
-		p := common.ParsePagination(c, common.DefaultLimit)
+		p := common.ParsePagination(c)
 
 		// Query geofences with limit/offset at DB level
 		geofences, total, err := tsClient.GetGeofences(ctx, req.SpaceID, req.IsActive, req.Search, bboxEnvelope, p.Limit, p.Offset)
