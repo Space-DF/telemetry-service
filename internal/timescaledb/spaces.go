@@ -136,9 +136,52 @@ func (c *Client) DeleteSpace(ctx context.Context, orgSlug string, spaceID uuid.U
 	}
 
 	err := c.WithOrgTx(ctx, orgSlug, func(txCtx context.Context, tx bob.Tx) error {
-		query := `DELETE FROM spaces WHERE space_id = $1`
+		// Delete entity_states (telemetry data) for entities in this space
+		_, err := tx.ExecContext(txCtx, `
+			DELETE FROM entity_states 
+			WHERE entity_id IN (
+				SELECT e.id FROM entities e 
+				WHERE e.space_id = $1
+			)
+		`, spaceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete entity_states for space '%s' in org '%s': %w", spaceID, orgSlug, err)
+		}
 
-		_, err := tx.ExecContext(txCtx, query, spaceID)
+		// Delete orphaned entity_state_attributes
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM entity_state_attributes 
+			WHERE id NOT IN (
+				SELECT DISTINCT attributes_id FROM entity_states WHERE attributes_id IS NOT NULL
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to delete entity_state_attributes for space '%s' in org '%s': %w", spaceID, orgSlug, err)
+		}
+
+		// Delete entities (devices/sensors) in this space
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM entities 
+			WHERE space_id = $1
+		`, spaceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete entities for space '%s' in org '%s': %w", spaceID, orgSlug, err)
+		}
+
+		//  Delete geofences in this space (if any)
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM geofences 
+			WHERE space_id = $1
+		`, spaceID)
+		if err != nil {
+			c.Logger.Warn("Failed to delete geofences (table may not exist)",
+				zap.String("org", orgSlug),
+				zap.String("space_id", spaceID.String()),
+				zap.Error(err))
+		}
+
+		//  Delete the space itself
+		_, err = tx.ExecContext(txCtx, `DELETE FROM spaces WHERE space_id = $1`, spaceID)
 		if err != nil {
 			return fmt.Errorf("failed to delete space '%s' in org '%s': %w", spaceID, orgSlug, err)
 		}
@@ -150,9 +193,58 @@ func (c *Client) DeleteSpace(ctx context.Context, orgSlug string, spaceID uuid.U
 		return err
 	}
 
-	c.Logger.Info("Space deleted successfully",
+	c.Logger.Info("Space and all related telemetry data deleted successfully",
 		zap.String("org", orgSlug),
 		zap.String("space_id", spaceID.String()))
+
+	return nil
+}
+
+// DeleteDeviceFromSpace deletes all telemetry data for a specific device in a space.
+func (c *Client) DeleteDeviceFromSpace(ctx context.Context, orgSlug string, deviceID uuid.UUID) error {
+	if orgSlug == "" {
+		return fmt.Errorf("organization slug is required")
+	}
+	if deviceID == uuid.Nil {
+		return fmt.Errorf("device_id is required")
+	}
+
+	err := c.WithOrgTx(ctx, orgSlug, func(txCtx context.Context, tx bob.Tx) error {
+		// Delete entity_states (telemetry data) for this device
+		_, err := tx.ExecContext(txCtx, `
+			DELETE FROM entity_states 
+			WHERE entity_id IN (
+				SELECT e.id FROM entities e 
+				WHERE e.device_id = $1
+			)
+		`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete entity_states for device '%s': %w", deviceID, err)
+		}
+
+		// Delete orphaned entity_state_attributes
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM entity_state_attributes 
+			WHERE id NOT IN (
+				SELECT DISTINCT attributes_id FROM entity_states WHERE attributes_id IS NOT NULL
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to delete entity_state_attributes for device '%s': %w", deviceID, err)
+		}
+
+		// Delete entities for this device
+		_, err = tx.ExecContext(txCtx, `DELETE FROM entities WHERE device_id = $1`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete entities for device '%s': %w", deviceID, err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

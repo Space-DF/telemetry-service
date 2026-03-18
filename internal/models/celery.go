@@ -137,3 +137,9 @@ type DeleteSpaceTask struct {
 	OrganizationSlugName string     `json:"organization_slug_name"`
 	PK                   DjangoUUID `json:"pk"`
 }
+
+// DeleteDeviceTask represents the Celery task kwargs for delete_device
+type DeleteDeviceTask struct {
+	OrganizationSlugName string `json:"organization_slug_name"`
+	DeviceID             string `json:"device_id"`
+}
