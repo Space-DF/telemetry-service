@@ -16,12 +16,14 @@ import (
 
 const (
 	// Exchange names as defined in common/celery/routing.py
-	UpdateSpaceExchange = "update_space"
-	DeleteSpaceExchange = "delete_space"
+	UpdateSpaceExchange  = "update_space"
+	DeleteSpaceExchange  = "delete_space"
+	DeleteDeviceExchange = "delete_device"
 
 	// Task names for message identification
-	UpdateSpaceTaskName = "spacedf.tasks.update_space"
-	DeleteSpaceTaskName = "spacedf.tasks.delete_space"
+	UpdateSpaceTaskName  = "spacedf.tasks.update_space"
+	DeleteSpaceTaskName  = "spacedf.tasks.delete_space"
+	DeleteDeviceTaskName = "spacedf.tasks.delete_device"
 )
 
 // TaskConsumer consumes Celery tasks from RabbitMQ
@@ -36,6 +38,7 @@ type TaskConsumer struct {
 
 	updateQueueName string
 	deleteQueueName string
+	deviceQueueName string
 }
 
 // NewTaskConsumer creates a new Celery task consumer
@@ -47,6 +50,7 @@ func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.L
 		done:            make(chan bool, 1),
 		updateQueueName: "telemetry_update_space",
 		deleteQueueName: "telemetry_delete_space",
+		deviceQueueName: "telemetry_delete_device",
 	}
 }
 
@@ -113,6 +117,24 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to declare delete_space exchange: %w", err)
 	}
 
+	// Exchange: delete_device (fanout type)
+	err = c.channel.ExchangeDeclare(
+		DeleteDeviceExchange,
+		"fanout",
+		true,
+		false,
+		false,
+		true,
+		nil,
+	)
+	if err != nil {
+		defer func() {
+			_ = c.channel.Close()
+			_ = c.conn.Close()
+		}()
+		return fmt.Errorf("failed to declare delete_device exchange: %w", err)
+	}
+
 	// Declare update queue
 	_, err = c.channel.QueueDeclare(
 		c.updateQueueName,
@@ -151,6 +173,25 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to declare delete queue: %w", err)
 	}
 
+	// Declare device queue
+	_, err = c.channel.QueueDeclare(
+		c.deviceQueueName,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{
+			"x-single-active-consumer": true,
+		},
+	)
+	if err != nil {
+		defer func() {
+			_ = c.channel.Close()
+			_ = c.conn.Close()
+		}()
+		return fmt.Errorf("failed to declare device queue: %w", err)
+	}
+
 	// Bind update queue to update_space exchange
 	if err := c.channel.QueueBind(
 		c.updateQueueName,
@@ -177,9 +218,23 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to bind delete queue: %w", err)
 	}
 
+	// Bind device queue to delete_device exchange
+	if err := c.channel.QueueBind(
+		c.deviceQueueName,
+		DeleteDeviceExchange,
+		DeleteDeviceExchange,
+		false,
+		nil,
+	); err != nil {
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to bind device queue: %w", err)
+	}
+
 	c.logger.Info("Celery task consumer connected",
 		zap.String("update_queue", c.updateQueueName),
-		zap.String("delete_queue", c.deleteQueueName))
+		zap.String("delete_queue", c.deleteQueueName),
+		zap.String("device_queue", c.deviceQueueName))
 
 	return nil
 }
@@ -214,12 +269,27 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start consuming delete queue: %w", err)
 	}
 
+	// Consume from device queue
+	deviceMessages, err := c.channel.Consume(
+		c.deviceQueueName,
+		"telemetry_device_consumer", // consumer tag
+		false,                       // manual ack
+		false,                       // non-exclusive
+		false,                       // no-local
+		false,                       // no-wait
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start consuming device queue: %w", err)
+	}
+
 	c.logger.Info("Celery task consumer started",
 		zap.String("update_queue", c.updateQueueName),
-		zap.String("delete_queue", c.deleteQueueName))
+		zap.String("delete_queue", c.deleteQueueName),
+		zap.String("device_queue", c.deviceQueueName))
 
 	// Start goroutines for each queue
-	c.wg.Add(2)
+	c.wg.Add(3)
 	go func() {
 		defer c.wg.Done()
 		c.processMessages(ctx, updateMessages, UpdateSpaceTaskName)
@@ -227,6 +297,10 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 	go func() {
 		defer c.wg.Done()
 		c.processMessages(ctx, deleteMessages, DeleteSpaceTaskName)
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.processMessages(ctx, deviceMessages, DeleteDeviceTaskName)
 	}()
 
 	return nil
@@ -275,6 +349,9 @@ func (c *TaskConsumer) handleTask(ctx context.Context, taskName string, body []b
 
 	case DeleteSpaceTaskName, "delete_space":
 		return c.handleDeleteSpace(ctx, body)
+
+	case DeleteDeviceTaskName, "delete_device":
+		return c.handleDeleteDevice(ctx, body)
 
 	default:
 		c.logger.Debug("Unknown task name, ignoring", zap.String("task", taskName))
@@ -345,6 +422,34 @@ func (c *TaskConsumer) handleDeleteSpace(ctx context.Context, body []byte) error
 	// Delete the space
 	if err := c.dbClient.DeleteSpace(ctx, task.OrganizationSlugName, spaceID); err != nil {
 		return fmt.Errorf("failed to delete space: %w", err)
+	}
+
+	return nil
+}
+
+// handleDeleteDevice handles the delete_device Celery task
+func (c *TaskConsumer) handleDeleteDevice(ctx context.Context, body []byte) error {
+	var celeryMsg models.CeleryMessage
+	if err := json.Unmarshal(body, &celeryMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal celery message: %w", err)
+	}
+
+	var task models.DeleteDeviceTask
+	if err := json.Unmarshal(celeryMsg.Kwargs, &task); err != nil {
+		return fmt.Errorf("failed to unmarshal delete_device task kwargs: %w", err)
+	}
+
+	deviceID, err := parseUUID(task.DeviceID)
+	if err != nil {
+		return fmt.Errorf("invalid device ID '%s': %w", task.DeviceID, err)
+	}
+
+	c.logger.Info("Processing delete_device task",
+		zap.String("org", task.OrganizationSlugName),
+		zap.String("device_id", deviceID.String()))
+
+	if err := c.dbClient.DeleteDeviceFromSpace(ctx, task.OrganizationSlugName, deviceID); err != nil {
+		return fmt.Errorf("failed to delete device telemetry data: %w", err)
 	}
 
 	return nil
