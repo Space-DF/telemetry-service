@@ -12,76 +12,69 @@ type EventType struct {
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
-// EventData represents shared event data (deduplicated by hash)
-type EventData struct {
-	DataID     int64           `json:"data_id" db:"data_id"`
-	Hash       int64           `json:"hash" db:"hash"`
-	SharedData json.RawMessage `json:"shared_data" db:"shared_data"`
-	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
-}
-
-// EventRule represents an automation rule for triggering events based on conditions
+// EventRule represents a rule that can trigger events
 type EventRule struct {
 	EventRuleID string    `json:"event_rule_id" db:"event_rule_id"`
-	DeviceID    *string   `json:"device_id,omitempty" db:"device_id"`
-	SpaceID     *string   `json:"space_id,omitempty" db:"space_id"`
-	GeofenceID  *string   `json:"geofence_id,omitempty" db:"geofence_id"`
-	RuleKey     *string   `json:"rule_key,omitempty" db:"rule_key"` // e.g., 'battery_low', 'temperature_low'
+	RuleKey     string    `json:"rule_key" db:"rule_key"`
 	Definition  *string   `json:"definition,omitempty" db:"definition"`
 	IsActive    *bool     `json:"is_active,omitempty" db:"is_active"`
 	RepeatAble  *bool     `json:"repeat_able,omitempty" db:"repeat_able"`
 	CooldownSec *int      `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
 	Description *string   `json:"description,omitempty" db:"description"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // EventRuleRequest represents a request to create or update an event rule
 type EventRuleRequest struct {
-	DeviceID    *string `json:"device_id,omitempty" validate:"omitempty,uuid"`
-	SpaceID     *string `json:"space_id,omitempty" validate:"omitempty,uuid"`
-	GeofenceID  *string `json:"geofence_id,omitempty" validate:"omitempty,uuid"`
-	RuleKey     *string `json:"rule_key,omitempty" validate:"required"`
-	Definition  *string `json:"definition,omitempty"`
-	IsActive    *bool   `json:"is_active,omitempty"`
-	RepeatAble  *bool   `json:"repeat_able,omitempty"`
-	CooldownSec *int    `json:"cooldown_sec,omitempty"`
-	Description *string `json:"description,omitempty"`
+	RuleKey     *string `json:"rule_key" validate:"required"`
+	Definition  *string `json:"definition"`
+	IsActive    *bool   `json:"is_active"`
+	RepeatAble  *bool   `json:"repeat_able"`
+	CooldownSec *int    `json:"cooldown_sec"`
+	Description *string `json:"description"`
 }
 
 // EventRuleResponse represents an event rule response
 type EventRuleResponse struct {
 	EventRuleID string    `json:"event_rule_id"`
-	DeviceID    *string   `json:"device_id,omitempty"`
-	SpaceID     *string   `json:"space_id,omitempty"`
-	GeofenceID  *string   `json:"geofence_id,omitempty"`
-	RuleKey     *string   `json:"rule_key,omitempty"`
+	RuleKey     string    `json:"rule_key"`
 	Definition  *string   `json:"definition,omitempty"`
-	IsActive    *bool     `json:"is_active,omitempty"`
-	RepeatAble  *bool     `json:"repeat_able,omitempty"`
-	CooldownSec *int      `json:"cooldown_sec,omitempty"`
+	IsActive    bool      `json:"is_active"`
+	RepeatAble  bool      `json:"repeat_able"`
+	CooldownSec int       `json:"cooldown_sec"`
 	Description *string   `json:"description,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Event represents an event occurrence
 type Event struct {
-	EventID     int64     `json:"event_id" db:"event_id"`
-	EventTypeID int       `json:"event_type_id" db:"event_type_id"`
-	DataID      *int64    `json:"data_id,omitempty" db:"data_id"`
-	EventLevel  *string   `json:"event_level,omitempty" db:"event_level"` // manufacturer, system, automation
-	EventRuleID *string   `json:"event_rule_id,omitempty" db:"event_rule_id"`
-	SpaceSlug   string    `json:"space_slug,omitempty" db:"space_slug"`
-	EntityID    *string   `json:"entity_id,omitempty" db:"entity_id"`
-	StateID     *int64    `json:"state_id,omitempty" db:"state_id"`
-	TriggerID   *string   `json:"trigger_id,omitempty" db:"trigger_id"`
-	TimeFiredTs int64     `json:"time_fired_ts" db:"time_fired_ts"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	EventID      int64   `json:"event_id" db:"event_id"`
+	EventTypeID  int     `json:"event_type_id" db:"event_type_id"`
+	EventLevel   *string `json:"event_level,omitempty" db:"event_level"`     // manufacturer, system, automation
+	EventRuleID  *string `json:"event_rule_id,omitempty" db:"event_rule_id"` // Rule that triggered this event
+	AutomationID *string `json:"automation_id,omitempty" db:"automation_id"` // Automation that triggered this event
+	GeofenceID   *string `json:"geofence_id,omitempty" db:"geofence_id"`     // Geofence that triggered this event
+	SpaceSlug    string  `json:"space_slug,omitempty" db:"space_slug"`
+	DeviceID     *string `json:"device_id,omitempty" db:"device_id"`
+	EntityID     *string `json:"entity_id,omitempty" db:"entity_id"`
+	StateID      *int64  `json:"state_id,omitempty" db:"state_id"`
+	Title        string  `json:"title,omitempty" db:"title"`
+	TimeFiredTs  int64   `json:"time_fired_ts" db:"time_fired_ts"`
 
-	// Joined fields
-	EventType  string          `json:"event_type,omitempty" db:"event_type"`
-	SharedData json.RawMessage `json:"shared_data,omitempty" db:"shared_data"`
+	// Joined fields for internal use
+	EventType          string `json:"event_type,omitempty" db:"event_type"`
+	AutomationName     string `json:"automation_name,omitempty" db:"automation_name"`
+	AutomationDeviceID string `json:"automation_device_id,omitempty" db:"automation_device_id"`
+	GeofenceName       string `json:"geofence_name,omitempty" db:"geofence_name"`
+	GeofenceTypeZone   string `json:"geofence_type_zone,omitempty" db:"geofence_type_zone"`
+
+	Location *Location `json:"location,omitempty"`
+}
+
+// Location represents a geographic location
+type Location struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 // StatesMeta represents metadata about entity states
@@ -162,7 +155,9 @@ type EventDetail struct {
 	EventID      int64                  `json:"event_id"`
 	EventType    string                 `json:"event_type"`
 	LevelEventID *string                `json:"level_event_id,omitempty"`
-	EventRuleID  *string                `json:"event_rule_id,omitempty"`
+	EventRuleID  *string                `json:"event_rule_id,omitempty"` // Rule that triggered this event
+	AutomationID *string                `json:"automation_id,omitempty"` // Automation that triggered this event
+	GeofenceID   *string                `json:"geofence_id,omitempty"`   // Geofence that triggered this event
 	SpaceSlug    string                 `json:"space_slug,omitempty"`
 	EntityID     *string                `json:"entity_id,omitempty"`
 	StateID      *int64                 `json:"state_id,omitempty"`
@@ -170,9 +165,6 @@ type EventDetail struct {
 	TimeFired    time.Time              `json:"time_fired"`
 	EventData    map[string]interface{} `json:"event_data,omitempty"`
 	ContextID    []byte                 `json:"context_id,omitempty"`
-
-	// Joined fields
-	EventRule *EventRule `json:"event_rule,omitempty"`
 }
 
 // TimestampsToTime converts timestamp fields to time.Time
@@ -202,18 +194,6 @@ func (s *State) ParseAttributes() (map[string]interface{}, error) {
 	return attrs, nil
 }
 
-// ParseEventData parses the shared_data JSON into a map
-func (e *Event) ParseEventData() (map[string]interface{}, error) {
-	if e.SharedData == nil {
-		return nil, nil
-	}
-	var data map[string]interface{}
-	if err := json.Unmarshal(e.SharedData, &data); err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
 // SetSharedAttrs sets the shared_attrs from a map
 func (s *StateAttributes) SetSharedAttrs(attrs map[string]interface{}) error {
 	if attrs == nil {
@@ -227,31 +207,22 @@ func (s *StateAttributes) SetSharedAttrs(attrs map[string]interface{}) error {
 	return nil
 }
 
-// SetSharedData sets the shared_data from a map
-func (e *EventData) SetSharedData(data map[string]interface{}) error {
-	if data == nil {
-		return nil
-	}
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return err
-	}
-	e.SharedData = raw
-	return nil
-}
-
 // MatchedEvent represents an event rule that matched evaluation
 type MatchedEvent struct {
-	EntityID    string  `json:"entity_id"`
-	EntityType  string  `json:"entity_type"`
-	RuleKey     string  `json:"rule_key"`
-	EventType   string  `json:"event_type"`
-	EventLevel  string  `json:"event_level"`
-	Description string  `json:"description"`
-	Value       float64 `json:"value"`
-	Threshold   float64 `json:"threshold"`
-	Operator    string  `json:"operator"`
-	Timestamp   int64   `json:"timestamp"` // Unix timestamp in milliseconds
-	EventRuleID *string `json:"event_rule_id,omitempty"`
-	StateID     *string `json:"state_id,omitempty"`
+	EntityID     string    `json:"entity_id"`
+	EntityType   string    `json:"entity_type"`
+	RuleKey      string    `json:"rule_key"`
+	EventType    string    `json:"event_type"`
+	EventLevel   string    `json:"event_level"`
+	Title        string    `json:"title"`
+	Description  string    `json:"description"`
+	Value        float64   `json:"value"`
+	Threshold    float64   `json:"threshold"`
+	Operator     string    `json:"operator"`
+	Timestamp    int64     `json:"timestamp"`               // Unix timestamp in milliseconds
+	EventRuleID  *string   `json:"event_rule_id,omitempty"` // Rule that triggered this event
+	AutomationID *string   `json:"automation_id,omitempty"` // Automation that triggered this event
+	GeofenceID   *string   `json:"geofence_id,omitempty"`   // Geofence that triggered this event
+	StateID      *string   `json:"state_id,omitempty"`
+	Location     *Location `json:"location,omitempty"`
 }

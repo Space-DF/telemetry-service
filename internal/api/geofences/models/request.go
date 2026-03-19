@@ -36,7 +36,7 @@ type UpdateGeofenceRequest struct {
 	Features   []json.RawMessage `json:"features" validate:"required" swaggertype:"array,object"`
 	SpaceID    *uuid.UUID        `json:"space_id,omitempty" validate:"omitempty,uuid"`
 	IsActive   *bool             `json:"is_active,omitempty"`
-	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"` // Event rule definition as JSON object
+	Definition json.RawMessage   `json:"definition,omitempty" swaggertype:"object"`
 }
 
 // ListGeofencesRequest represents query parameters for listing geofences
@@ -68,9 +68,9 @@ type CheckPointInAnyGeofenceRequest struct {
 	Longitude float64   `json:"longitude" validate:"required,min=-180,max=180"`
 }
 
-// GetGeofencesByDeviceRequest represents a request to get geofences associated with a device
-type GetGeofencesByDeviceRequest struct {
-	DeviceID uuid.UUID `param:"device_id" validate:"required,uuid"`
+// GetGeofencesBySpaceRequest represents a request to get geofences associated with a space
+type GetGeofencesBySpaceRequest struct {
+	SpaceID  uuid.UUID `param:"space_id" validate:"required,uuid"`
 	IsActive *bool     `query:"is_active"`
 }
 

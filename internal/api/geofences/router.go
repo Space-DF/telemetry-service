@@ -15,7 +15,4 @@ func RegisterRoutes(e *echo.Group, cfg *config.Config, logger *zap.Logger, tsCli
 	e.PUT("/geofences/:geofence_id", updateGeofence(logger, tsClient))
 	e.DELETE("/geofences/:geofence_id", deleteGeofence(logger, tsClient))
 	e.POST("/geofences/test", testGeofence(logger, tsClient))
-
-	// Device-related geofence queries
-	e.GET("/geofences/device/:device_id", getGeofencesByDevice(logger, tsClient))
 }

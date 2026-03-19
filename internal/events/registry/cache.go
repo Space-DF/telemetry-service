@@ -6,8 +6,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/events/evaluator"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -20,8 +22,8 @@ const (
 
 // DeviceRulesCacheEntry represents a cached entry for device automation rules
 type DeviceRulesCacheEntry struct {
-	Rules      []models.EventRule            // Flat array (for compatibility)
-	RulesByKey map[string][]models.EventRule // Grouped by rule_key for O(1) lookup
+	Rules      []evaluator.EventRuleForEvaluation            // Flat array (for compatibility)
+	RulesByKey map[string][]evaluator.EventRuleForEvaluation // Grouped by rule_key for O(1) lookup
 	CachedAt   time.Time
 	ExpiresAt  time.Time
 }
@@ -75,18 +77,86 @@ func (c *DeviceRulesCache) Stop() {
 	close(c.stopped)
 }
 
-// Get fetches device automation rules from database and populates cache
-func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []models.EventRule {
+// Get fetches device automation and geofence rules from database and populates cache
+func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []evaluator.EventRuleForEvaluation {
 	now := time.Now()
 
-	// Fetch from database
-	rules, err := c.db.GetActiveRulesForDevice(ctx, deviceID)
+	// Fetch automations for this device
+	automations, _, err := c.db.GetAutomations(ctx, &deviceID, "", 1000, 0)
 	if err != nil {
-		c.logger.Error("Failed to fetch automation rules for device",
+		c.logger.Error("Failed to fetch automations for device",
 			zap.String("device_id", deviceID),
 			zap.Error(err))
 		return nil
 	}
+
+	// Fetch geofences for the device's space(s)
+	// First get space IDs directly from the entities table for this device
+	var geofences []models.GeofenceWithSpace
+	spacesSeen := make(map[uuid.UUID]bool)
+
+	deviceSpaceIDs, err := c.db.GetSpaceIDsByDeviceID(ctx, deviceID)
+	if err != nil {
+		c.logger.Warn("Failed to fetch space IDs for device",
+			zap.String("device_id", deviceID),
+			zap.Error(err))
+	}
+	for _, sid := range deviceSpaceIDs {
+		spacesSeen[sid] = true
+	}
+
+	// Also collect space IDs from automations (in case they differ)
+	for _, auto := range automations {
+		if auto.SpaceID != nil {
+			spacesSeen[*auto.SpaceID] = true
+		}
+	}
+
+	// Fetch geofences for all discovered spaces
+	for sid := range spacesSeen {
+		gfs, err := c.db.GetGeofencesBySpace(ctx, sid)
+		if err != nil {
+			c.logger.Warn("Failed to fetch geofences for space",
+				zap.String("space_id", sid.String()),
+				zap.Error(err))
+			continue
+		}
+		geofences = append(geofences, gfs...)
+	}
+
+	// Collect all event_rule_ids from automations and geofences
+	var eventRuleIDs []string
+	for _, auto := range automations {
+		if auto.EventRuleID != nil {
+			eventRuleIDs = append(eventRuleIDs, *auto.EventRuleID)
+		}
+	}
+	for _, gf := range geofences {
+		if gf.EventRuleID != nil {
+			eventRuleIDs = append(eventRuleIDs, gf.EventRuleID.String())
+		}
+	}
+
+	// Fetch only the needed event rules from database by IDs
+	eventRules, err := c.db.GetEventRulesByIDs(ctx, eventRuleIDs)
+	if err != nil {
+		c.logger.Error("Failed to fetch event rules",
+			zap.Error(err))
+		return nil
+	}
+
+	// Build a map of event rules by ID for quick lookup
+	eventRuleMap := make(map[string]models.EventRule)
+	for _, rule := range eventRules {
+		eventRuleMap[rule.EventRuleID] = rule
+	}
+
+	// Convert automations to EventRuleForEvaluation
+	rules := c.convertAutomationsToRules(automations, eventRuleMap)
+
+	// Convert geofences to EventRuleForEvaluation
+	geofenceRules := c.convertGeofencesToRules(geofences, eventRuleMap)
+	rules = append(rules, geofenceRules...)
 
 	// Group rules by rule_key for O(1) lookup
 	rulesByKey := c.groupRulesByKey(rules)
@@ -103,16 +173,18 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []models.Ev
 	c.cache[deviceID] = entry
 	c.mu.Unlock()
 
-	c.logger.Debug("Cached device automation rules",
+	c.logger.Debug("Cached device automation and geofence rules",
 		zap.String("device_id", deviceID),
-		zap.Int("rule_count", len(rules)),
+		zap.Int("automation_count", len(automations)),
+		zap.Int("geofence_count", len(geofences)),
+		zap.Int("total_rules", len(rules)),
 		zap.Duration("ttl", c.ttl))
 
 	return rules
 }
 
 // GetGrouped retrieves grouped device automation rules from cache or database
-func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[string][]models.EventRule {
+func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[string][]evaluator.EventRuleForEvaluation {
 	now := time.Now()
 
 	// Try cache first (read lock)
@@ -142,9 +214,97 @@ func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[
 	return c.groupRulesByKey(rules)
 }
 
+// convertAutomationsToRules converts automations to EventRuleForEvaluation
+func (c *DeviceRulesCache) convertAutomationsToRules(automations []models.AutomationWithActions, eventRuleMap map[string]models.EventRule) []evaluator.EventRuleForEvaluation {
+	var rules []evaluator.EventRuleForEvaluation
+
+	for _, auto := range automations {
+		if auto.EventRuleID == nil {
+			continue
+		}
+
+		// Look up the event rule from the map
+		eventRule, found := eventRuleMap[*auto.EventRuleID]
+		if !found {
+			c.logger.Warn("Event rule not found for automation",
+				zap.String("automation_id", auto.ID),
+				zap.String("event_rule_id", *auto.EventRuleID))
+			continue
+		}
+
+		ruleKey := eventRule.RuleKey
+		rule := evaluator.EventRuleForEvaluation{
+			EventRuleID:    eventRule.EventRuleID, // actual event_rule UUID
+			AutomationID:   auto.ID,               // automation UUID
+			AutomationName: auto.Name,             // automation name used as event title
+			RuleKey:        &ruleKey,
+			Definition:     eventRule.Definition,
+			IsActive:       eventRule.IsActive,
+			RepeatAble:     eventRule.RepeatAble,
+			Description:    eventRule.Description,
+			GeofenceID:     nil,
+			IsAutomation:   true,
+		}
+
+		// Handle nil pointers with defaults
+		if rule.Definition == nil {
+			emptyDef := ""
+			rule.Definition = &emptyDef
+		}
+
+		rules = append(rules, rule)
+	}
+
+	return rules
+}
+
+// convertGeofencesToRules converts geofences to EventRuleForEvaluation
+func (c *DeviceRulesCache) convertGeofencesToRules(geofences []models.GeofenceWithSpace, eventRuleMap map[string]models.EventRule) []evaluator.EventRuleForEvaluation {
+	var rules []evaluator.EventRuleForEvaluation
+
+	for _, gf := range geofences {
+		if gf.EventRuleID == nil {
+			continue
+		}
+
+		// Look up the event rule from the map
+		eventRule, found := eventRuleMap[gf.EventRuleID.String()]
+		if !found {
+			c.logger.Warn("Event rule not found for geofence",
+				zap.String("geofence_id", gf.GeofenceID.String()),
+				zap.String("event_rule_id", gf.EventRuleID.String()))
+			continue
+		}
+
+		ruleKey := eventRule.RuleKey
+		geofenceID := gf.GeofenceID.String()
+		rule := evaluator.EventRuleForEvaluation{
+			EventRuleID:  eventRule.EventRuleID,
+			AutomationID: "",
+			RuleKey:      &ruleKey,
+			Definition:   eventRule.Definition,
+			IsActive:     eventRule.IsActive,
+			RepeatAble:   eventRule.RepeatAble,
+			Description:  eventRule.Description,
+			GeofenceID:   &geofenceID,
+			IsAutomation: false,
+		}
+
+		// Handle nil pointers with defaults
+		if rule.Definition == nil {
+			emptyDef := ""
+			rule.Definition = &emptyDef
+		}
+
+		rules = append(rules, rule)
+	}
+
+	return rules
+}
+
 // groupRulesByKey groups rules by their rule_key for O(1) lookup
-func (c *DeviceRulesCache) groupRulesByKey(rules []models.EventRule) map[string][]models.EventRule {
-	result := make(map[string][]models.EventRule)
+func (c *DeviceRulesCache) groupRulesByKey(rules []evaluator.EventRuleForEvaluation) map[string][]evaluator.EventRuleForEvaluation {
+	result := make(map[string][]evaluator.EventRuleForEvaluation)
 
 	for _, rule := range rules {
 		if rule.RuleKey != nil && *rule.RuleKey != "" {

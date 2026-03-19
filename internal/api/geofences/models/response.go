@@ -7,6 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// EventRuleInfo represents basic event rule information
+type EventRuleInfo struct {
+	EventRuleID string          `json:"event_rule_id"`
+	RuleKey     string          `json:"rule_key"`
+	Definition  json.RawMessage `json:"definition,omitempty" swaggertype:"object"`
+	IsActive    bool            `json:"is_active"`
+	CreatedAt   time.Time       `json:"created_at"`
+}
+
 // GeofenceResponse represents a geofence in API responses
 type GeofenceResponse struct {
 	GeofenceID uuid.UUID         `json:"id"`
@@ -21,26 +30,17 @@ type GeofenceResponse struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
-// EventRuleInfo represents basic event rule information
-type EventRuleInfo struct {
-	EventRuleID string          `json:"event_rule_id"`
-	RuleKey     string          `json:"rule_key"`
-	Definition  json.RawMessage `json:"definition,omitempty" swaggertype:"object"`
-	IsActive    bool            `json:"is_active"`
-	CreatedAt   time.Time       `json:"created_at"`
-}
-
 // GeofenceDetailResponse represents a detailed geofence with additional info
 type GeofenceDetailResponse struct {
-	GeofenceID uuid.UUID       `json:"id"`
-	Name       string          `json:"name"`
-	TypeZone   string          `json:"type_zone"`
-	Geometry   json.RawMessage `json:"geometry" swaggertype:"object"`
-	EventRule  *EventRuleInfo  `json:"event_rule,omitempty"`
-	IsActive   bool            `json:"is_active"`
-	SpaceID    *uuid.UUID      `json:"space_id,omitempty"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	GeofenceID  uuid.UUID       `json:"id"`
+	Name        string          `json:"name"`
+	TypeZone    string          `json:"type_zone"`
+	Geometry    json.RawMessage `json:"geometry" swaggertype:"object"`
+	EventRuleID *uuid.UUID      `json:"event_rule_id,omitempty"`
+	IsActive    bool            `json:"is_active"`
+	SpaceID     *uuid.UUID      `json:"space_id,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 
 	// Space details
 	Space     *SpaceItem  `json:"space,omitempty"`
@@ -76,11 +76,11 @@ type SpaceItem struct {
 	Logo      *string   `json:"logo,omitempty"`
 }
 
-// GeofencesByDeviceResponse represents geofences associated with a device
-type GeofencesByDeviceResponse struct {
-	DeviceID string             `json:"device_id"`
-	Results  []GeofenceResponse `json:"results"`
-	Count    int                `json:"count"`
+// GeofencesBySpaceResponse represents geofences associated with a space
+type GeofencesBySpaceResponse struct {
+	SpaceID string             `json:"space_id"`
+	Results []GeofenceResponse `json:"results"`
+	Count   int                `json:"count"`
 }
 
 // PointInGeofenceResponse represents the result of a point-in-geofence check
