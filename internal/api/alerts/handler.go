@@ -8,7 +8,6 @@ import (
 
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	"github.com/Space-DF/telemetry-service/internal/api/common"
-	"github.com/Space-DF/telemetry-service/internal/api/alerts/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
@@ -27,6 +26,24 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 }
 
 // GetAlerts returns alerts based on water level thresholds
+// @Summary Get alerts
+// @Description Retrieve alerts based on configurable thresholds for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags alerts
+// @Accept json
+// @Produce json
+// @Param device_id query string true "Device ID"
+// @Param category query string true "Alert category (e.g., water_level)"
+// @Param start_date query string true "Start date (YYYY-MM-DD format)"
+// @Param end_date query string true "End date (YYYY-MM-DD format)"
+// @Param caution_threshold query number false "Caution threshold value"
+// @Param warning_threshold query number false "Warning threshold value"
+// @Param critical_threshold query number false "Critical threshold value"
+// @Param limit query int false "Number of results per page (default 20)"
+// @Param offset query int false "Number of results to skip (default 0)"
+// @Success 200 {object} common.PaginatedResponse
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /telemetry/v1/alerts [get]
 func (h *Handler) GetAlerts(c echo.Context) error {
 	// Resolve organization from hostname or X-Organization header
 	orgSlug := common.ResolveOrgFromRequest(c)
@@ -61,14 +78,7 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		})
 	}
 	// Pagination
-	page, _ := strconv.Atoi(c.QueryParam("page"))
-	if page < 1 {
-		page = 1
-	}
-	pageSize, _ := strconv.Atoi(c.QueryParam("page_size"))
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
-	}
+	p := common.ParsePagination(c)
 
 	cautionThreshold := processor.DefaultCautionThreshold()
 	warningThreshold := processor.DefaultWarningThreshold()
@@ -101,8 +111,8 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		cautionThreshold,
 		warningThreshold,
 		criticalThreshold,
-		page,
-		pageSize,
+		p.Limit,
+		p.Offset,
 	)
 
 	if err != nil {
@@ -116,12 +126,12 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to retrieve alerts"})
 	}
 
-	response := models.AlertsResponse{
-		Results:    alerts,
-		TotalCount: totalCount,
-		Page:       page,
-		PageSize:   pageSize,
-	}
+	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
 
-	return c.JSON(http.StatusOK, response)
+	return c.JSON(http.StatusOK, common.PaginatedResponse{
+		Count:    totalCount,
+		Next:     next,
+		Previous: previous,
+		Results:  alerts,
+	})
 }

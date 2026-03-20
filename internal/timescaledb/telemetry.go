@@ -79,12 +79,12 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	var entityID uuid.UUID
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO entities (
-			id, space_slug, device_id, unique_key, category, entity_type_id,
+			id, space_id, device_id, unique_key, category, entity_type_id,
 			name, unit_of_measurement, display_type, is_enabled, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, now(), now())
+		VALUES ($1, (SELECT space_id FROM spaces WHERE space_slug = $2 LIMIT 1), $3, $4, $5, $6, $7, $8, $9, true, now(), now())
 		ON CONFLICT (unique_key) DO UPDATE SET
-			space_slug = EXCLUDED.space_slug,
+			space_id = EXCLUDED.space_id,
 			device_id = EXCLUDED.device_id,
 			name = EXCLUDED.name,
 			unit_of_measurement = EXCLUDED.unit_of_measurement,

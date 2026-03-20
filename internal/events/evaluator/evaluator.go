@@ -11,15 +11,32 @@ import (
 	"go.uber.org/zap"
 )
 
+// EventRuleForEvaluation represents an event rule from automation or geofence
+// This is used for evaluation purposes, combining automation and geofence event rules
+type EventRuleForEvaluation struct {
+	EventRuleID    string // UUID of the event_rule row in event_rules table
+	AutomationID   string // UUID of the automation (empty for geofence rules)
+	AutomationName string // Name of the automation (used as event title)
+	RuleKey        *string
+	Definition     *string
+	IsActive       *bool
+	RepeatAble     *bool
+	Description    *string
+	GeofenceID     *string // Set if this is a geofence rule
+	IsAutomation   bool    // true if from automation, false if from geofence
+}
+
 // Evaluator handles rule evaluation logic
 type Evaluator struct {
-	logger *zap.Logger
+	logger             *zap.Logger
+	conditionEvaluator *ConditionEvaluator
 }
 
 // NewEvaluator creates a new rule evaluator
 func NewEvaluator(logger *zap.Logger) *Evaluator {
 	return &Evaluator{
-		logger: logger,
+		logger:             logger,
+		conditionEvaluator: NewConditionEvaluator(logger),
 	}
 }
 
@@ -30,8 +47,8 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 		return nil
 	}
 
-	// Check if rule allows creating new events
-	if !rule.AllowNewEvent {
+	// Check if rule allows repeating events
+	if !rule.RepeatAble {
 		return nil
 	}
 
@@ -62,6 +79,7 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 		RuleKey:     rule.RuleKey,
 		EventType:   rule.EventType,
 		EventLevel:  rule.EventLevel,
+		Title:       rule.Description,
 		Description: rule.Description,
 		Value:       value,
 		Threshold:   operand,
@@ -74,14 +92,14 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 }
 
 // EvaluateRuleDB evaluates a database rule against an entity
-func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entity models.TelemetryEntity) *models.MatchedEvent {
+func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string, entity models.TelemetryEntity) *models.MatchedEvent {
 	// Skip inactive rules
 	if rule.IsActive != nil && !*rule.IsActive {
 		return nil
 	}
 
 	// Check if rule allows creating new events
-	if rule.AllowNewEvent != nil && !*rule.AllowNewEvent {
+	if rule.RepeatAble != nil && !*rule.RepeatAble {
 		return nil
 	}
 
@@ -94,52 +112,166 @@ func (e *Evaluator) EvaluateRuleDB(rule models.EventRule, deviceID string, entit
 		return nil
 	}
 
-	// Get the value from entity based on rule_key
-	value, exists := e.getEntityValue(entity, ruleKey)
-	if !exists {
+	// Parse and evaluate definition conditions
+	if rule.Definition == nil || *rule.Definition == "" {
+		e.logger.Warn("Rule definition is null or empty",
+			zap.String("rule_key", ruleKey))
 		return nil
 	}
 
-	// Parse the operand as float64
-	operand, ok := events.ParseFloat64(rule.Operand)
-	if !ok {
-		e.logger.Warn("Failed to parse operand as float64",
+	// Evaluate definition using condition evaluator
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinition(*rule.Definition, entity, deviceID)
+	if err != nil {
+		e.logger.Warn("Failed to evaluate rule definition",
 			zap.String("rule_key", ruleKey),
-			zap.String("operand", rule.Operand))
+			zap.String("definition", *rule.Definition),
+			zap.Error(err))
 		return nil
 	}
-
-	// Get operator
-	operator := ""
-	if rule.Operator != nil {
-		operator = *rule.Operator
-	}
-	if operator == "" {
-		operator = "eq" // default
-	}
-
-	// Evaluate the condition
-	matched := events.CompareValues(value, operand, operator, e.logger)
 	if !matched {
 		return nil
 	}
 
-	// Build description
-	description := fmt.Sprintf("Rule %s matched: %.2f %s %.2f", ruleKey, value, operator, operand)
+	// Build description from match details
+	title := ruleKey
+	if rule.AutomationName != "" {
+		title = rule.AutomationName
+	} else if rule.Description != nil && *rule.Description != "" {
+		title = *rule.Description
+	}
+	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
+	if rule.Description != nil && *rule.Description != "" {
+		description = *rule.Description
+	}
+
+	var automationID *string
+	if rule.IsAutomation && rule.AutomationID != "" {
+		aid := rule.AutomationID
+		automationID = &aid
+	}
+	var geofenceID *string
+	if !rule.IsAutomation && rule.GeofenceID != nil {
+		geofenceID = rule.GeofenceID
+	}
+	var eventRuleID *string
+	if rule.EventRuleID != "" {
+		erid := rule.EventRuleID
+		eventRuleID = &erid
+	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:    deviceID,
-		EntityType:  entity.EntityType,
-		RuleKey:     ruleKey,
-		EventType:   "device_event",
-		EventLevel:  "automation",
-		Description: description,
-		Value:       value,
-		Threshold:   operand,
-		Operator:    operator,
-		Timestamp:   time.Now().UnixMilli(),
-		EventRuleID: &rule.EventRuleID,
-		StateID:     entity.StateID,
+		EntityID:     deviceID,
+		EntityType:   entity.EntityType,
+		RuleKey:      ruleKey,
+		EventType:    "device_event",
+		EventLevel:   "automation",
+		Title:        title,
+		Description:  description,
+		Value:        0,
+		Threshold:    0,
+		Operator:     "complex",
+		Timestamp:    time.Now().UnixMilli(),
+		EventRuleID:  eventRuleID,
+		AutomationID: automationID,
+		GeofenceID:   geofenceID,
+		StateID:      entity.StateID,
+	}
+
+	return matchedEvent
+}
+
+// EvaluateRuleDBWithEntities evaluates a database rule against ALL entities combined into a single context.
+func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, deviceID string, entities []models.TelemetryEntity, deviceInfo map[string]interface{}, extraContext map[string]interface{}) *models.MatchedEvent {
+	// Skip inactive rules
+	if rule.IsActive != nil && !*rule.IsActive {
+		return nil
+	}
+
+	// Check if rule allows creating new events
+	if rule.RepeatAble != nil && !*rule.RepeatAble {
+		return nil
+	}
+
+	// Get rule key from database rule
+	ruleKey := ""
+	if rule.RuleKey != nil {
+		ruleKey = *rule.RuleKey
+	}
+
+	// Parse and evaluate definition conditions
+	if rule.Definition == nil || *rule.Definition == "" {
+		return nil
+	}
+
+	// Build unified context from ALL entities
+	context := e.conditionEvaluator.BuildUnifiedContext(entities, deviceID, deviceInfo)
+
+	// Merge extra context (e.g. distance_from_geofence_km)
+	for k, v := range extraContext {
+		context[k] = v
+	}
+
+	// Evaluate definition using condition evaluator with unified context
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(*rule.Definition, context)
+	if err != nil {
+		return nil
+	}
+	if !matched {
+		return nil
+	}
+
+	// Build description from match details or use rule's description
+	// Title: automation name, fallback to description, fallback to rule_key
+	title := ruleKey
+	if rule.AutomationName != "" {
+		title = rule.AutomationName
+	} else if rule.Description != nil && *rule.Description != "" {
+		title = *rule.Description
+	}
+	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
+	if rule.Description != nil && *rule.Description != "" {
+		description = *rule.Description
+	}
+
+	// Set AutomationID only when this is an automation rule
+	var automationID *string
+	if rule.IsAutomation && rule.AutomationID != "" {
+		aid := rule.AutomationID
+		automationID = &aid
+	}
+
+	// Set EventRuleID
+	var eventRuleID *string
+	if rule.EventRuleID != "" {
+		erid := rule.EventRuleID
+		eventRuleID = &erid
+	}
+
+	// Find the first available StateID from entities
+	var stateID *string
+	for _, ent := range entities {
+		if ent.StateID != nil {
+			stateID = ent.StateID
+			break
+		}
+	}
+
+	matchedEvent := &models.MatchedEvent{
+		EntityID:     deviceID,
+		EntityType:   "automation",
+		RuleKey:      ruleKey,
+		EventType:    "device_event",
+		EventLevel:   "automation",
+		Title:        title,
+		Description:  description,
+		Value:        0,
+		Threshold:    0,
+		Operator:     "complex",
+		Timestamp:    time.Now().UnixMilli(),
+		EventRuleID:  eventRuleID,
+		AutomationID: automationID,
+		GeofenceID:   nil,
+		StateID:      stateID,
 	}
 
 	return matchedEvent
@@ -150,7 +282,7 @@ func (e *Evaluator) getEntityValue(entity models.TelemetryEntity, ruleKey string
 	if entity.State == nil {
 		return 0, false
 	}
-	
+
 	switch s := entity.State.(type) {
 	case map[string]interface{}:
 		if val, ok := s[ruleKey]; ok {

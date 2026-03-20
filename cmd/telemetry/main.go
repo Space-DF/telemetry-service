@@ -14,6 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// @title Telemetry API
+// @version 1.0
+// @description API for telemetry service
+
+// @securityDefinitions.apikey Access Token
+// @in header
+// @name Authorization
+
+// @securityDefinitions.apikey API Key
+// @in header
+// @name X-API-Key
+
+// @securityDefinitions.apikey Space slug name
+// @in header
+// @name X-Space
+
+// @securityDefinitions.apikey Organization slug name
+// @in header
+// @name X-Organization
 package main
 
 import (

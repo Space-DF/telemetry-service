@@ -5,25 +5,26 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 )
 
 // GetEntities returns entities for a given space with optional filters and pagination.
-func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, page, pageSize int) ([]map[string]interface{}, int, error) {
+func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
 
-	if page < 1 {
-		page = 1
+	if limit <= 0 {
+		limit = common.DefaultLimit
 	}
-	if pageSize <= 0 {
-		pageSize = 100
+	if offset < 0 {
+		offset = 0
 	}
-	offset := (page - 1) * pageSize
 
 	// Build WHERE clauses
 	args := []interface{}{spaceSlug}
-	where := "e.space_slug = $1"
+	where := "s.space_slug = $1"
 	idx := 2
 	if category != "" {
 		where += fmt.Sprintf(" AND e.category = $%d", idx)
@@ -48,7 +49,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e LEFT JOIN entity_types et ON e.entity_type_id = et.id WHERE %s", where)
+	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e LEFT JOIN entity_types et ON e.entity_type_id = et.id LEFT JOIN spaces s ON e.space_id = s.space_id WHERE %s", where)
 	var total int
 	if org != "" {
 		if err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
@@ -65,17 +66,18 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	// Select query
-	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.image_url, e.is_enabled, e.created_at, e.updated_at, s.time_start, s.time_end
+	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.image_url, e.is_enabled, e.created_at, e.updated_at, s2.time_start, s2.time_end
 		FROM entities e
 		LEFT JOIN entity_types et ON e.entity_type_id = et.id
+		LEFT JOIN spaces s ON e.space_id = s.space_id
 		LEFT JOIN (
 			SELECT entity_id, MIN(reported_at) AS time_start, MAX(reported_at) AS time_end FROM entity_states GROUP BY entity_id
-		) s ON s.entity_id = e.id
+		) s2 ON s2.entity_id = e.id
 		WHERE %s
 		ORDER BY e.created_at DESC
 		LIMIT $%d OFFSET $%d`, where, idx, idx+1)
 
-	args = append(args, pageSize, offset)
+	args = append(args, limit, offset)
 
 	// Run query
 	var results []map[string]interface{}
@@ -95,8 +97,8 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 				var categoryCol, unit, imageURL sql.NullString
 				var displayType pq.StringArray
 				var isEnabled bool
-				var createdAt, updatedAt pq.NullTime
-				var timeStart, timeEnd pq.NullTime
+				var createdAt, updatedAt sql.NullTime
+				var timeStart, timeEnd sql.NullTime
 
 				if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &imageURL, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 					return err
@@ -145,8 +147,8 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 			var categoryCol, unit, imageURL sql.NullString
 			var displayType pq.StringArray
 			var isEnabled bool
-			var createdAt, updatedAt pq.NullTime
-			var timeStart, timeEnd pq.NullTime
+			var createdAt, updatedAt sql.NullTime
+			var timeStart, timeEnd sql.NullTime
 
 			if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &imageURL, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 				return nil, 0, err
@@ -179,4 +181,37 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	return results, total, nil
+}
+
+// GetSpaceIDsByDeviceID returns the distinct space UUIDs associated with a device
+func (c *Client) GetSpaceIDsByDeviceID(ctx context.Context, deviceID string) ([]uuid.UUID, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	var spaceIDs []uuid.UUID
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		rows, err := tx.QueryContext(txCtx,
+			`SELECT DISTINCT space_id FROM entities WHERE device_id = $1 AND space_id IS NOT NULL`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to query space IDs for device: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var id uuid.UUID
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			spaceIDs = append(spaceIDs, id)
+		}
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return spaceIDs, nil
 }

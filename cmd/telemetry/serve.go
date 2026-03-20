@@ -26,9 +26,11 @@ import (
 	"syscall"
 	"time"
 
+	_ "github.com/Space-DF/telemetry-service/docs"
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	amqp "github.com/Space-DF/telemetry-service/internal/amqp/multi-tenant"
 	"github.com/Space-DF/telemetry-service/internal/api"
+	celeryconsumer "github.com/Space-DF/telemetry-service/internal/celery"
 	"github.com/Space-DF/telemetry-service/internal/events/registry"
 	"github.com/Space-DF/telemetry-service/internal/health"
 	"github.com/Space-DF/telemetry-service/internal/services"
@@ -36,6 +38,7 @@ import (
 	"github.com/Space-DF/telemetry-service/pkgs/db"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	echoSwagger "github.com/swaggo/echo-swagger"
 	"github.com/urfave/cli/v2"
 	"go.uber.org/zap"
 )
@@ -110,6 +113,16 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		return fmt.Errorf("failed to connect to AMQP: %w", err)
 	}
 
+	// Initialize Celery task consumer for space synchronization
+	celeryConsumer := celeryconsumer.NewTaskConsumer(appConfig.AMQP.BrokerURL, tsClient, logger)
+	if err := celeryConsumer.Connect(); err != nil {
+		logger.Warn("Failed to connect Celery task consumer (space sync will be unavailable)", zap.Error(err))
+		// Don't fail startup - Celery consumer is optional
+		celeryConsumer = nil
+	} else {
+		logger.Info("Celery task consumer connected for space synchronization")
+	}
+
 	// Initialize Echo
 	e := echo.New()
 	e.HideBanner = true
@@ -119,6 +132,9 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
+
+	// Setup Swagger docs endpoint
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	group := e.Group("/api/telemetry")
 	api.Setup(appConfig, group, logger, tsClient)
@@ -145,6 +161,17 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 			cancel()
 		}
 	}()
+
+	// Start Celery task consumer (if connected)
+	if celeryConsumer != nil {
+		go func() {
+			logger.Info("Starting Celery task consumer")
+			if err := celeryConsumer.Start(srvCtx); err != nil {
+				logger.Error("Celery task consumer error", zap.Error(err))
+				// Don't cancel context - Celery consumer is optional
+			}
+		}()
+	}
 
 	// Setup reload signal for alert processors and event rules
 	reloadChan := make(chan os.Signal, 1)
@@ -182,6 +209,13 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	// Stop AMQP consumer
 	if err := consumer.Stop(); err != nil {
 		logger.Error("Error stopping AMQP consumer", zap.Error(err))
+	}
+
+	// Stop Celery task consumer
+	if celeryConsumer != nil {
+		if err := celeryConsumer.Stop(); err != nil {
+			logger.Error("Error stopping Celery task consumer", zap.Error(err))
+		}
 	}
 
 	// Wait for batch writer to finish draining with timeout

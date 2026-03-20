@@ -43,8 +43,11 @@ func (c *Client) CreateSchemaAndTables(ctx context.Context, orgSlug string) erro
 		return fmt.Errorf("failed to parse connection string for migrations: %w", err)
 	}
 
+	escaped := strings.ReplaceAll(orgSlug, `"`, `""`)
+	quotedSchema := fmt.Sprintf(`"%s"`, escaped)
+
 	q := parsed.Query()
-	q.Set("options", fmt.Sprintf("-c search_path=%s,public", orgSlug))
+	q.Set("options", fmt.Sprintf("-c search_path=%s,public", quotedSchema))
 	parsed.RawQuery = q.Encode()
 
 	migrationPath := "pkgs/db/migrations"

@@ -14,6 +14,21 @@ import (
 )
 
 // getEventsByDevice returns all events for a specific device
+// @Summary Get events by device
+// @Description Retrieve events for a specific device with pagination and optional time range filtering. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags events
+// @Accept json
+// @Produce json
+// @Param device_id path string true "Device ID"
+// @Param limit query int false "Number of results per page (default 20)"
+// @Param offset query int false "Number of results to skip (default 0)"
+// @Param start_time query int64 false "Start time as Unix timestamp (milliseconds)"
+// @Param end_time query int64 false "End time as Unix timestamp (milliseconds)"
+// @Param title query string false "Filter by title (case-insensitive partial match)"
+// @Success 200 {object} common.PaginatedResponse
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /telemetry/v1/events/device/{device_id} [get]
 func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -23,197 +38,54 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 			})
 		}
 
-		req := &apimodels.EventsByDeviceRequest{
-			DeviceID: strings.TrimSpace(c.Param("device_id")),
-		}
-
-		if req.DeviceID == "" {
+		deviceID := strings.TrimSpace(c.Param("device_id"))
+		if deviceID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
 				"error": "device_id is required",
 			})
 		}
 
-		if limitStr := c.QueryParam("limit"); limitStr != "" {
-			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-				req.Limit = l
-			}
-		}
+		// Parse pagination
+		p := common.ParsePagination(c)
 
-		// Parse start_time and end_time query parameters
+		// Parse optional time range filters
+		var startTime, endTime *int64
 		if startTimeStr := c.QueryParam("start_time"); startTimeStr != "" {
 			if ms, err := strconv.ParseInt(startTimeStr, 10, 64); err == nil {
-				req.StartTime = &ms
+				startTime = &ms
 			}
 		}
 		if endTimeStr := c.QueryParam("end_time"); endTimeStr != "" {
 			if ms, err := strconv.ParseInt(endTimeStr, 10, 64); err == nil {
-				req.EndTime = &ms
+				endTime = &ms
 			}
 		}
-		req.SetDefaults()
+
+		// Parse title search
+		var titleSearch *string
+		if titleStr := c.QueryParam("search"); titleStr != "" {
+			titleSearch = &titleStr
+		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		events, err := tsClient.GetEventsByDevice(ctx, orgToUse, req.DeviceID, req.Limit, req.StartTime, req.EndTime)
+		events, totalCount, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, p.Limit, p.Offset, startTime, endTime, titleSearch)
 		if err != nil {
 			logger.Error("failed to get events by device",
-				zap.String("device_id", req.DeviceID),
+				zap.String("device_id", deviceID),
 				zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to get events",
 			})
 		}
 
-		return c.JSON(http.StatusOK, apimodels.EventsByDeviceResponse{
-			DeviceID: req.DeviceID,
-			Events:   convertEventsToItems(events),
-			Count:    len(events),
-		})
-	}
-}
+		results := convertEventsToItems(events)
+		next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
 
-// getEventRules returns all event rules
-func getEventRules(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		req := &apimodels.EventRulesRequest{
-			DeviceID: c.QueryParam("device_id"),
-		}
-		if pageStr := c.QueryParam("page"); pageStr != "" {
-			if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
-				req.Page = p
-			}
-		}
-		if sizeStr := c.QueryParam("page_size"); sizeStr != "" {
-			if s, err := strconv.Atoi(sizeStr); err == nil && s > 0 {
-				req.PageSize = s
-			}
-		}
-		req.SetDefaults()
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rules, total, err := tsClient.GetEventRules(ctx, req.DeviceID, req.Page, req.PageSize)
-		if err != nil {
-			logger.Error("failed to get event rules",
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to get event rules",
-			})
-		}
-
-		return c.JSON(http.StatusOK, models.EventRulesListResponse{
-			Rules:      rules,
-			TotalCount: total,
-			Page:       req.Page,
-			PageSize:   req.PageSize,
-		})
-	}
-}
-
-// createEventRule creates a new event rule
-func createEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		var req models.EventRuleRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rule, err := tsClient.CreateEventRule(ctx, &req)
-		if err != nil {
-			logger.Error("failed to create event rule",
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to create event rule",
-			})
-		}
-
-		return c.JSON(http.StatusCreated, rule)
-	}
-}
-
-// updateEventRule updates an existing event rule
-func updateEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		ruleID := strings.TrimSpace(c.Param("rule_id"))
-		if ruleID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "rule_id is required",
-			})
-		}
-
-		var req models.EventRuleRequest
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid request body",
-			})
-		}
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		rule, err := tsClient.UpdateEventRule(ctx, ruleID, &req)
-		if err != nil {
-			logger.Error("failed to update event rule",
-				zap.String("rule_id", ruleID),
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to update event rule",
-			})
-		}
-
-		return c.JSON(http.StatusOK, rule)
-	}
-}
-
-// deleteEventRule deletes an event rule
-func deleteEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		orgToUse := common.ResolveOrgFromRequest(c)
-		if orgToUse == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "Could not determine organization from hostname or X-Organization header",
-			})
-		}
-
-		ruleID := strings.TrimSpace(c.Param("rule_id"))
-		if ruleID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "rule_id is required",
-			})
-		}
-
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		if err := tsClient.DeleteEventRule(ctx, ruleID); err != nil {
-			logger.Error("failed to delete event rule",
-				zap.String("rule_id", ruleID),
-				zap.Error(err))
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to delete event rule",
-			})
-		}
-
-		return c.JSON(http.StatusOK, apimodels.DeleteEventRuleResponse{
-			Message: "event rule deleted successfully",
+		return c.JSON(http.StatusOK, common.PaginatedResponse{
+			Count:    totalCount,
+			Next:     next,
+			Previous: previous,
+			Results:  results,
 		})
 	}
 }
@@ -222,18 +94,41 @@ func deleteEventRule(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 func convertEventsToItems(events []models.Event) []apimodels.EventItem {
 	items := make([]apimodels.EventItem, len(events))
 	for i, e := range events {
-		items[i] = apimodels.EventItem{
+		item := apimodels.EventItem{
 			EventID:    e.EventID,
 			EventType:  e.EventType,
 			EventLevel: safeString(e.EventLevel),
-			SpaceSlug:  e.SpaceSlug,
+			Title:      e.Title,
 			EntityID:   safeString(e.EntityID),
 			TimeFired:  e.TimeFired(),
 		}
-		if e.SharedData != nil {
-			data, _ := e.ParseEventData()
-			items[i].EventData = data
+
+		// Build automation summary if present
+		if e.AutomationID != nil {
+			item.Automation = &apimodels.AutomationSummary{
+				ID:   *e.AutomationID,
+				Name: e.AutomationName,
+			}
 		}
+
+		// Build geofence summary if present
+		if e.GeofenceID != nil {
+			item.Geofence = &apimodels.GeofenceSummary{
+				ID:       *e.GeofenceID,
+				Name:     e.GeofenceName,
+				TypeZone: e.GeofenceTypeZone,
+			}
+		}
+
+		// Add location if available
+		if e.Location != nil {
+			item.Location = &apimodels.LocationData{
+				Latitude:  e.Location.Latitude,
+				Longitude: e.Location.Longitude,
+			}
+		}
+
+		items[i] = item
 	}
 	return items
 }

@@ -21,14 +21,14 @@ type YAMLRule struct {
 	EventLevel      string `yaml:"event_level"`
 	Description     string `yaml:"description"`
 	IsActive        bool   `yaml:"is_active"`
-	AllowNewEvent   bool   `yaml:"allow_new_event"`
+	RepeatAble      bool   `yaml:"repeat_able"`
 }
 
 // DeviceModelRules represents event rules for a specific device model
 type DeviceModelRules struct {
-	Brand       string     `yaml:"brand"`       // e.g., "rakwireless"
-	Model       string     `yaml:"model"`       // e.g., "rak4630"
-	ModelID     string     `yaml:"model_id"`    // Resolved from device service
+	Brand       string     `yaml:"brand"`    // e.g., "rakwireless"
+	Model       string     `yaml:"model"`    // e.g., "rak4630"
+	ModelID     string     `yaml:"model_id"` // Resolved from device service
 	DisplayName string     `yaml:"display_name"`
 	Rules       []YAMLRule `yaml:"rules"`
 }

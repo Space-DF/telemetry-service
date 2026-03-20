@@ -8,7 +8,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
 	"go.uber.org/zap"
 )
@@ -40,11 +39,12 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 	log.Printf("GetLocationHistory called - org='%s' space_slug='%s' device_id='%s' start='%s' end='%s' limit=%d",
 		org, spaceSlug, deviceID, start.String(), end.String(), limit)
 
-	query := `SELECT s.reported_at, e.device_id::text, e.space_slug, a.shared_attrs
+	query := `SELECT s.reported_at, e.device_id::text, sp.space_slug, a.shared_attrs
 		FROM entity_states s
 		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN spaces sp ON e.space_id = sp.space_id
 		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
-		WHERE e.device_id::text = $1 AND e.space_slug = $2 
+		WHERE e.device_id::text = $1 AND sp.space_slug = $2 
 			AND e.category = 'location'
 			AND s.reported_at >= $3 AND s.reported_at <= $4
 			AND a.shared_attrs IS NOT NULL
@@ -63,7 +63,7 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 			defer func() { _ = rows.Close() }()
 
 			for rows.Next() {
-				var t pq.NullTime
+				var t sql.NullTime
 				var did sql.NullString
 				var sslug sql.NullString
 				var rawAttrs []byte
@@ -106,7 +106,7 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
-			var t pq.NullTime
+			var t sql.NullTime
 			var did sql.NullString
 			var sslug sql.NullString
 			var rawAttrs []byte
@@ -169,11 +169,12 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 	}
 	log.Printf("GetLastLocation called - org='%s' space_slug='%s' device_id='%s'", org, spaceSlug, deviceID)
 
-	query := `SELECT s.reported_at, e.device_id::text, e.space_slug, a.shared_attrs
+	query := `SELECT s.reported_at, e.device_id::text, sp.space_slug, a.shared_attrs
 		FROM entity_states s
 		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN spaces sp ON e.space_id = sp.space_id
 		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
-		WHERE e.device_id::text = $1 AND e.space_slug = $2
+		WHERE e.device_id::text = $1 AND sp.space_slug = $2
 			AND e.category = 'location'
 			AND a.shared_attrs IS NOT NULL
 			AND a.shared_attrs ? 'latitude' AND a.shared_attrs ? 'longitude'
@@ -185,7 +186,7 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 	if org != "" {
 		err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 			row := tx.QueryRowContext(txCtx, query, deviceID, spaceSlug)
-			var t pq.NullTime
+			var t sql.NullTime
 			var did sql.NullString
 			var sslug sql.NullString
 			var rawAttrs []byte
@@ -223,7 +224,7 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 		})
 	} else {
 		row := c.DB.QueryRowContext(ctx, query, deviceID, spaceSlug)
-		var t pq.NullTime
+		var t sql.NullTime
 		var did sql.NullString
 		var sslug sql.NullString
 		var rawAttrs []byte
@@ -269,4 +270,76 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 	log.Printf("GetLastLocation result - org='%s' found=%t", org, location != nil)
 
 	return location, nil
+}
+
+// GetLastLocationsBySpaceID retrieves the most recent location for all devices in a space.
+func (c *Client) GetLastLocationsBySpaceID(ctx context.Context, spaceID string) ([]*Location, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	query := `
+		SELECT DISTINCT ON (e.device_id)
+			s.reported_at, e.device_id::text, sp.space_slug, a.shared_attrs
+		FROM entity_states s
+		JOIN entities e ON s.entity_id = e.id
+		LEFT JOIN spaces sp ON e.space_id = sp.space_id
+		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
+		WHERE sp.space_id::text = $1
+			AND e.category = 'location'
+			AND a.shared_attrs IS NOT NULL
+			AND a.shared_attrs ? 'latitude' AND a.shared_attrs ? 'longitude'
+		ORDER BY e.device_id, s.reported_at DESC`
+
+	var locations []*Location
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		rows, err := tx.QueryContext(txCtx, query, spaceID)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var t sql.NullTime
+			var did sql.NullString
+			var sslug sql.NullString
+			var rawAttrs []byte
+
+			if err := rows.Scan(&t, &did, &sslug, &rawAttrs); err != nil {
+				return err
+			}
+
+			var attrs map[string]interface{}
+			if len(rawAttrs) > 0 {
+				if jerr := json.Unmarshal(rawAttrs, &attrs); jerr != nil {
+					continue
+				}
+			}
+
+			var lat, lon float64
+			if l, ok := attrs["latitude"].(float64); ok {
+				lat = l
+			}
+			if l, ok := attrs["longitude"].(float64); ok {
+				lon = l
+			}
+
+			locations = append(locations, &Location{
+				Time:       t.Time,
+				DeviceID:   did.String,
+				SpaceSlug:  sslug.String,
+				Latitude:   lat,
+				Longitude:  lon,
+				Attributes: attrs,
+			})
+		}
+		return rows.Err()
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to query last locations by space: %w", err)
+	}
+
+	return locations, nil
 }

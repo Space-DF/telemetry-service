@@ -1,46 +1,39 @@
 package models
 
-import "time"
+import (
+	"time"
+)
 
-// EventsByDeviceResponse represents response for device events
-type EventsByDeviceResponse struct {
-	DeviceID string      `json:"device_id"`
-	Events   []EventItem `json:"events"`
-	Count    int         `json:"count"`
+// AutomationSummary represents summary info about an automation for event responses
+type AutomationSummary struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GeofenceSummary represents summary info about a geofence for event responses
+type GeofenceSummary struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	TypeZone string `json:"type_zone,omitempty"`
+}
+
+// LocationData represents geographic coordinates
+type LocationData struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
 }
 
 // EventItem represents a single event in API response
 type EventItem struct {
-	EventID     int64                  `json:"event_id"`
-	EventType   string                 `json:"event_type"`
-	EventLevel  string                 `json:"event_level,omitempty"`
-	SpaceSlug   string                 `json:"space_slug,omitempty"`
-	EntityID    string                 `json:"entity_id,omitempty"`
-	TimeFired   time.Time              `json:"time_fired"`
-	EventData   map[string]interface{} `json:"event_data,omitempty"`
-}
-
-// EventRulesResponse represents paginated event rules response
-type EventRulesResponse struct {
-	Rules      []EventRuleItem `json:"rules"`
-	TotalCount int             `json:"total_count"`
-	Page       int             `json:"page"`
-	PageSize   int             `json:"page_size"`
-}
-
-// EventRuleItem represents a single event rule in API response
-type EventRuleItem struct {
-	EventRuleID   string     `json:"event_rule_id"`
-	DeviceID      *string    `json:"device_id,omitempty"`
-	RuleKey       string     `json:"rule_key,omitempty"`
-	Operator      string     `json:"operator,omitempty"`
-	Operand       string     `json:"operand"`
-	IsActive      bool       `json:"is_active"`
-	StartTime     *time.Time `json:"start_time,omitempty"`
-	EndTime       *time.Time `json:"end_time,omitempty"`
-	AllowNewEvent bool       `json:"allow_new_event"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	EventID    int64              `json:"id"`
+	EventType  string             `json:"event_type"`
+	EventLevel string             `json:"event_level,omitempty"`
+	Title      string             `json:"title,omitempty"`
+	EntityID   string             `json:"entity_id,omitempty"`
+	TimeFired  time.Time          `json:"time_fired"`
+	Automation *AutomationSummary `json:"automation,omitempty"`
+	Geofence   *GeofenceSummary   `json:"geofence,omitempty"`
+	Location   *LocationData      `json:"location,omitempty"`
 }
 
 // DeleteEventRuleResponse represents response after deleting an event rule

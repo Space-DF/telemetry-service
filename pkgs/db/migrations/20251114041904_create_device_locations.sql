@@ -13,7 +13,6 @@ CREATE INDEX idx_device_locations_org_device_time
     ON device_locations (organization_slug, device_id,
                          time DESC);
 
-
 -- Create a hypertable to enable TimescaleDB features
 SELECT create_hypertable('device_locations', 'time',
     chunk_time_interval => INTERVAL '1 day',
