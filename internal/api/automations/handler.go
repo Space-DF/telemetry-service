@@ -6,8 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+
+	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
+	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -153,7 +155,7 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 		})
 	}
 
-	var req models.AutomationRequest
+	var req apimodels.AutomationRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
@@ -259,7 +261,7 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 		})
 	}
 
-	var req models.AutomationRequest
+	var req apimodels.AutomationRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
@@ -444,7 +446,7 @@ func (h *Handler) CreateAction(c echo.Context) error {
 		})
 	}
 
-	var req models.ActionRequest
+	var req apimodels.ActionRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
@@ -505,7 +507,7 @@ func (h *Handler) UpdateAction(c echo.Context) error {
 		})
 	}
 
-	var req models.ActionRequest
+	var req apimodels.ActionRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{
 			"error": "invalid request body",
