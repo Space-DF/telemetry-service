@@ -1,7 +1,6 @@
 package models
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,23 +31,4 @@ type Automation struct {
 type AutomationWithActions struct {
 	Automation
 	Actions []Action
-}
-
-// EventRuleFields represents event rule fields within an automation request
-type EventRuleFields struct {
-	RuleKey     *string         `json:"rule_key" validate:"required"`
-	Definition  json.RawMessage `json:"definition"`
-	IsActive    *bool           `json:"is_active"`
-	RepeatAble  *bool           `json:"repeat_able"`
-	CooldownSec *int            `json:"cooldown_sec"`
-	Description *string         `json:"description"`
-}
-
-// AutomationRequest represents a request to create or update an automation
-type AutomationRequest struct {
-	Name      *string          `json:"name" validate:"required,min=1,max=100"`
-	DeviceID  string           `json:"device_id" validate:"required,uuid"`
-	SpaceID   *uuid.UUID       `json:"space_id,omitempty" validate:"omitempty"`
-	ActionIDs []string         `json:"action_ids" validate:"required,dive,uuid"`
-	EventRule *EventRuleFields `json:"event_rule,omitempty"`
 }

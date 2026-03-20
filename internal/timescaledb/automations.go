@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -276,7 +277,7 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 }
 
 // CreateAutomation creates a new automation with an associated event rule
-func (c *Client) CreateAutomation(ctx context.Context, req *models.AutomationRequest) (*models.AutomationWithActions, error) {
+func (c *Client) CreateAutomation(ctx context.Context, req *apimodels.AutomationRequest) (*models.AutomationWithActions, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil request")
 	}
@@ -406,7 +407,7 @@ func (c *Client) CreateAutomation(ctx context.Context, req *models.AutomationReq
 }
 
 // UpdateAutomation updates an existing automation
-func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req *models.AutomationRequest) (*models.AutomationWithActions, error) {
+func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req *apimodels.AutomationRequest) (*models.AutomationWithActions, error) {
 	if req == nil {
 		return nil, fmt.Errorf("nil request")
 	}
