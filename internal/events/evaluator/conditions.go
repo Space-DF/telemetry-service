@@ -41,13 +41,13 @@ func (c *ConditionEvaluator) EvaluateDefinitionWithContext(definition string, co
 		return false, "", fmt.Errorf("failed to parse rule definition: %w", err)
 	}
 
-	c.logger.Debug("Evaluating definition",
+	c.logger.Info("Evaluating definition",
 		zap.Int("definition_fields_count", len(definitionMap)),
 		zap.Strings("context_keys", getMapKeys(context)))
 
 	matched, details := c.evaluateConditions(definitionMap, context)
 
-	c.logger.Debug("Definition evaluation result",
+	c.logger.Info("Definition evaluation result",
 		zap.Bool("matched", matched),
 		zap.String("details", details))
 
