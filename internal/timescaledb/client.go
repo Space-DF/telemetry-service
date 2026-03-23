@@ -18,6 +18,10 @@ type Client struct {
 	connStr       string
 
 	wg sync.WaitGroup
+
+	// OnGeofenceChange is called after a geofence is created, updated, or deleted.
+	// Set this to invalidate caches or trigger side-effects.
+	OnGeofenceChange func()
 }
 
 // NewClient creates a new TimescaleDB client and verifies connectivity.

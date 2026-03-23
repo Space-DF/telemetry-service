@@ -276,6 +276,10 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 		return nil, err
 	}
 
+	if c.OnGeofenceChange != nil {
+		c.OnGeofenceChange()
+	}
+
 	return &g, nil
 }
 
@@ -439,6 +443,10 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 		return nil, err
 	}
 
+	if c.OnGeofenceChange != nil {
+		c.OnGeofenceChange()
+	}
+
 	return &g, nil
 }
 
@@ -453,7 +461,7 @@ func (c *Client) DeleteGeofence(ctx context.Context, geofenceID uuid.UUID) error
 		return fmt.Errorf("organization not found in context")
 	}
 
-	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		var eventRuleID string
 
 		// Get associated event rule ID to delete after deleting geofence
@@ -476,6 +484,12 @@ func (c *Client) DeleteGeofence(ctx context.Context, geofenceID uuid.UUID) error
 
 		return nil
 	})
+
+	if err == nil && c.OnGeofenceChange != nil {
+		c.OnGeofenceChange()
+	}
+
+	return err
 }
 
 // GetGeofencesBySpace retrieves geofences associated with a space

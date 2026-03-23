@@ -137,6 +137,12 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	group := e.Group("/api/telemetry")
+	// Wire geofence change hook to invalidate device rules cache
+	tsClient.OnGeofenceChange = func() {
+		ruleRegistry.InvalidateAllDeviceCache()
+		logger.Info("Invalidated device rules cache after geofence change")
+	}
+
 	api.Setup(appConfig, group, logger, tsClient)
 	health.Setup(group, consumer, tsClient, logger)
 
