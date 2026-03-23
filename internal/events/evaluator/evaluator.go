@@ -214,9 +214,20 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	// Evaluate definition using condition evaluator with unified context
 	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(*rule.Definition, context)
 	if err != nil {
+		e.logger.Info("Error evaluating rule definition",
+			zap.String("device_id", deviceID),
+			zap.String("rule_key", ruleKey),
+			zap.String("definition", *rule.Definition),
+			zap.Error(err),
+		)
 		return nil
 	}
 	if !matched {
+		e.logger.Info("Rule definition did not match",
+			zap.String("device_id", deviceID),
+			zap.String("rule_key", ruleKey),
+			zap.String("definition", *rule.Definition),
+		)
 		return nil
 	}
 
@@ -273,6 +284,12 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		GeofenceID:   nil,
 		StateID:      stateID,
 	}
+
+	e.logger.Debug("Rule matched and event created",
+		zap.String("device_id", deviceID),
+		zap.String("rule_key", ruleKey),
+		zap.Any("matchedEvent", matchedEvent),
+	)
 
 	return matchedEvent
 }

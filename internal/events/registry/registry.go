@@ -202,30 +202,68 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 
 					for _, res := range results {
 						rule := res.rule
+						geofenceIDDebug := ""
+						if rule.GeofenceID != nil {
+							geofenceIDDebug = *rule.GeofenceID
+						}
+
+						// Evaluate additional definition conditions first (for distance-based triggering)
+						definitionMatched := false
+						hasDefinition := rule.Definition != nil && *rule.Definition != ""
+
+						if hasDefinition {
+							extraCtx := map[string]interface{}{}
+							distKm, distErr := r.db.DistanceToGeofenceKm(ctx, *rule.GeofenceID, lat, lon)
+							if distErr == nil {
+								r.logger.Info("Geofence distance calculated",
+									zap.String("device_id", deviceID),
+									zap.String("geofence_id", geofenceIDDebug),
+									zap.Float64("distance_km", distKm))
+								extraCtx["distance_from_geofence_km"] = distKm
+							}
+							definitionMatched = r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, extraCtx) != nil
+							r.logger.Info("Geofence definition evaluation result",
+								zap.String("device_id", deviceID),
+								zap.String("geofence_id", geofenceIDDebug),
+								zap.Bool("definition_matched", definitionMatched))
+						}
+
+						// Determine shouldTrigger based on zone type
+						// Danger: trigger if inside OR if definition matches (e.g. distance <= threshold)
+						// Safe:   trigger if NOT inside; if definition exists, also require it to match (weekday/time)
 						shouldTrigger := false
 						switch res.typeZone {
 						case "safe":
-							shouldTrigger = !res.isInside // exited safe zone
+							if hasDefinition {
+								shouldTrigger = !res.isInside && !definitionMatched
+							} else {
+								shouldTrigger = !res.isInside
+							}
 						default:
-							shouldTrigger = res.isInside // entered danger/restricted/other zone
+							if hasDefinition {
+								shouldTrigger = res.isInside || definitionMatched
+							} else {
+								shouldTrigger = res.isInside
+							}
 						}
 
+						r.logger.Info("Geofence shouldTrigger evaluated",
+							zap.String("device_id", deviceID),
+							zap.String("geofence_id", geofenceIDDebug),
+							zap.String("type_zone", res.typeZone),
+							zap.Bool("is_inside", res.isInside),
+							zap.Bool("has_definition", hasDefinition),
+							zap.Bool("definition_matched", definitionMatched),
+							zap.Bool("should_trigger", shouldTrigger))
+
 						if !shouldTrigger {
+							r.logger.Info("Geofence skipped - shouldTrigger is false",
+								zap.String("device_id", deviceID),
+								zap.String("geofence_id", geofenceIDDebug))
 							continue
 						}
 
-						// Check additional definition conditions if present
-						if rule.Definition != nil && *rule.Definition != "" {
-							extraCtx := map[string]interface{}{}
-							if distKm, err := r.db.DistanceToGeofenceKm(ctx, *rule.GeofenceID, lat, lon); err == nil {
-								extraCtx["distance_from_geofence_km"] = distKm
-							}
-							if r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, extraCtx) == nil {
-								continue
-							}
-						}
-
-						// Priority: danger/restricted = 2, other = 1, safe exit = 0
+						// Priority: danger = 2, other = 1, safe exit = 0
 						priority := 0
 						switch res.typeZone {
 						case "danger", "restricted":
@@ -325,9 +363,6 @@ func (r *RuleRegistry) evaluateGeofenceTrigger(isInside bool, typeZone, geofence
 		return !isInside, title, fmt.Sprintf("%s (geofence %s)", title, geofenceID)
 	case "danger":
 		title := "Device entered Danger Zone"
-		return isInside, title, fmt.Sprintf("%s (geofence %s)", title, geofenceID)
-	case "restricted":
-		title := "Device entered Restricted Area"
 		return isInside, title, fmt.Sprintf("%s (geofence %s)", title, geofenceID)
 	default:
 		var title string
