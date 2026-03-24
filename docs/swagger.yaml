@@ -9,6 +9,25 @@ definitions:
         type: string
       results: {}
     type: object
+  models.ActionRequest:
+    properties:
+      data:
+        additionalProperties: true
+        type: object
+      key:
+        maxLength: 100
+        minLength: 1
+        type: string
+      name:
+        maxLength: 100
+        minLength: 1
+        type: string
+    required:
+    - key
+    - name
+    type: object
+  models.AutomationRequest:
+    type: object
   models.CreateGeofenceRequest:
     properties:
       color:
@@ -49,11 +68,6 @@ definitions:
       message:
         type: string
     type: object
-  models.DeleteEventRuleResponse:
-    properties:
-      message:
-        type: string
-    type: object
   models.DeleteGeofenceResponse:
     properties:
       message:
@@ -64,24 +78,6 @@ definitions:
       error:
         type: string
       message:
-        type: string
-    type: object
-  models.EventItem:
-    properties:
-      entity_id:
-        type: string
-      event_data:
-        additionalProperties: true
-        type: object
-      event_id:
-        type: integer
-      event_level:
-        type: string
-      event_type:
-        type: string
-      space_slug:
-        type: string
-      time_fired:
         type: string
     type: object
   models.EventRuleInfo:
@@ -96,67 +92,6 @@ definitions:
         type: boolean
       rule_key:
         type: string
-    type: object
-  models.EventRuleRequest:
-    properties:
-      cooldown_sec:
-        type: integer
-      definition:
-        type: string
-      description:
-        type: string
-      device_id:
-        type: string
-      geofence_id:
-        type: string
-      is_active:
-        type: boolean
-      repeat_able:
-        type: boolean
-      rule_key:
-        type: string
-      space_id:
-        type: string
-    required:
-    - rule_key
-    type: object
-  models.EventRuleResponse:
-    properties:
-      cooldown_sec:
-        type: integer
-      created_at:
-        type: string
-      definition:
-        type: string
-      description:
-        type: string
-      device_id:
-        type: string
-      event_rule_id:
-        type: string
-      geofence_id:
-        type: string
-      is_active:
-        type: boolean
-      repeat_able:
-        type: boolean
-      rule_key:
-        type: string
-      space_id:
-        type: string
-      updated_at:
-        type: string
-    type: object
-  models.EventsByDeviceResponse:
-    properties:
-      count:
-        type: integer
-      device_id:
-        type: string
-      events:
-        items:
-          $ref: '#/definitions/models.EventItem'
-        type: array
     type: object
   models.GeofenceResponse:
     properties:
@@ -183,23 +118,11 @@ definitions:
       updated_at:
         type: string
     type: object
-  models.GeofencesByDeviceResponse:
-    properties:
-      count:
-        type: integer
-      device_id:
-        type: string
-      results:
-        items:
-          $ref: '#/definitions/models.GeofenceResponse'
-        type: array
-    type: object
   models.UpdateGeofenceRequest:
     properties:
       color:
         type: string
       definition:
-        description: Event rule definition as JSON object
         type: object
       features:
         items:
@@ -236,6 +159,170 @@ info:
   title: Telemetry API
   version: "1.0"
 paths:
+  /telemetry/v1/actions:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve actions with optional search. Organization is resolved
+        from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Search by name or key
+        in: query
+        name: search
+        type: string
+      - description: Number of results per page (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Number of results to skip (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.PaginatedResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get actions
+      tags:
+      - automations
+    post:
+      consumes:
+      - application/json
+      description: Create a new action. Organization is resolved from X-Organization
+        header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Action configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create action
+      tags:
+      - automations
+  /telemetry/v1/actions/{action_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete an action by ID. Organization is resolved from X-Organization
+        header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Action ID
+        in: path
+        name: action_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Action not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete action
+      tags:
+      - automations
+    put:
+      consumes:
+      - application/json
+      description: Update an existing action by ID. Organization is resolved from
+        X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Action ID
+        in: path
+        name: action_id
+        required: true
+        type: string
+      - description: Action configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.ActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Action not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update action
+      tags:
+      - automations
   /telemetry/v1/alerts:
     get:
       consumes:
@@ -306,6 +393,219 @@ paths:
       summary: Get alerts
       tags:
       - alerts
+  /telemetry/v1/automations:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve automations with optional filtering by device_id, space_slug,
+        and search. Organization is resolved from X-Organization header or hostname
+        (e.g., {org}.localhost)
+      parameters:
+      - description: Filter by device ID
+        in: query
+        name: device_id
+        type: string
+      - description: Filter by space ID
+        in: query
+        name: space_id
+        type: string
+      - description: Search by name or device ID
+        in: query
+        name: search
+        type: string
+      - description: Number of results per page (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Number of results to skip (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.PaginatedResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get automations
+      tags:
+      - automations
+    post:
+      consumes:
+      - application/json
+      description: Create a new automation. Organization is resolved from X-Organization
+        header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Automation configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.AutomationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create automation
+      tags:
+      - automations
+  /telemetry/v1/automations/{automation_id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete an automation by ID. Organization is resolved from X-Organization
+        header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Automation ID
+        in: path
+        name: automation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Automation not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Delete automation
+      tags:
+      - automations
+    get:
+      consumes:
+      - application/json
+      description: Retrieve a single automation by ID. Organization is resolved from
+        X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Automation ID
+        in: path
+        name: automation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Automation not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get automation by ID
+      tags:
+      - automations
+    put:
+      consumes:
+      - application/json
+      description: Update an existing automation by ID. Organization is resolved from
+        X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Automation ID
+        in: path
+        name: automation_id
+        required: true
+        type: string
+      - description: Automation configuration
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/models.AutomationRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Automation not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update automation
+      tags:
+      - automations
   /telemetry/v1/data/latest:
     get:
       consumes:
@@ -343,6 +643,48 @@ paths:
       summary: Get device properties
       tags:
       - data
+  /telemetry/v1/devices/{device_id}/automations:
+    get:
+      consumes:
+      - application/json
+      description: Retrieve all automations for a specific device. Organization is
+        resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      parameters:
+      - description: Device ID
+        in: path
+        name: device_id
+        required: true
+        type: string
+      - description: Number of results per page (default 20)
+        in: query
+        name: limit
+        type: integer
+      - description: Number of results to skip (default 0)
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.PaginatedResponse'
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get automations by device
+      tags:
+      - automations
   /telemetry/v1/entities:
     get:
       consumes:
@@ -392,16 +734,18 @@ paths:
       summary: Get entities
       tags:
       - entities
-  /telemetry/v1/event-rules:
+  /telemetry/v1/events/device/{device_id}:
     get:
       consumes:
       - application/json
-      description: Retrieve event rules with optional filtering by device. Organization
-        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      description: Retrieve events for a specific device with pagination and optional
+        time range filtering. Organization is resolved from X-Organization header
+        or hostname (e.g., {org}.localhost)
       parameters:
-      - description: Filter by device ID
-        in: query
+      - description: Device ID
+        in: path
         name: device_id
+        required: true
         type: string
       - description: Number of results per page (default 20)
         in: query
@@ -411,6 +755,20 @@ paths:
         in: query
         name: offset
         type: integer
+      - description: Start time as Unix timestamp (milliseconds)
+        format: int64
+        in: query
+        name: start_time
+        type: integer
+      - description: End time as Unix timestamp (milliseconds)
+        format: int64
+        in: query
+        name: end_time
+        type: integer
+      - description: Filter by title (case-insensitive partial match)
+        in: query
+        name: title
+        type: string
       produces:
       - application/json
       responses:
@@ -430,146 +788,6 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Get event rules
-      tags:
-      - events
-    post:
-      consumes:
-      - application/json
-      description: Create a new event rule for monitoring and alerting. Organization
-        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
-      parameters:
-      - description: Event rule configuration
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/models.EventRuleRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/models.EventRuleResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Create event rule
-      tags:
-      - events
-  /telemetry/v1/event-rules/{rule_id}:
-    delete:
-      consumes:
-      - application/json
-      description: Delete an event rule by ID. Organization is resolved from X-Organization
-        header or hostname (e.g., {org}.localhost)
-      parameters:
-      - description: Event Rule ID
-        in: path
-        name: rule_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.DeleteEventRuleResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Delete event rule
-      tags:
-      - events
-    put:
-      consumes:
-      - application/json
-      description: Update an existing event rule by ID. Organization is resolved from
-        X-Organization header or hostname (e.g., {org}.localhost)
-      parameters:
-      - description: Event Rule ID
-        in: path
-        name: rule_id
-        required: true
-        type: string
-      - description: Event rule configuration
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/models.EventRuleRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.EventRuleResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Update event rule
-      tags:
-      - events
-  /telemetry/v1/events/device/{device_id}:
-    get:
-      consumes:
-      - application/json
-      description: Retrieve all events for a specific device with optional time range
-        filtering. Organization is resolved from X-Organization header or hostname
-        (e.g., {org}.localhost)
-      parameters:
-      - description: Device ID
-        in: path
-        name: device_id
-        required: true
-        type: string
-      - description: Maximum number of events to return (default 100)
-        in: query
-        name: limit
-        type: integer
-      - description: Start time as Unix timestamp (milliseconds)
-        format: int64
-        in: query
-        name: start_time
-        type: integer
-      - description: End time as Unix timestamp (milliseconds)
-        format: int64
-        in: query
-        name: end_time
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.EventsByDeviceResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal server error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
       summary: Get events by device
       tags:
       - events
@@ -745,36 +963,6 @@ paths:
           schema:
             $ref: '#/definitions/models.ErrorResponse'
       summary: Update geofence
-      tags:
-      - geofences
-  /telemetry/v1/geofences/device/{device_id}:
-    get:
-      consumes:
-      - application/json
-      description: Retrieve all geofences associated with a specific device. Organization
-        is resolved from X-Organization header or hostname (e.g., {org}.localhost)
-      parameters:
-      - description: Device ID
-        in: path
-        name: device_id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/models.GeofencesByDeviceResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/models.ErrorResponse'
-      summary: Get geofences by device
       tags:
       - geofences
   /telemetry/v1/location/history:
