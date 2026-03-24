@@ -323,8 +323,7 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		// Pass definition to CreateGeofence which will create the event rule with it
 		var definition *json.RawMessage
 		if len(req.Definition) > 0 {
-			def := ensureDistanceCondition(req.Definition)
-			definition = &def
+			definition = &req.Definition
 		}
 		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.Features, req.Color, req.SpaceID, req.IsActive, nil, definition)
 		if err != nil {
@@ -427,20 +426,11 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
-		// Update event rule definition: ensure distance_from_geofence_km is present
-		defToUse := ensureDistanceCondition(req.Definition)
-		if geofence.EventRuleID != nil {
+		// Update event rule definition if provided
+		if len(req.Definition) > 0 && geofence.EventRuleID != nil {
 			eventRule, err := tsClient.GetEventRuleByID(ctx, geofence.EventRuleID.String())
-			if err != nil || eventRule == nil {
-				logger.Warn("failed to get event rule for definition update",
-					zap.String("geofence_id", geofenceIDStr),
-					zap.Error(err))
-			} else {
-				// Use request definition if provided, otherwise fix the existing one
-				if len(req.Definition) == 0 && eventRule.Definition != nil {
-					defToUse = ensureDistanceCondition(json.RawMessage(*eventRule.Definition))
-				}
-				defStr := string(defToUse)
+			if err == nil && eventRule != nil {
+				defStr := string(req.Definition)
 				updateReq := &models.EventRule{
 					RuleKey:     eventRule.RuleKey,
 					Definition:  &defStr,
@@ -449,7 +439,8 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 					CooldownSec: eventRule.CooldownSec,
 					Description: eventRule.Description,
 				}
-				if err = tsClient.UpdateEventRule(ctx, eventRule.EventRuleID, updateReq); err != nil {
+				err = tsClient.UpdateEventRule(ctx, eventRule.EventRuleID, updateReq)
+				if err != nil {
 					logger.Warn("failed to update event rule definition",
 						zap.String("geofence_id", geofenceIDStr),
 						zap.String("event_rule_id", eventRule.EventRuleID),
@@ -632,58 +623,4 @@ func convertFeaturesToMultiPolygon(features []json.RawMessage) ([]byte, error) {
 	}
 
 	return json.Marshal(multiPolygon)
-}
-
-// ensureDistanceCondition checks if the definition JSON includes a distance_from_geofence_km
-// condition. If not, it adds a default one with {"lte": 0} to the conditions.and array.
-func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
-	str := string(raw)
-	if strings.Contains(str, "distance_from_geofence_km") {
-		return raw
-	}
-
-	var def map[string]interface{}
-	if err := json.Unmarshal(raw, &def); err != nil {
-		// Can't parse — wrap in a new definition
-		newDef := map[string]interface{}{
-			"conditions": map[string]interface{}{
-				"and": []interface{}{
-					map[string]interface{}{"distance_from_geofence_km": map[string]interface{}{"lte": 0}},
-				},
-			},
-		}
-		b, _ := json.Marshal(newDef)
-		return b
-	}
-
-	distCondition := map[string]interface{}{
-		"distance_from_geofence_km": map[string]interface{}{"lte": 0},
-	}
-
-	conditions, hasConditions := def["conditions"]
-	if !hasConditions {
-		def["conditions"] = map[string]interface{}{
-			"and": []interface{}{distCondition},
-		}
-		b, _ := json.Marshal(def)
-		return b
-	}
-
-	condMap, ok := conditions.(map[string]interface{})
-	if !ok {
-		b, _ := json.Marshal(def)
-		return b
-	}
-
-	if andArr, hasAnd := condMap["and"]; hasAnd {
-		if arr, ok := andArr.([]interface{}); ok {
-			condMap["and"] = append(arr, distCondition)
-		}
-	} else {
-		condMap["and"] = []interface{}{distCondition}
-	}
-
-	def["conditions"] = condMap
-	b, _ := json.Marshal(def)
-	return b
 }
