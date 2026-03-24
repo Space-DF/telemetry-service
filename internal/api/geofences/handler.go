@@ -439,7 +439,6 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 					CooldownSec: eventRule.CooldownSec,
 					Description: eventRule.Description,
 				}
-
 				err = tsClient.UpdateEventRule(ctx, eventRule.EventRuleID, updateReq)
 				if err != nil {
 					logger.Warn("failed to update event rule definition",
