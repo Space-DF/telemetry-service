@@ -184,16 +184,17 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 					results = append(results, geofenceResult{rule: rule, isInside: isInside, typeZone: typeZone})
 				}
 
-				// Collect all triggered geofence events, grouped by zone type.
-				// Rules:
-				//   Safe zone:   trigger when device is OUTSIDE the zone AND definition conditions match
-				//                (definition includes distance_from_geofence_km threshold + other conditions like time, device_model, etc.)
-				//   Danger zone: trigger when device is INSIDE the zone OR definition conditions match
-				//                (definition includes distance_from_geofence_km proximity + other conditions)
-				// Multiple events can be created, but ALL must be from the same zone type.
-				// Priority: danger > safe. If any danger events trigger, only danger events are returned.
-				var dangerEvents []models.MatchedEvent
-				var safeEvents []models.MatchedEvent
+				// If device is inside ANY safe zone AND its definition conditions match,
+				// it is considered safe — skip all safe zone exit events.
+				// Requires two passes: first evaluate all definitions, then determine shouldTrigger.
+				type evaluatedResult struct {
+					res                geofenceResult
+					definitionMatched  bool
+					hasDefinition      bool
+				}
+
+				var evaluated []evaluatedResult
+				isInsideAnySafeZone := false
 
 				for _, res := range results {
 					rule := res.rule
@@ -202,7 +203,6 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 						geofenceIDDebug = *rule.GeofenceID
 					}
 
-					// Evaluate definition conditions (includes distance_from_geofence_km + additional conditions)
 					definitionMatched := false
 					hasDefinition := rule.Definition != nil && *rule.Definition != ""
 
@@ -223,24 +223,57 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 							zap.Bool("definition_matched", definitionMatched))
 					}
 
+					// Check if this safe zone qualifies the device as "safe"
+					if res.typeZone == "safe" && res.isInside {
+						if hasDefinition {
+							// Only consider device safe if definition also matches
+							if definitionMatched {
+								isInsideAnySafeZone = true
+							}
+						} else {
+							// No definition → inside safe zone is enough
+							isInsideAnySafeZone = true
+						}
+					}
+
+					evaluated = append(evaluated, evaluatedResult{
+						res:               res,
+						definitionMatched: definitionMatched,
+						hasDefinition:     hasDefinition,
+					})
+				}
+
+				if isInsideAnySafeZone {
+					r.logger.Info("Device is inside a safe zone (with conditions met), will skip all safe zone exit events",
+						zap.String("device_id", deviceID))
+				}
+
+				// Collect all triggered geofence events, grouped by zone type.
+				var dangerEvents []models.MatchedEvent
+				var safeEvents []models.MatchedEvent
+
+				for _, ev := range evaluated {
+					res := ev.res
+					rule := res.rule
+					geofenceIDDebug := ""
+					if rule.GeofenceID != nil {
+						geofenceIDDebug = *rule.GeofenceID
+					}
+
 					// Determine shouldTrigger based on zone type:
-					//   Safe:   device must be outside AND definition conditions must match (distance + time/model/etc.)
-					//           Without definition → just trigger when outside
-					//   Danger: device is inside → always trigger; OR definition matches (approaching via distance + conditions)
-					//           Without definition → just trigger when inside
 					shouldTrigger := false
 					switch res.typeZone {
 					case "safe":
-						if hasDefinition {
-							// Safe zone: trigger only when outside AND all definition conditions are met
-							shouldTrigger = !res.isInside && definitionMatched
+						if isInsideAnySafeZone {
+							shouldTrigger = false
+						} else if ev.hasDefinition {
+							shouldTrigger = (!res.isInside && ev.definitionMatched)
 						} else {
 							shouldTrigger = !res.isInside
 						}
-					default: // "danger", or any other zone type
-						if hasDefinition {
-							// Danger zone: trigger when inside OR when definition matches (e.g., distance < threshold + conditions)
-							shouldTrigger = res.isInside || definitionMatched
+					default:
+						if ev.hasDefinition {
+							shouldTrigger = (res.isInside && ev.definitionMatched) || (!res.isInside && ev.definitionMatched)
 						} else {
 							shouldTrigger = res.isInside
 						}
@@ -251,8 +284,8 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 						zap.String("geofence_id", geofenceIDDebug),
 						zap.String("type_zone", res.typeZone),
 						zap.Bool("is_inside", res.isInside),
-						zap.Bool("has_definition", hasDefinition),
-						zap.Bool("definition_matched", definitionMatched),
+						zap.Bool("has_definition", ev.hasDefinition),
+						zap.Bool("definition_matched", ev.definitionMatched),
 						zap.Bool("should_trigger", shouldTrigger))
 
 					if !shouldTrigger {
@@ -316,15 +349,8 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 				var geofenceMatchedEvents []models.MatchedEvent
 				if len(dangerEvents) > 0 {
 					geofenceMatchedEvents = dangerEvents
-					r.logger.Info("Using danger zone events (priority)",
-						zap.String("device_id", deviceID),
-						zap.Int("danger_count", len(dangerEvents)),
-						zap.Int("safe_skipped", len(safeEvents)))
 				} else if len(safeEvents) > 0 {
 					geofenceMatchedEvents = safeEvents
-					r.logger.Info("Using safe zone events (no danger triggered)",
-						zap.String("device_id", deviceID),
-						zap.Int("safe_count", len(safeEvents)))
 				}
 
 				for _, evt := range geofenceMatchedEvents {
