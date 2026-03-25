@@ -323,7 +323,7 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		// Pass definition to CreateGeofence which will create the event rule with it
 		var definition *json.RawMessage
 		if len(req.Definition) > 0 {
-			def := ensureDistanceCondition(req.Definition)
+			def := ensureDistanceCondition(req.Definition, req.Type)
 			definition = &def
 		}
 		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.Features, req.Color, req.SpaceID, req.IsActive, nil, definition)
@@ -428,7 +428,8 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		// Update event rule definition: ensure distance_from_geofence_km is present
-		defToUse := ensureDistanceCondition(req.Definition)
+typeZone := geofence.TypeZone
+		defToUse := ensureDistanceCondition(req.Definition, typeZone)
 		if geofence.EventRuleID != nil {
 			eventRule, err := tsClient.GetEventRuleByID(ctx, geofence.EventRuleID.String())
 			if err != nil || eventRule == nil {
@@ -438,7 +439,7 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			} else {
 				// Use request definition if provided, otherwise fix the existing one
 				if len(req.Definition) == 0 && eventRule.Definition != nil {
-					defToUse = ensureDistanceCondition(json.RawMessage(*eventRule.Definition))
+					defToUse = ensureDistanceCondition(json.RawMessage(*eventRule.Definition), typeZone)
 				}
 				defStr := string(defToUse)
 				updateReq := &models.EventRule{
@@ -634,9 +635,18 @@ func convertFeaturesToMultiPolygon(features []json.RawMessage) ([]byte, error) {
 	return json.Marshal(multiPolygon)
 }
 
+
 // ensureDistanceCondition checks if the definition JSON includes a distance_from_geofence_km
-// condition. If not, it adds a default one with {"lte": 0} to the conditions.and array.
-func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
+// condition. If not, it adds a default one to the conditions.and array.
+// For safe zones: uses "gte": 0 (trigger when device is far from safe zone)
+// For danger zones: uses "lte": 0 (trigger when device is close to danger zone)
+func ensureDistanceCondition(raw json.RawMessage, typeZone string) json.RawMessage {
+	// Determine operator based on zone type: safe → gte, danger/other → lte
+	distOp := "lte"
+	if typeZone == "safe" {
+		distOp = "gte"
+	}
+
 	str := string(raw)
 	if strings.Contains(str, "distance_from_geofence_km") {
 		return raw
@@ -648,7 +658,7 @@ func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
 		newDef := map[string]interface{}{
 			"conditions": map[string]interface{}{
 				"and": []interface{}{
-					map[string]interface{}{"distance_from_geofence_km": map[string]interface{}{"lte": 0}},
+					map[string]interface{}{"distance_from_geofence_km": map[string]interface{}{distOp: 0}},
 				},
 			},
 		}
@@ -657,7 +667,7 @@ func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
 	}
 
 	distCondition := map[string]interface{}{
-		"distance_from_geofence_km": map[string]interface{}{"lte": 0},
+		"distance_from_geofence_km": map[string]interface{}{distOp: 0},
 	}
 
 	conditions, hasConditions := def["conditions"]
