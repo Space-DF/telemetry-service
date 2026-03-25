@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
@@ -35,7 +36,6 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 // @Accept json
 // @Produce json
 // @Param device_id query string false "Filter by device ID"
-// @Param space_id query string false "Filter by space ID"
 // @Param search query string false "Search by name or device ID"
 // @Param limit query int false "Number of results per page (default 20)"
 // @Param offset query int false "Number of results to skip (default 0)"
@@ -51,8 +51,39 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 		})
 	}
 
+	// Resolve space_id from X-Space header
+	spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "X-Space header is required",
+		})
+	}
+
+	spaceID, err := h.tsClient.GetSpaceIDBySlug(c.Request().Context(), org, spaceSlug)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Space '%s' not found", spaceSlug),
+		})
+	}
+
 	// Parse query parameters
 	var deviceID *string
+
+	if deviceIDStr := strings.TrimSpace(c.QueryParam("device_id")); deviceIDStr != "" {
+		if _, err := uuid.Parse(deviceIDStr); err == nil {
+			deviceID = &deviceIDStr
+		}
+	}
+
+	// Parse status query parameter (comma-separated booleans, e.g. "true,false")
+	var statusList []bool
+	if statusStr := strings.TrimSpace(c.QueryParam("status")); statusStr != "" {
+		for _, s := range strings.Split(statusStr, ",") {
+			if b, err := strconv.ParseBool(strings.TrimSpace(s)); err == nil {
+				statusList = append(statusList, b)
+			}
+		}
+	}
 
 	if deviceIDStr := strings.TrimSpace(c.QueryParam("device_id")); deviceIDStr != "" {
 		if _, err := uuid.Parse(deviceIDStr); err == nil {
@@ -67,7 +98,7 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 
 	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
 
-	automations, totalCount, err := h.tsClient.GetAutomations(ctx, deviceID, search, p.Limit, p.Offset)
+	automations, totalCount, err := h.tsClient.GetAutomations(ctx, spaceID, deviceID, statusList, search, p.Limit, p.Offset)
 	if err != nil {
 		h.logger.Error("failed to get automations", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -592,62 +623,6 @@ func (h *Handler) DeleteAction(c echo.Context) error {
 	})
 }
 
-// GetAutomationsByDevice returns automations for a specific device
-// @Summary Get automations by device
-// @Description Retrieve all automations for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
-// @Tags automations
-// @Accept json
-// @Produce json
-// @Param device_id path string true "Device ID"
-// @Param limit query int false "Number of results per page (default 20)"
-// @Param offset query int false "Number of results to skip (default 0)"
-// @Success 200 {object} common.PaginatedResponse
-// @Failure 400 {object} map[string]string "Invalid request parameters"
-// @Failure 500 {object} map[string]string "Internal server error"
-// @Router /telemetry/v1/devices/{device_id}/automations [get]
-func (h *Handler) GetAutomationsByDevice(c echo.Context) error {
-	org := common.ResolveOrgFromRequest(c)
-	if org == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Could not determine organization from hostname or X-Organization header",
-		})
-	}
-
-	deviceID := strings.TrimSpace(c.Param("device_id"))
-	if deviceID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "device_id is required",
-		})
-	}
-
-	// Pagination
-	p := common.ParsePagination(c)
-
-	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
-
-	automations, totalCount, err := h.tsClient.GetAutomations(ctx, &deviceID, "", p.Limit, p.Offset)
-	if err != nil {
-		h.logger.Error("failed to get automations by device", zap.String("device_id", deviceID), zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to get automations",
-		})
-	}
-
-	// Convert to response format
-	results := make([]map[string]interface{}, len(automations))
-	for i, a := range automations {
-		results[i] = convertAutomationToMap(&a)
-	}
-
-	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
-
-	return c.JSON(http.StatusOK, common.PaginatedResponse{
-		Count:    totalCount,
-		Next:     next,
-		Previous: previous,
-		Results:  results,
-	})
-}
 
 // Helper functions to convert models to maps
 func convertAutomationToMap(a *models.AutomationWithActions) map[string]interface{} {

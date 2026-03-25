@@ -16,9 +16,6 @@ func RegisterRoutes(group *echo.Group, logger *zap.Logger, tsClient *timescaledb
 	group.PUT("/automations/:automation_id", handler.UpdateAutomation)
 	group.DELETE("/automations/:automation_id", handler.DeleteAutomation)
 
-	// Automations by device
-	group.GET("/automations/devices/:device_id", handler.GetAutomationsByDevice)
-
 	// Actions CRUD routes
 	group.GET("/actions", handler.GetActions)
 	group.POST("/actions", handler.CreateAction)

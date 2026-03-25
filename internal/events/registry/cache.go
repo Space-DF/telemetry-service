@@ -81,15 +81,6 @@ func (c *DeviceRulesCache) Stop() {
 func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []evaluator.EventRuleForEvaluation {
 	now := time.Now()
 
-	// Fetch automations for this device
-	automations, _, err := c.db.GetAutomations(ctx, &deviceID, "", 1000, 0)
-	if err != nil {
-		c.logger.Error("Failed to fetch automations for device",
-			zap.String("device_id", deviceID),
-			zap.Error(err))
-		return nil
-	}
-
 	// Fetch geofences for the device's space(s)
 	// First get space IDs directly from the entities table for this device
 	var geofences []models.GeofenceWithSpace
@@ -103,6 +94,20 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []evaluator
 	}
 	for _, sid := range deviceSpaceIDs {
 		spacesSeen[sid] = true
+	}
+
+	// Fetch automations for this device for each spaceID
+	var automations []models.AutomationWithActions
+	for _, spaceID := range deviceSpaceIDs {
+		autos, _, err := c.db.GetAutomations(ctx, spaceID, &deviceID, []bool{}, "", 1000, 0)
+		if err != nil {
+			c.logger.Error("Failed to fetch automations for device in space",
+				zap.String("device_id", deviceID),
+				zap.String("space_id", spaceID.String()),
+				zap.Error(err))
+			continue
+		}
+		automations = append(automations, autos...)
 	}
 
 	// Also collect space IDs from automations (in case they differ)

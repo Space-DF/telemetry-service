@@ -15,7 +15,7 @@ import (
 )
 
 // GetAutomations retrieves automations with pagination and optional filters
-func (c *Client) GetAutomations(ctx context.Context, deviceID *string, search string, limit, offset int) ([]models.AutomationWithActions, int, error) {
+func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID *string, statusList []bool, search string, limit, offset int) ([]models.AutomationWithActions, int, error) {
 	var results []models.AutomationWithActions
 	var total int
 
@@ -26,13 +26,20 @@ func (c *Client) GetAutomations(ctx context.Context, deviceID *string, search st
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Build WHERE clause dynamically
-		whereClause := ""
-		args := []interface{}{}
 		argIndex := 1
+		whereClause := fmt.Sprintf(" WHERE a.space_id = $%d", argIndex)
+		args := []interface{}{spaceID}
+		argIndex++
 
 		if deviceID != nil {
-			whereClause = fmt.Sprintf(" WHERE a.device_id = $%d", argIndex)
+			whereClause += fmt.Sprintf(" AND a.device_id = $%d", argIndex)
 			args = append(args, *deviceID)
+			argIndex++
+		}
+
+		if len(statusList) > 0 {
+			whereClause += fmt.Sprintf(" AND er.is_active = ANY($%d)", argIndex)
+			args = append(args, pq.Array(statusList))
 			argIndex++
 		}
 
@@ -50,7 +57,7 @@ func (c *Client) GetAutomations(ctx context.Context, deviceID *string, search st
 		}
 
 		// Count total
-		countQuery := "SELECT COUNT(*) FROM automations a" + whereClause
+		countQuery := "SELECT COUNT(*) FROM automations a LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id" + whereClause
 		err := tx.QueryRowContext(txCtx, countQuery, args...).Scan(&total)
 		if err != nil {
 			return fmt.Errorf("failed to count automations: %w", err)

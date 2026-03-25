@@ -428,7 +428,7 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		// Update event rule definition: ensure distance_from_geofence_km is present
-typeZone := geofence.TypeZone
+		typeZone := geofence.TypeZone
 		defToUse := ensureDistanceCondition(req.Definition, typeZone)
 		if geofence.EventRuleID != nil {
 			eventRule, err := tsClient.GetEventRuleByID(ctx, geofence.EventRuleID.String())
@@ -544,26 +544,38 @@ func convertGeofenceToResponse(ctx context.Context, tsClient *timescaledb.Client
 	}
 
 	// Fetch event rule for this geofence
-	if g.EventRuleID != nil {
-		eventRule, err := tsClient.GetEventRuleByID(ctx, g.EventRuleID.String())
-		if err == nil && eventRule != nil {
-			ruleKey := eventRule.RuleKey
-			isActive := false
-			if eventRule.IsActive != nil {
-				isActive = *eventRule.IsActive
-			}
-			resp.EventRule = &apimodels.EventRuleInfo{
-				EventRuleID: eventRule.EventRuleID,
-				RuleKey:     ruleKey,
-				IsActive:    isActive,
-				CreatedAt:   eventRule.CreatedAt,
-			}
-			if eventRule.Definition != nil {
-				resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
-			}
-		}
+	if g.EventRuleID == nil {
+		return resp
 	}
-
+	eventRule, err := tsClient.GetEventRuleByID(ctx, g.EventRuleID.String())
+	if err != nil || eventRule == nil {
+		return resp
+	}
+	ruleKey := eventRule.RuleKey
+	isActive := false
+	if eventRule.IsActive != nil {
+		isActive = *eventRule.IsActive
+	}
+	resp.EventRule = &apimodels.EventRuleInfo{
+		EventRuleID: eventRule.EventRuleID,
+		RuleKey:     ruleKey,
+		IsActive:    isActive,
+		CreatedAt:   eventRule.CreatedAt,
+	}
+	if eventRule.Definition == nil {
+		return resp
+	}
+	var defMap map[string]interface{}
+	if err := json.Unmarshal([]byte(*eventRule.Definition), &defMap); err != nil {
+		resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+		return resp
+	}
+	removeZeroDistanceFromDef(defMap)
+	if newDef, err := json.Marshal(defMap); err == nil {
+		resp.EventRule.Definition = json.RawMessage(newDef)
+	} else {
+		resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+	}
 	return resp
 }
 
@@ -595,7 +607,17 @@ func convertModelGeofenceToResponse(ctx context.Context, tsClient *timescaledb.C
 				CreatedAt:   eventRule.CreatedAt,
 			}
 			if eventRule.Definition != nil {
-				resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+				var defMap map[string]interface{}
+				if err := json.Unmarshal([]byte(*eventRule.Definition), &defMap); err == nil {
+					removeZeroDistanceFromDef(defMap)
+					if newDef, err := json.Marshal(defMap); err == nil {
+						resp.EventRule.Definition = json.RawMessage(newDef)
+					} else {
+						resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+					}
+				} else {
+					resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+				}
 			}
 		}
 	}
@@ -634,7 +656,6 @@ func convertFeaturesToMultiPolygon(features []json.RawMessage) ([]byte, error) {
 
 	return json.Marshal(multiPolygon)
 }
-
 
 // ensureDistanceCondition checks if the definition JSON includes a distance_from_geofence_km
 // condition. If not, it adds a default one to the conditions.and array.
@@ -696,4 +717,50 @@ func ensureDistanceCondition(raw json.RawMessage, typeZone string) json.RawMessa
 	def["conditions"] = condMap
 	b, _ := json.Marshal(def)
 	return b
+}
+
+
+// removeZeroDistanceFromDef removes distance_from_geofence_km entries from conditions.and
+// where the operator value is 0 (e.g. {"lte": 0} or {"gte": 0}).
+func removeZeroDistanceFromDef(defMap map[string]interface{}) {
+	conditions, ok := defMap["conditions"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	andArr, ok := conditions["and"].([]interface{})
+	if !ok {
+		return
+	}
+	filtered := make([]interface{}, 0, len(andArr))
+	for _, item := range andArr {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		distVal, hasDist := itemMap["distance_from_geofence_km"]
+		if !hasDist {
+			filtered = append(filtered, item)
+			continue
+		}
+		// distVal is a map like {"lte": 0} or {"gte": 0}
+		distMap, ok := distVal.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		allZero := true
+		for _, v := range distMap {
+			fv, isFloat := v.(float64)
+			if !isFloat || fv != 0 {
+				allZero = false
+				break
+			}
+		}
+		if !allZero {
+			filtered = append(filtered, item)
+		}
+	}
+	conditions["and"] = filtered
+	defMap["conditions"] = conditions
 }
