@@ -428,13 +428,7 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		// Update event rule definition: ensure distance_from_geofence_km is present
-		typeZone := ""
-		if geofence.TypeZone != "" {
-			typeZone = geofence.TypeZone
-		}
-		if req.Type != nil && *req.Type != "" {
-			typeZone = *req.Type
-		}
+typeZone := geofence.TypeZone
 		defToUse := ensureDistanceCondition(req.Definition, typeZone)
 		if geofence.EventRuleID != nil {
 			eventRule, err := tsClient.GetEventRuleByID(ctx, geofence.EventRuleID.String())
