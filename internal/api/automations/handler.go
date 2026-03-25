@@ -79,15 +79,17 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 	var statusList []bool
 	if statusStr := strings.TrimSpace(c.QueryParam("status")); statusStr != "" {
 		for _, s := range strings.Split(statusStr, ",") {
-			if b, err := strconv.ParseBool(strings.TrimSpace(s)); err == nil {
-				statusList = append(statusList, b)
+			trimmedS := strings.TrimSpace(s)
+			if trimmedS == "" {
+				continue
 			}
-		}
-	}
-
-	if deviceIDStr := strings.TrimSpace(c.QueryParam("device_id")); deviceIDStr != "" {
-		if _, err := uuid.Parse(deviceIDStr); err == nil {
-			deviceID = &deviceIDStr
+			b, err := strconv.ParseBool(trimmedS)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("invalid status value: '%s'", s),
+				})
+			}
+			statusList = append(statusList, b)
 		}
 	}
 
@@ -622,7 +624,6 @@ func (h *Handler) DeleteAction(c echo.Context) error {
 		"message": "action deleted successfully",
 	})
 }
-
 
 // Helper functions to convert models to maps
 func convertAutomationToMap(a *models.AutomationWithActions) map[string]interface{} {
