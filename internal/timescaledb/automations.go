@@ -50,7 +50,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 			} else {
 				whereClause += " AND"
 			}
-			whereClause += fmt.Sprintf(" (a.name ILIKE $%d OR a.device_id ILIKE $%d)", argIndex, argIndex+1)
+			whereClause += fmt.Sprintf(" (a.name ILIKE $%d OR CAST(a.device_id AS VARCHAR) ILIKE $%d)", argIndex, argIndex+1)
 			searchPattern := "%" + search + "%"
 			args = append(args, searchPattern, searchPattern)
 			argIndex += 2
