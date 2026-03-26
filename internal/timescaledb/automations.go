@@ -497,21 +497,14 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 			return fmt.Errorf("failed to update event rule: %w", err)
 		}
 
-		// Update automation
-		var spaceID sql.NullString
-		if req.SpaceID != nil {
-			spaceID.Valid = true
-			spaceID.String = req.SpaceID.String()
-		}
-
 		var eventRuleIDStr sql.NullString
 		err = tx.QueryRowContext(txCtx, `
 			UPDATE automations
-			SET name = $1, device_id = $2, space_id = $3, updated_at = NOW()
-			WHERE id = $4
-			RETURNING id, event_rule_id, space_id, updated_at, created_at
-		`, req.Name, req.DeviceID, spaceID, automationID).Scan(
-			&result.ID, &eventRuleIDStr, &spaceID, &result.UpdatedAt, &result.CreatedAt,
+			SET name = $1, device_id = $2, updated_at = NOW()
+			WHERE id = $3
+			RETURNING id, event_rule_id, updated_at, created_at
+		`, req.Name, req.DeviceID, automationID).Scan(
+			&result.ID, &eventRuleIDStr, &result.UpdatedAt, &result.CreatedAt,
 		)
 
 		if err != nil {
@@ -525,12 +518,6 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 		result.DeviceID = req.DeviceID
 		if eventRuleIDStr.Valid {
 			result.EventRuleID = &eventRuleIDStr.String
-		}
-		if spaceID.Valid {
-			parsed, err := uuid.Parse(spaceID.String)
-			if err == nil {
-				result.SpaceID = &parsed
-			}
 		}
 
 		// Delete existing automation_actions and insert new ones
