@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/clients"
 
 	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
@@ -18,14 +19,16 @@ import (
 )
 
 type Handler struct {
-	logger   *zap.Logger
-	tsClient *timescaledb.Client
+	logger       *zap.Logger
+	tsClient     *timescaledb.Client
+	deviceClient *clients.DeviceClient
 }
 
 func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 	return &Handler{
-		logger:   logger,
-		tsClient: tsClient,
+		logger:       logger,
+		tsClient:     tsClient,
+		deviceClient: clients.NewDeviceClient(),
 	}
 }
 
@@ -111,7 +114,7 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 	// Convert to response format
 	results := make([]map[string]interface{}, len(automations))
 	for i, a := range automations {
-		results[i] = convertAutomationToMap(&a)
+		results[i] = h.convertAutomationToMap(&a, org)
 	}
 
 	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
@@ -166,7 +169,7 @@ func (h *Handler) GetAutomationByID(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, convertAutomationToMap(automation))
+	return c.JSON(http.StatusOK, h.convertAutomationToMap(automation, org))
 }
 
 // CreateAutomation creates a new automation
@@ -263,7 +266,7 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusCreated, convertAutomationToMap(automation))
+	return c.JSON(http.StatusCreated, h.convertAutomationToMap(automation, org))
 }
 
 // UpdateAutomation updates an existing automation
@@ -358,7 +361,7 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, convertAutomationToMap(automation))
+	return c.JSON(http.StatusOK, h.convertAutomationToMap(automation, org))
 }
 
 // DeleteAutomation deletes an automation
@@ -625,14 +628,20 @@ func (h *Handler) DeleteAction(c echo.Context) error {
 	})
 }
 
-// Helper functions to convert models to maps
-func convertAutomationToMap(a *models.AutomationWithActions) map[string]interface{} {
+// convertAutomationToMap converts an automation to a response map, enriching it
+// with device_info fetched from the device-service.
+func (h *Handler) convertAutomationToMap(a *models.AutomationWithActions, org string) map[string]interface{} {
 	result := map[string]interface{}{
 		"id":         a.ID,
 		"name":       a.Name,
-		"device_id":  a.DeviceID,
 		"updated_at": a.UpdatedAt,
 		"created_at": a.CreatedAt,
+	}
+
+	if a.DeviceID != "" {
+		if info := h.deviceClient.GetDeviceInfo(a.DeviceID, org); info != nil {
+			result["device"] = info
+		}
 	}
 
 	if a.EventRule != nil {
