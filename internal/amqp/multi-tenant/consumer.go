@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/circuitbreaker"
 	"github.com/Space-DF/telemetry-service/internal/config"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -66,6 +67,13 @@ type MultiTenantConsumer struct {
 
 	vhostMu          sync.Mutex
 	vhostConnections map[string]*pooledConnection
+
+	// Connection monitoring and circuit breaker
+	circuitBreaker       *circuitbreaker.CircuitBreaker
+	reconnectChan        chan struct{}
+	connCloseNotifier    chan *amqp.Error
+	channelCloseNotifier chan *amqp.Error
+	reconnecting         bool // Flag to prevent concurrent reconnections
 }
 
 // generateInstanceID creates a unique identifier for this service instance
@@ -93,16 +101,28 @@ func NewMultiTenantConsumer(cfg config.AMQP, orgEventsCfg config.OrgEvents, proc
 	logger.Info("Creating multi-tenant consumer with unique instance ID",
 		zap.String("instance_id", instanceID))
 
+	// Create circuit breaker for connection attempts
+	cbConfig := circuitbreaker.Config{
+		MaxFailures:      5,
+		ResetTimeout:     30 * time.Second,
+		SuccessThreshold: 2,
+	}
+	cb := circuitbreaker.New(cbConfig)
+
 	return &MultiTenantConsumer{
-		config:           cfg,
-		orgEventsConfig:  orgEventsCfg,
-		processor:        processor,
-		schemaInit:       schemaInit,
-		logger:           logger,
-		done:             make(chan bool, 1),
-		instanceID:       instanceID,
-		tenantConsumers:  make(map[string]*TenantConsumer),
-		vhostConnections: make(map[string]*pooledConnection),
+		config:               cfg,
+		orgEventsConfig:      orgEventsCfg,
+		processor:            processor,
+		schemaInit:           schemaInit,
+		logger:               logger,
+		done:                 make(chan bool, 1),
+		instanceID:           instanceID,
+		tenantConsumers:      make(map[string]*TenantConsumer),
+		vhostConnections:     make(map[string]*pooledConnection),
+		circuitBreaker:       cb,
+		reconnectChan:        make(chan struct{}, 1),
+		connCloseNotifier:    make(chan *amqp.Error, 1),
+		channelCloseNotifier: make(chan *amqp.Error, 1),
 	}
 }
 
@@ -110,19 +130,106 @@ func NewMultiTenantConsumer(cfg config.AMQP, orgEventsCfg config.OrgEvents, proc
 func (c *MultiTenantConsumer) Connect() error {
 	var err error
 
-	// Connect to AMQP broker for org events
-	c.orgEventsConn, err = amqp.Dial(c.config.BrokerURL)
+	// Use circuit breaker for connection attempts
+	err = c.circuitBreaker.Execute(func() error {
+		// Connect to AMQP broker for org events
+		c.orgEventsConn, err = amqp.Dial(c.config.BrokerURL)
+		if err != nil {
+			return fmt.Errorf("failed to connect to AMQP broker: %w", err)
+		}
+
+		// Create separate channel for org events
+		c.orgEventsChannel, err = c.orgEventsConn.Channel()
+		if err != nil {
+			c.orgEventsConn.Close()
+			return fmt.Errorf("failed to open org events channel: %w", err)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		return fmt.Errorf("failed to connect to AMQP broker: %w", err)
+		return err
 	}
 
-	// Create separate channel for org events
-	c.orgEventsChannel, err = c.orgEventsConn.Channel()
-	if err != nil {
-		return fmt.Errorf("failed to open org events channel: %w", err)
-	}
+	// Register close notifiers for connection monitoring
+	c.setupConnectionMonitoring()
+
+	c.logger.Info("Successfully connected to AMQP broker",
+		zap.String("broker", c.config.BrokerURL))
 
 	return nil
+}
+
+// setupConnectionMonitoring sets up close notifiers for the connection and channel
+func (c *MultiTenantConsumer) setupConnectionMonitoring() {
+	// Register connection close notifier
+	c.connCloseNotifier = make(chan *amqp.Error, 1)
+	c.orgEventsConn.NotifyClose(c.connCloseNotifier)
+
+	// Register channel close notifier
+	c.channelCloseNotifier = make(chan *amqp.Error, 1)
+	c.orgEventsChannel.NotifyClose(c.channelCloseNotifier)
+
+	// Start monitoring goroutine
+	go c.monitorConnection()
+}
+
+// monitorConnection monitors the connection and channel for unexpected closures
+func (c *MultiTenantConsumer) monitorConnection() {
+	for {
+		select {
+		case <-c.done:
+			return
+
+		case err, ok := <-c.connCloseNotifier:
+			if !ok {
+				// Channel closed, expected during shutdown
+				return
+			}
+			c.handleConnectionClosed(err)
+
+		case err, ok := <-c.channelCloseNotifier:
+			if !ok {
+				return
+			}
+			c.handleChannelClosed(err)
+		}
+	}
+}
+
+// handleConnectionClosed handles unexpected connection closure
+func (c *MultiTenantConsumer) handleConnectionClosed(err *amqp.Error) {
+	c.logger.Error("AMQP connection closed unexpectedly",
+		zap.Error(err),
+		zap.Int("code", err.Code))
+
+	// Invalidate all pooled vhost connections since they're also closed
+	c.vhostMu.Lock()
+	c.vhostConnections = make(map[string]*pooledConnection)
+	c.vhostMu.Unlock()
+
+	// Record failure in circuit breaker
+	c.circuitBreaker.RecordFailure()
+
+	// Notify reconnection goroutine
+	select {
+	case c.reconnectChan <- struct{}{}:
+	default:
+	}
+}
+
+// handleChannelClosed handles unexpected channel closure
+func (c *MultiTenantConsumer) handleChannelClosed(err *amqp.Error) {
+	c.logger.Error("AMQP channel closed unexpectedly",
+		zap.Error(err),
+		zap.Int("code", err.Code))
+
+	// Just trigger full reconnection - it's safer and simpler
+	select {
+	case c.reconnectChan <- struct{}{}:
+	default:
+	}
 }
 
 // getOrgEventsQueueName returns a unique queue name for this instance
@@ -137,6 +244,9 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 		zap.String("instance_id", c.instanceID),
 		zap.String("org_events_queue", c.getOrgEventsQueueName()))
 	c.logger.Info("Waiting for organization events to discover active tenants")
+
+	// Start reconnection monitor goroutine
+	go c.reconnectionMonitor(ctx)
 
 	// Start listening to organization events
 	go func() {
@@ -164,6 +274,46 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// reconnectionMonitor monitors for reconnection requests
+func (c *MultiTenantConsumer) reconnectionMonitor(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.done:
+			return
+		case <-c.reconnectChan:
+			// Check if already reconnecting to prevent concurrent reconnections
+			if c.reconnecting {
+				c.logger.Debug("Already reconnecting, skipping duplicate request")
+				continue
+			}
+
+			c.logger.Warn("Reconnection triggered, attempting to reconnect...")
+			if err := c.reconnectConnection(ctx); err != nil {
+				c.reconnecting = false
+				c.logger.Error("Failed to reconnect", zap.Error(err))
+				// Schedule another reconnection attempt
+				go func() {
+					time.Sleep(10 * time.Second)
+					select {
+					case c.reconnectChan <- struct{}{}:
+					default:
+					}
+				}()
+			} else {
+				c.reconnecting = false
+				// Restart org events listener after successful reconnection
+				go func() {
+					if err := c.listenToOrgEvents(ctx); err != nil {
+						c.logger.Error("Org events listener error after reconnection", zap.Error(err))
+					}
+				}()
+			}
+		}
+	}
 }
 
 // sendDiscoveryRequest sends a request to console service to get all active orgs
@@ -289,11 +439,18 @@ func (c *MultiTenantConsumer) getOrCreateVhostConnection(vhost string) (*amqp.Co
 	c.vhostMu.Lock()
 	defer c.vhostMu.Unlock()
 
+	// Check if we have a pooled connection
 	if pooled, exists := c.vhostConnections[vhost]; exists {
-		pooled.refCount++
-		return pooled.conn, nil
+		// Check if connection is still valid
+		if pooled.conn != nil && !pooled.conn.IsClosed() {
+			pooled.refCount++
+			return pooled.conn, nil
+		}
+		// Connection is closed, remove it and create a new one
+		delete(c.vhostConnections, vhost)
 	}
 
+	// Create a new connection
 	vhostURL, err := c.buildVhostURL(vhost)
 	if err != nil {
 		return nil, err
@@ -508,6 +665,195 @@ func (c *MultiTenantConsumer) stopAllConsumers() {
 	c.logger.Info("All tenant consumers stopped")
 }
 
+// resubscribeTenant resubscribes to a tenant's queue after a channel closure
+func (c *MultiTenantConsumer) resubscribeTenant(ctx context.Context, oldTenant *TenantConsumer) {
+	// The main reconnection will handle all tenants together
+	if c.orgEventsConn == nil || c.orgEventsConn.IsClosed() {
+		c.logger.Info("Main connection down, waiting for centralized reconnection",
+			zap.String("org", oldTenant.OrgSlug))
+		return
+	}
+
+	// Cancel the old consumer goroutine
+	oldTenant.Cancel()
+	if oldTenant.Channel != nil {
+		_ = oldTenant.Channel.Cancel(oldTenant.ConsumerTag, false)
+		_ = oldTenant.Channel.Close()
+	}
+
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+	maxAttempts := 5
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+
+		// Check main connection again before each attempt
+		if c.orgEventsConn == nil || c.orgEventsConn.IsClosed() {
+			c.logger.Info("Main connection went down, aborting individual resubscription",
+				zap.String("org", oldTenant.OrgSlug))
+			return
+		}
+
+		// Remove from map first so subscribeToOrganization can create a new subscription
+		c.tenantMu.Lock()
+		delete(c.tenantConsumers, oldTenant.OrgSlug)
+		c.tenantMu.Unlock()
+
+		// Try to resubscribe
+		err := c.subscribeToOrganization(ctx, oldTenant.OrgSlug, oldTenant.Vhost, oldTenant.QueueName, oldTenant.Exchange)
+		if err == nil {
+			c.logger.Info("Successfully resubscribed tenant",
+				zap.String("org", oldTenant.OrgSlug),
+				zap.Int("attempt", attempt+1))
+			return
+		}
+
+		c.logger.Warn("Failed to resubscribe to tenant",
+			zap.String("org", oldTenant.OrgSlug),
+			zap.Int("attempt", attempt+1),
+			zap.Error(err))
+
+		// Exponential backoff
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+
+	// If all attempts failed, remove from map so main reconnection can handle it
+	c.tenantMu.Lock()
+	delete(c.tenantConsumers, oldTenant.OrgSlug)
+	c.tenantMu.Unlock()
+
+	c.logger.Warn("Failed to resubscribe tenant after all attempts, removed from map for main reconnection",
+		zap.String("org", oldTenant.OrgSlug))
+}
+
+// reconnectConnection attempts to reconnect to the AMQP broker
+func (c *MultiTenantConsumer) reconnectConnection(ctx context.Context) error {
+	c.logger.Info("Attempting to reconnect to AMQP broker")
+
+	// Set reconnecting flag to prevent concurrent reconnections
+	c.reconnecting = true
+	defer func() {
+		// Will be set to false by caller on success, or here on early return
+		if c.reconnecting {
+			c.reconnecting = false
+		}
+	}()
+
+	backoff := 1 * time.Second
+	maxBackoff := 30 * time.Second
+	maxAttempts := 30
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// Check circuit breaker
+		if c.circuitBreaker.State() == circuitbreaker.StateOpen {
+			c.logger.Warn("Circuit breaker is open, waiting",
+				zap.Duration("reset_timeout", 30*time.Second))
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(30 * time.Second):
+			}
+		}
+
+		// Close existing connection if any
+		if c.orgEventsConn != nil && !c.orgEventsConn.IsClosed() {
+			_ = c.orgEventsConn.Close()
+		}
+
+		// Attempt to reconnect
+		err := func() error {
+			conn, err := amqp.Dial(c.config.BrokerURL)
+			if err != nil {
+				return err
+			}
+
+			ch, err := conn.Channel()
+			if err != nil {
+				conn.Close()
+				return err
+			}
+
+			c.orgEventsConn = conn
+			c.orgEventsChannel = ch
+
+			// Re-register close notifiers
+			c.connCloseNotifier = make(chan *amqp.Error, 1)
+			c.channelCloseNotifier = make(chan *amqp.Error, 1)
+			c.orgEventsConn.NotifyClose(c.connCloseNotifier)
+			c.orgEventsChannel.NotifyClose(c.channelCloseNotifier)
+
+			return nil
+		}()
+
+		if err == nil {
+			c.logger.Info("Successfully reconnected to AMQP broker",
+				zap.Int("attempt", attempt))
+
+			// Record success in circuit breaker
+			c.circuitBreaker.RecordSuccess()
+
+			// Re-establish all tenant connections
+			c.reestablishTenantConnections(ctx)
+
+			return nil
+		}
+
+		c.logger.Warn("Reconnection attempt failed",
+			zap.Int("attempt", attempt),
+			zap.Duration("backoff", backoff),
+			zap.Error(err))
+
+		// Record failure in circuit breaker
+		c.circuitBreaker.RecordFailure()
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+
+		// Exponential backoff
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+
+	return fmt.Errorf("failed to reconnect after %d attempts", maxAttempts)
+}
+
+// reestablishTenantConnections re-establishes connections for all active tenants
+func (c *MultiTenantConsumer) reestablishTenantConnections(ctx context.Context) {
+	c.tenantMu.RLock()
+	tenants := make([]*TenantConsumer, 0, len(c.tenantConsumers))
+	for _, consumer := range c.tenantConsumers {
+		tenants = append(tenants, consumer)
+	}
+	c.tenantMu.RUnlock()
+
+	for _, tenant := range tenants {
+		// Remove from map so subscribeToOrganization can add it back
+		c.tenantMu.Lock()
+		delete(c.tenantConsumers, tenant.OrgSlug)
+		c.tenantMu.Unlock()
+
+		// Resubscribe
+		if err := c.subscribeToOrganization(ctx, tenant.OrgSlug, tenant.Vhost, tenant.QueueName, tenant.Exchange); err != nil {
+			c.logger.Error("Failed to resubscribe to tenant",
+				zap.String("org", tenant.OrgSlug),
+				zap.Error(err))
+		}
+	}
+}
+
 // listenToOrgEvents listens for organization lifecycle events
 func (c *MultiTenantConsumer) listenToOrgEvents(ctx context.Context) error {
 	var (
@@ -658,7 +1004,25 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 
 		case msg, ok := <-messages:
 			if !ok {
-				c.logger.Info("Message channel closed for organization", zap.String("org", tenant.OrgSlug))
+				c.logger.Warn("Message channel closed for organization, draining remaining messages and triggering resubscription",
+					zap.String("org", tenant.OrgSlug))
+
+				// Drain any remaining messages in the channel (they will be requeued by RabbitMQ)
+				for range messages {
+					// Just drain, don't process or ACK
+				}
+
+				// Trigger resubscription for this tenant
+				go c.resubscribeTenant(ctx, tenant)
+				return
+			}
+
+			// Check if the delivery channel is still valid before processing
+			// When the AMQP connection closes, the delivery becomes invalid
+			if tenant.Channel == nil || tenant.Channel.IsClosed() {
+				c.logger.Warn("Tenant channel closed, skipping message processing",
+					zap.String("org", tenant.OrgSlug))
+				go c.resubscribeTenant(ctx, tenant)
 				return
 			}
 
