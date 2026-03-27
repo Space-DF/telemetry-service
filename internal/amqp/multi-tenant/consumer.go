@@ -141,7 +141,12 @@ func (c *MultiTenantConsumer) Connect() error {
 		// Create separate channel for org events
 		c.orgEventsChannel, err = c.orgEventsConn.Channel()
 		if err != nil {
-			c.orgEventsConn.Close()
+			defer func() {
+				if err := c.orgEventsConn.Close(); err != nil {
+					c.logger.Error("Failed to close AMQP connection", zap.Error(err))
+				}
+
+			}()
 			return fmt.Errorf("failed to open org events channel: %w", err)
 		}
 
@@ -777,7 +782,11 @@ func (c *MultiTenantConsumer) reconnectConnection(ctx context.Context) error {
 
 			ch, err := conn.Channel()
 			if err != nil {
-				conn.Close()
+				defer func() {
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close AMQP connection", zap.Error(err))
+					}
+				}()
 				return err
 			}
 
