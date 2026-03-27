@@ -130,7 +130,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 					eventRule.RuleKey = erRuleKey.String
 				}
 				if erDefinition.Valid {
-					eventRule.Definition = &erDefinition.String
+					eventRule.Definition = json.RawMessage(erDefinition.String)
 				}
 				if erIsActive.Valid {
 					eventRule.IsActive = &erIsActive.Bool
@@ -211,7 +211,8 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			GROUP BY a.id, a.name, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 		`
 		var actionsJSON json.RawMessage
-		var eventRuleID, spaceID, erEventRuleID, erRuleKey, erDefinition, erDescription sql.NullString
+		var eventRuleID, spaceID, erEventRuleID, erRuleKey, erDescription sql.NullString
+		var erDefinition []byte
 		var erIsActive, erRepeatAble sql.NullBool
 		var erCooldownSec sql.NullInt64
 
@@ -246,8 +247,8 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			if erRuleKey.Valid {
 				eventRule.RuleKey = erRuleKey.String
 			}
-			if erDefinition.Valid {
-				eventRule.Definition = &erDefinition.String
+			if len(erDefinition) > 0 {
+				eventRule.Definition = json.RawMessage(erDefinition)
 			}
 			if erIsActive.Valid {
 				eventRule.IsActive = &erIsActive.Bool

@@ -14,14 +14,15 @@ type EventType struct {
 
 // EventRule represents a rule that can trigger events
 type EventRule struct {
-	EventRuleID string    `json:"event_rule_id" db:"event_rule_id"`
-	RuleKey     string    `json:"rule_key" db:"rule_key"`
-	Definition  *string   `json:"definition,omitempty" db:"definition"`
-	IsActive    *bool     `json:"is_active,omitempty" db:"is_active"`
-	RepeatAble  *bool     `json:"repeat_able,omitempty" db:"repeat_able"`
-	CooldownSec *int      `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
-	Description *string   `json:"description,omitempty" db:"description"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	EventRuleID string `json:"event_rule_id" db:"event_rule_id"`
+	RuleKey     string `json:"rule_key" db:"rule_key"`
+	// Definition  *string   `json:"definition,omitempty" db:"definition"`
+	Definition  json.RawMessage `json:"definition" db:"definition"`
+	IsActive    *bool           `json:"is_active,omitempty" db:"is_active"`
+	RepeatAble  *bool           `json:"repeat_able,omitempty" db:"repeat_able"`
+	CooldownSec *int            `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
+	Description *string         `json:"description,omitempty" db:"description"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 }
 
 // EventRuleRequest represents a request to create or update an event rule

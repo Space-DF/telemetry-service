@@ -251,12 +251,6 @@ func (c *DeviceRulesCache) convertAutomationsToRules(automations []models.Automa
 			IsAutomation:   true,
 		}
 
-		// Handle nil pointers with defaults
-		if rule.Definition == nil {
-			emptyDef := ""
-			rule.Definition = &emptyDef
-		}
-
 		rules = append(rules, rule)
 	}
 
@@ -293,12 +287,6 @@ func (c *DeviceRulesCache) convertGeofencesToRules(geofences []models.GeofenceWi
 			Description:  eventRule.Description,
 			GeofenceID:   &geofenceID,
 			IsAutomation: false,
-		}
-
-		// Handle nil pointers with defaults
-		if rule.Definition == nil {
-			emptyDef := ""
-			rule.Definition = &emptyDef
 		}
 
 		rules = append(rules, rule)

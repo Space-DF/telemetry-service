@@ -188,9 +188,9 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 				// it is considered safe — skip all safe zone exit events.
 				// Requires two passes: first evaluate all definitions, then determine shouldTrigger.
 				type evaluatedResult struct {
-					res                geofenceResult
-					definitionMatched  bool
-					hasDefinition      bool
+					res               geofenceResult
+					definitionMatched bool
+					hasDefinition     bool
 				}
 
 				var evaluated []evaluatedResult
@@ -204,7 +204,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 					}
 
 					definitionMatched := false
-					hasDefinition := rule.Definition != nil && *rule.Definition != ""
+					hasDefinition := len(rule.Definition) > 0
 
 					if hasDefinition {
 						extraCtx := map[string]interface{}{}

@@ -287,7 +287,7 @@ func (c *Client) GetEventRules(ctx context.Context) ([]models.EventRule, error) 
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -362,7 +362,7 @@ func (c *Client) GetEventRulesByIDs(ctx context.Context, eventRuleIDs []string) 
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -414,7 +414,7 @@ func (c *Client) GetEventRuleByID(ctx context.Context, ruleID string) (*models.E
 			rule.Description = &description.String
 		}
 		if definition.Valid {
-			rule.Definition = &definition.String
+			rule.Definition = json.RawMessage(definition.String)
 		}
 		if cooldownSec.Valid {
 			val := int(cooldownSec.Int64)
@@ -478,7 +478,7 @@ func (c *Client) GetEventRulesByGeofenceID(ctx context.Context, geofenceID strin
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -542,7 +542,7 @@ func (c *Client) GetActiveRulesForDevice(ctx context.Context, deviceID string) (
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -669,7 +669,7 @@ func (c *Client) GetEventRulesWithAutomationInfo(ctx context.Context) ([]models.
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)

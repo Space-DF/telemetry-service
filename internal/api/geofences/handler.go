@@ -438,13 +438,12 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 					zap.Error(err))
 			} else {
 				// Use request definition if provided, otherwise fix the existing one
-				if len(req.Definition) == 0 && eventRule.Definition != nil {
-					defToUse = ensureDistanceCondition(json.RawMessage(*eventRule.Definition), typeZone)
+				if len(req.Definition) == 0 && len(eventRule.Definition) > 0 {
+					defToUse = ensureDistanceCondition(eventRule.Definition, typeZone)
 				}
-				defStr := string(defToUse)
 				updateReq := &models.EventRule{
 					RuleKey:     eventRule.RuleKey,
-					Definition:  &defStr,
+					Definition:  defToUse,
 					IsActive:    eventRule.IsActive,
 					RepeatAble:  eventRule.RepeatAble,
 					CooldownSec: eventRule.CooldownSec,
@@ -562,19 +561,19 @@ func convertGeofenceToResponse(ctx context.Context, tsClient *timescaledb.Client
 		IsActive:    isActive,
 		CreatedAt:   eventRule.CreatedAt,
 	}
-	if eventRule.Definition == nil {
+	if len(eventRule.Definition) == 0 {
 		return resp
 	}
 	var defMap map[string]interface{}
-	if err := json.Unmarshal([]byte(*eventRule.Definition), &defMap); err != nil {
-		resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+	if err := json.Unmarshal(eventRule.Definition, &defMap); err != nil {
+		resp.EventRule.Definition = eventRule.Definition
 		return resp
 	}
 	removeZeroDistanceFromDef(defMap)
 	if newDef, err := json.Marshal(defMap); err == nil {
 		resp.EventRule.Definition = json.RawMessage(newDef)
 	} else {
-		resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+		resp.EventRule.Definition = eventRule.Definition
 	}
 	return resp
 }
@@ -606,17 +605,17 @@ func convertModelGeofenceToResponse(ctx context.Context, tsClient *timescaledb.C
 				IsActive:    isActive,
 				CreatedAt:   eventRule.CreatedAt,
 			}
-			if eventRule.Definition != nil {
+			if len(eventRule.Definition) > 0 {
 				var defMap map[string]interface{}
-				if err := json.Unmarshal([]byte(*eventRule.Definition), &defMap); err == nil {
+				if err := json.Unmarshal(eventRule.Definition, &defMap); err == nil {
 					removeZeroDistanceFromDef(defMap)
 					if newDef, err := json.Marshal(defMap); err == nil {
 						resp.EventRule.Definition = json.RawMessage(newDef)
 					} else {
-						resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+						resp.EventRule.Definition = eventRule.Definition
 					}
 				} else {
-					resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+					resp.EventRule.Definition = eventRule.Definition
 				}
 			}
 		}
@@ -718,7 +717,6 @@ func ensureDistanceCondition(raw json.RawMessage, typeZone string) json.RawMessa
 	b, _ := json.Marshal(def)
 	return b
 }
-
 
 // removeZeroDistanceFromDef removes distance_from_geofence_km entries from conditions.and
 // where the operator value is 0 (e.g. {"lte": 0} or {"gte": 0}).
