@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ type EventRuleForEvaluation struct {
 	AutomationID   string // UUID of the automation (empty for geofence rules)
 	AutomationName string // Name of the automation (used as event title)
 	RuleKey        *string
-	Definition     *string
+	Definition     json.RawMessage
 	IsActive       *bool
 	RepeatAble     *bool
 	Description    *string
@@ -113,18 +114,18 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	// Parse and evaluate definition conditions
-	if rule.Definition == nil || *rule.Definition == "" {
+	if len(rule.Definition) == 0 {
 		e.logger.Warn("Rule definition is null or empty",
 			zap.String("rule_key", ruleKey))
 		return nil
 	}
 
 	// Evaluate definition using condition evaluator
-	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinition(*rule.Definition, entity, deviceID)
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinition(string(rule.Definition), entity, deviceID)
 	if err != nil {
 		e.logger.Warn("Failed to evaluate rule definition",
 			zap.String("rule_key", ruleKey),
-			zap.String("definition", *rule.Definition),
+			zap.String("definition", string(rule.Definition)),
 			zap.Error(err))
 		return nil
 	}
@@ -199,7 +200,7 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	}
 
 	// Parse and evaluate definition conditions
-	if rule.Definition == nil || *rule.Definition == "" {
+	if len(rule.Definition) == 0 {
 		return nil
 	}
 
@@ -212,12 +213,12 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	}
 
 	// Evaluate definition using condition evaluator with unified context
-	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(*rule.Definition, context)
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(string(rule.Definition), context)
 	if err != nil {
 		e.logger.Info("Error evaluating rule definition",
 			zap.String("device_id", deviceID),
 			zap.String("rule_key", ruleKey),
-			zap.String("definition", *rule.Definition),
+			zap.String("definition", string(rule.Definition)),
 			zap.Error(err),
 		)
 		return nil
@@ -226,7 +227,7 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		e.logger.Info("Rule definition did not match",
 			zap.String("device_id", deviceID),
 			zap.String("rule_key", ruleKey),
-			zap.String("definition", *rule.Definition),
+			zap.String("definition", string(rule.Definition)),
 		)
 		return nil
 	}

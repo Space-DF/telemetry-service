@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS automations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(100) NOT NULL,
     device_id UUID NOT NULL,
-    action_id UUID[],
     event_rule_id UUID REFERENCES event_rules(event_rule_id) ON DELETE CASCADE,
     space_id UUID REFERENCES spaces(space_id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
