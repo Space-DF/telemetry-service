@@ -570,25 +570,61 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, rule *model
 	}
 
 	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		query := `
-			UPDATE event_rules
-			SET rule_key = $1, definition = $2, is_active = $3, repeat_able = $4, cooldown_sec = $5, description = $6
-			WHERE event_rule_id = $7
-		`
+		// Load current values from DB to use as defaults
+		var currentRuleKey sql.NullString
+		var currentDefinition sql.NullString
+		var currentIsActive sql.NullBool
+		var currentRepeatAble sql.NullBool
+		var currentCooldownSec sql.NullInt64
+		var currentDescription sql.NullString
 
-		isActive := true
-		repeatAble := true
+		err := tx.QueryRowContext(txCtx, `
+			SELECT rule_key, definition, is_active, repeat_able, cooldown_sec, description
+			FROM event_rules WHERE event_rule_id = $1
+		`, ruleID).Scan(
+			&currentRuleKey, &currentDefinition, &currentIsActive,
+			&currentRepeatAble, &currentCooldownSec, &currentDescription,
+		)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("event rule not found")
+			}
+			return fmt.Errorf("failed to get current event rule: %w", err)
+		}
+
+		// Initialize defaults from current DB data
+		ruleKey := currentRuleKey.String
+		definition := json.RawMessage(currentDefinition.String)
+		isActive := currentIsActive.Bool
+		repeatAble := currentRepeatAble.Bool
+		cooldownSec := int(currentCooldownSec.Int64)
+		description := currentDescription.String
+
+		// Override with provided values if set
+		if rule.RuleKey != "" {
+			ruleKey = rule.RuleKey
+		}
+		if len(rule.Definition) > 0 {
+			definition = rule.Definition
+		}
 		if rule.IsActive != nil {
 			isActive = *rule.IsActive
 		}
 		if rule.RepeatAble != nil {
 			repeatAble = *rule.RepeatAble
 		}
+		if rule.CooldownSec != nil {
+			cooldownSec = *rule.CooldownSec
+		}
+		if rule.Description != nil {
+			description = *rule.Description
+		}
 
-		_, err := tx.ExecContext(txCtx, query,
-			rule.RuleKey, rule.Definition, isActive, repeatAble,
-			rule.CooldownSec, rule.Description, ruleID,
-		)
+		_, err = tx.ExecContext(txCtx, `
+			UPDATE event_rules
+			SET rule_key = $1, definition = $2::jsonb, is_active = $3, repeat_able = $4, cooldown_sec = $5, description = $6
+			WHERE event_rule_id = $7
+		`, ruleKey, definition, isActive, repeatAble, cooldownSec, description, ruleID)
 
 		if err != nil {
 			return fmt.Errorf("failed to update event rule: %w", err)

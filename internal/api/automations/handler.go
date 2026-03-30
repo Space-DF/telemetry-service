@@ -1,6 +1,7 @@
 package automations
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/client"
 
 	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
@@ -18,14 +20,16 @@ import (
 )
 
 type Handler struct {
-	logger   *zap.Logger
-	tsClient *timescaledb.Client
+	logger              *zap.Logger
+	tsClient            *timescaledb.Client
+	deviceServiceClient *client.DeviceServiceClient
 }
 
 func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 	return &Handler{
-		logger:   logger,
-		tsClient: tsClient,
+		logger:              logger,
+		tsClient:            tsClient,
+		deviceServiceClient: client.NewDeviceServiceClient(logger),
 	}
 }
 
@@ -111,7 +115,11 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 	// Convert to response format
 	results := make([]map[string]interface{}, len(automations))
 	for i, a := range automations {
-		results[i] = convertAutomationToMap(&a)
+		spaceIDStr := ""
+		if a.SpaceID != nil {
+			spaceIDStr = a.SpaceID.String()
+		}
+		results[i] = h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), &a, org, spaceIDStr)
 	}
 
 	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
@@ -166,7 +174,11 @@ func (h *Handler) GetAutomationByID(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, convertAutomationToMap(automation))
+	spaceIDStr := ""
+	if automation.SpaceID != nil {
+		spaceIDStr = automation.SpaceID.String()
+	}
+	return c.JSON(http.StatusOK, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
 // CreateAutomation creates a new automation
@@ -263,7 +275,11 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusCreated, convertAutomationToMap(automation))
+	spaceIDStr := ""
+	if automation.SpaceID != nil {
+		spaceIDStr = automation.SpaceID.String()
+	}
+	return c.JSON(http.StatusCreated, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
 // UpdateAutomation updates an existing automation
@@ -358,7 +374,19 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, convertAutomationToMap(automation))
+	spaceIDStr := ""
+	if automation.SpaceID != nil {
+		spaceIDStr = automation.SpaceID.String()
+	}
+
+	// Invalidate device cache after successful update
+	if h.tsClient.RuleRegistry != nil {
+		if registry, ok := h.tsClient.RuleRegistry.(interface{ InvalidateDeviceCache(string) }); ok {
+			registry.InvalidateDeviceCache(req.DeviceID)
+		}
+	}
+
+	return c.JSON(http.StatusOK, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
 // DeleteAutomation deletes an automation
@@ -390,7 +418,7 @@ func (h *Handler) DeleteAutomation(c echo.Context) error {
 
 	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
 
-	err := h.tsClient.DeleteAutomation(ctx, automationID)
+	deviceID, err := h.tsClient.DeleteAutomation(ctx, automationID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return c.JSON(http.StatusNotFound, map[string]string{
@@ -401,6 +429,13 @@ func (h *Handler) DeleteAutomation(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "failed to delete automation",
 		})
+	}
+
+	// Invalidate device cache after successful deletion
+	if deviceID != "" && h.tsClient.RuleRegistry != nil {
+		if registry, ok := h.tsClient.RuleRegistry.(interface{ InvalidateDeviceCache(string) }); ok {
+			registry.InvalidateDeviceCache(deviceID)
+		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -625,11 +660,36 @@ func (h *Handler) DeleteAction(c echo.Context) error {
 	})
 }
 
+// convertAutomationToMapWithDeviceSpace enriches automation response with device space information
+func (h *Handler) convertAutomationToMapWithDeviceSpace(ctx context.Context, a *models.AutomationWithActions, organization, spaceID string) map[string]interface{} {
+	result := convertAutomationToMap(a)
+
+	if a.DeviceID != "" && spaceID != "" {
+		deviceSpace, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(ctx, a.DeviceID, organization, spaceID)
+		if err != nil {
+			h.logger.Warn("failed to fetch device space info",
+				zap.String("device_id", a.DeviceID),
+				zap.Error(err))
+		} else if deviceSpace != nil {
+			result["device_space"] = map[string]interface{}{
+				"id":   deviceSpace.ID,
+				"name": deviceSpace.Name,
+			}
+		} else {
+			h.logger.Info("no device space found",
+				zap.String("device_id", a.DeviceID))
+		}
+	}
+
+	return result
+}
+
 // Helper functions to convert models to maps
 func convertAutomationToMap(a *models.AutomationWithActions) map[string]interface{} {
 	result := map[string]interface{}{
 		"id":         a.ID,
 		"name":       a.Name,
+		"title":      a.Title,
 		"device_id":  a.DeviceID,
 		"updated_at": a.UpdatedAt,
 		"created_at": a.CreatedAt,

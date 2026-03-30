@@ -409,7 +409,13 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		// event_rule_id is managed separately - not updated through geofence endpoint
 		var eventRuleID *uuid.UUID
 
-		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.Features, req.Color, req.SpaceID, req.IsActive, eventRuleID)
+		// Pass definition so UpdateGeofence can update the event rule atomically
+		var def *json.RawMessage
+		if len(req.Definition) > 0 {
+			def = &req.Definition
+		}
+
+		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.Features, req.Color, req.SpaceID, req.IsActive, eventRuleID, def)
 		if err != nil {
 			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
@@ -425,37 +431,6 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
 				Error: "Failed to update geofence",
 			})
-		}
-
-		// Update event rule definition: ensure distance_from_geofence_km is present
-		typeZone := geofence.TypeZone
-		defToUse := ensureDistanceCondition(req.Definition, typeZone)
-		if geofence.EventRuleID != nil {
-			eventRule, err := tsClient.GetEventRuleByID(ctx, geofence.EventRuleID.String())
-			if err != nil || eventRule == nil {
-				logger.Warn("failed to get event rule for definition update",
-					zap.String("geofence_id", geofenceIDStr),
-					zap.Error(err))
-			} else {
-				// Use request definition if provided, otherwise fix the existing one
-				if len(req.Definition) == 0 && len(eventRule.Definition) > 0 {
-					defToUse = ensureDistanceCondition(eventRule.Definition, typeZone)
-				}
-				updateReq := &models.EventRule{
-					RuleKey:     eventRule.RuleKey,
-					Definition:  defToUse,
-					IsActive:    eventRule.IsActive,
-					RepeatAble:  eventRule.RepeatAble,
-					CooldownSec: eventRule.CooldownSec,
-					Description: eventRule.Description,
-				}
-				if err = tsClient.UpdateEventRule(ctx, eventRule.EventRuleID, updateReq); err != nil {
-					logger.Warn("failed to update event rule definition",
-						zap.String("geofence_id", geofenceIDStr),
-						zap.String("event_rule_id", eventRule.EventRuleID),
-						zap.Error(err))
-				}
-			}
 		}
 
 		// Build response with event rule information

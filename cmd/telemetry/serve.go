@@ -143,6 +143,9 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		logger.Info("Invalidated device rules cache after geofence change")
 	}
 
+	// Attach rule registry to client for use in handlers
+	tsClient.RuleRegistry = ruleRegistry
+
 	api.Setup(appConfig, group, logger, tsClient)
 	health.Setup(group, consumer, tsClient, logger)
 

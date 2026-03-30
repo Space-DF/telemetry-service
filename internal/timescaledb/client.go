@@ -22,6 +22,10 @@ type Client struct {
 	// OnGeofenceChange is called after a geofence is created, updated, or deleted.
 	// Set this to invalidate caches or trigger side-effects.
 	OnGeofenceChange func()
+
+	// RuleRegistry provides access to the device rules cache
+	// Set this in the server initialization to enable cache invalidation on automation changes
+	RuleRegistry interface{}
 }
 
 // NewClient creates a new TimescaleDB client and verifies connectivity.

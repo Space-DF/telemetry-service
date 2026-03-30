@@ -65,7 +65,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 
 		// Query automations with actions
 		query := `
-			SELECT a.id, a.name, a.device_id,
+			SELECT a.id, a.name, a.title, a.device_id,
 			       a.event_rule_id, a.space_id, a.updated_at, a.created_at,
 			       er.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
 			       COALESCE(
@@ -85,7 +85,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 			LEFT JOIN actions act ON act.id = aa.action_id
 			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
 		` + whereClause + `
-			GROUP BY a.id, a.name, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 			ORDER BY a.created_at DESC
 			LIMIT $` + fmt.Sprintf("%d", argIndex) + ` OFFSET $` + fmt.Sprintf("%d", argIndex+1)
 		args = append(args, limit, offset)
@@ -99,17 +99,22 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		for rows.Next() {
 			var a models.Automation
 			var actionsJSON json.RawMessage
+			var titleStr sql.NullString
 			var eventRuleID, spaceID, erRuleKey, erDefinition, erEventRuleID, erDescription sql.NullString
 			var erIsActive, erRepeatAble sql.NullBool
 			var erCooldownSec sql.NullInt64
 
 			if err := rows.Scan(
-				&a.ID, &a.Name, &a.DeviceID,
+				&a.ID, &a.Name, &titleStr, &a.DeviceID,
 				&eventRuleID, &spaceID, &a.UpdatedAt, &a.CreatedAt,
 				&erEventRuleID, &erRuleKey, &erDefinition, &erIsActive, &erRepeatAble, &erCooldownSec, &erDescription,
 				&actionsJSON,
 			); err != nil {
 				return err
+			}
+
+			if titleStr.Valid {
+				a.Title = &titleStr.String
 			}
 
 			if eventRuleID.Valid {
@@ -188,7 +193,7 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
-			SELECT a.id, a.name, a.device_id,
+			SELECT a.id, a.name, a.title, a.device_id,
 			       a.event_rule_id, a.space_id, a.updated_at, a.created_at,
 			       er.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
 			       COALESCE(
@@ -208,16 +213,17 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			LEFT JOIN actions act ON act.id = aa.action_id
 			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
 			WHERE a.id = $1
-			GROUP BY a.id, a.name, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 		`
 		var actionsJSON json.RawMessage
+		var titleStr sql.NullString
 		var eventRuleID, spaceID, erEventRuleID, erRuleKey, erDescription sql.NullString
 		var erDefinition []byte
 		var erIsActive, erRepeatAble sql.NullBool
 		var erCooldownSec sql.NullInt64
 
 		err := tx.QueryRowContext(txCtx, query, automationID).Scan(
-			&result.ID, &result.Name, &result.DeviceID,
+			&result.ID, &result.Name, &titleStr, &result.DeviceID,
 			&eventRuleID, &spaceID, &result.UpdatedAt, &result.CreatedAt,
 			&erEventRuleID, &erRuleKey, &erDefinition, &erIsActive, &erRepeatAble, &erCooldownSec, &erDescription,
 			&actionsJSON,
@@ -228,6 +234,10 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 				return fmt.Errorf("automation not found")
 			}
 			return fmt.Errorf("failed to query automation: %w", err)
+		}
+
+		if titleStr.Valid {
+			result.Title = &titleStr.String
 		}
 
 		if eventRuleID.Valid {
@@ -363,13 +373,19 @@ func (c *Client) CreateAutomation(ctx context.Context, req *apimodels.Automation
 			spaceID.String = req.SpaceID.String()
 		}
 
+		// Use title if provided, otherwise default to name
+		title := *req.Name
+		if req.Title != nil && *req.Title != "" {
+			title = *req.Title
+		}
+
 		eventRuleIDStr := eventRuleID.String()
 		var returnedSpaceID sql.NullString
 		err = tx.QueryRowContext(txCtx, `
-			INSERT INTO automations (name, device_id, event_rule_id, space_id)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO automations (name, title, device_id, event_rule_id, space_id)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id, space_id, updated_at, created_at
-		`, req.Name, req.DeviceID, eventRuleID, spaceID).Scan(
+		`, req.Name, title, req.DeviceID, eventRuleID, spaceID).Scan(
 			&result.ID, &returnedSpaceID, &result.UpdatedAt, &result.CreatedAt,
 		)
 
@@ -378,6 +394,7 @@ func (c *Client) CreateAutomation(ctx context.Context, req *apimodels.Automation
 		}
 
 		result.Name = *req.Name
+		result.Title = &title
 		result.DeviceID = req.DeviceID
 		result.EventRuleID = &eventRuleIDStr
 		if returnedSpaceID.Valid {
@@ -443,9 +460,23 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 			}
 		}
 
-		// Get current event_rule_id
+		// Get current event_rule_id and existing event rule fields as defaults
 		var currentEventRuleID sql.NullString
-		err := tx.QueryRowContext(txCtx, "SELECT event_rule_id FROM automations WHERE id = $1", automationID).Scan(&currentEventRuleID)
+		var currentRuleKey sql.NullString
+		var currentDefinition sql.NullString
+		var currentIsActive sql.NullBool
+		var currentRepeatAble sql.NullBool
+		var currentCooldownSec sql.NullInt64
+		var currentDescription sql.NullString
+		err := tx.QueryRowContext(txCtx, `
+			SELECT a.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			FROM automations a
+			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
+			WHERE a.id = $1
+		`, automationID).Scan(
+			&currentEventRuleID, &currentRuleKey, &currentDefinition,
+			&currentIsActive, &currentRepeatAble, &currentCooldownSec, &currentDescription,
+		)
 		if err != nil {
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("automation not found")
@@ -453,14 +484,33 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 			return fmt.Errorf("failed to get automation: %w", err)
 		}
 
-		// Update the event rule with all fields
+		// Initialize defaults from current event rule data
 		description := *req.Name
+		if currentDescription.Valid {
+			description = currentDescription.String
+		}
 		ruleKey := "automation"
+		if currentRuleKey.Valid {
+			ruleKey = currentRuleKey.String
+		}
 		definition := "{}"
+		if currentDefinition.Valid {
+			definition = currentDefinition.String
+		}
 		isActive := true
+		if currentIsActive.Valid {
+			isActive = currentIsActive.Bool
+		}
 		repeatAble := true
+		if currentRepeatAble.Valid {
+			repeatAble = currentRepeatAble.Bool
+		}
 		cooldownSec := 0
+		if currentCooldownSec.Valid {
+			cooldownSec = int(currentCooldownSec.Int64)
+		}
 
+		// Override with values from request if provided
 		if req.EventRule != nil {
 			if req.EventRule.RuleKey != nil && *req.EventRule.RuleKey != "" {
 				ruleKey = *req.EventRule.RuleKey
@@ -499,12 +549,19 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 		}
 
 		var eventRuleIDStr sql.NullString
+
+		// Use title if provided, otherwise default to name
+		title := *req.Name
+		if req.Title != nil && *req.Title != "" {
+			title = *req.Title
+		}
+
 		err = tx.QueryRowContext(txCtx, `
 			UPDATE automations
-			SET name = $1, device_id = $2, updated_at = NOW()
-			WHERE id = $3
+			SET name = $1, title = $2, device_id = $3, updated_at = NOW()
+			WHERE id = $4
 			RETURNING id, event_rule_id, updated_at, created_at
-		`, req.Name, req.DeviceID, automationID).Scan(
+		`, req.Name, title, req.DeviceID, automationID).Scan(
 			&result.ID, &eventRuleIDStr, &result.UpdatedAt, &result.CreatedAt,
 		)
 
@@ -516,6 +573,7 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 		}
 
 		result.Name = *req.Name
+		result.Title = &title
 		result.DeviceID = req.DeviceID
 		if eventRuleIDStr.Valid {
 			result.EventRuleID = &eventRuleIDStr.String
@@ -555,26 +613,27 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 	return &result, nil
 }
 
-// DeleteAutomation deletes an automation
-func (c *Client) DeleteAutomation(ctx context.Context, automationID string) error {
+// DeleteAutomation deletes an automation and returns the device_id for cache invalidation
+func (c *Client) DeleteAutomation(ctx context.Context, automationID string) (string, error) {
 	if automationID == "" {
-		return fmt.Errorf("automation_id is required")
+		return "", fmt.Errorf("automation_id is required")
 	}
 
 	org := orgFromContext(ctx)
 	if org == "" {
-		return fmt.Errorf("organization not found in context")
+		return "", fmt.Errorf("organization not found in context")
 	}
 
-	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	var deviceID string
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		var eventRuleID string
 
-		// Delete automation and get event rule ID to delete associated event rule
+		// Delete automation and get event rule ID and device_id
 		err := tx.QueryRowContext(txCtx, `
 			DELETE FROM automations
 			WHERE id = $1
-			RETURNING event_rule_id
-		`, automationID).Scan(&eventRuleID)
+			RETURNING event_rule_id, device_id
+		`, automationID).Scan(&eventRuleID, &deviceID)
 
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -593,6 +652,8 @@ func (c *Client) DeleteAutomation(ctx context.Context, automationID string) erro
 
 		return nil
 	})
+
+	return deviceID, err
 }
 
 // GetActions retrieves all actions with pagination

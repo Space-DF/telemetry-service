@@ -242,6 +242,7 @@ func (c *DeviceRulesCache) convertAutomationsToRules(automations []models.Automa
 			EventRuleID:    eventRule.EventRuleID, // actual event_rule UUID
 			AutomationID:   auto.ID,               // automation UUID
 			AutomationName: auto.Name,             // automation name used as event title
+			Title:          auto.Title,
 			RuleKey:        &ruleKey,
 			Definition:     eventRule.Definition,
 			IsActive:       eventRule.IsActive,
