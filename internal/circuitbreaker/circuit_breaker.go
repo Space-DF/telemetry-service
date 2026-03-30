@@ -2,6 +2,7 @@ package circuitbreaker
 
 import (
 	"errors"
+	"log"
 	"sync"
 	"time"
 )
@@ -10,9 +11,9 @@ import (
 type State int
 
 const (
-	StateClosed State = iota // Circuit is closed, requests pass through
-	StateHalfOpen            // Circuit is half-open, testing if service recovered
-	StateOpen                // Circuit is open, requests fail fast
+	StateClosed   State = iota // Circuit is closed, requests pass through
+	StateHalfOpen              // Circuit is half-open, testing if service recovered
+	StateOpen                  // Circuit is open, requests fail fast
 )
 
 func (s State) String() string {
@@ -50,9 +51,9 @@ func DefaultConfig() Config {
 
 // CircuitBreaker implements the circuit breaker pattern
 type CircuitBreaker struct {
-	config  Config
-	state   State
-	mu      sync.RWMutex
+	config Config
+	state  State
+	mu     sync.RWMutex
 
 	// Failure tracking
 	consecutiveFailures  int
@@ -155,7 +156,12 @@ func (cb *CircuitBreaker) onSuccess() {
 }
 
 func (cb *CircuitBreaker) setState(newState State) {
+	oldState := cb.state
 	cb.state = newState
+	if oldState != newState {
+		log.Printf("[CIRCUIT BREAKER] State transition: %s -> %s (failures: %d, successes: %d)",
+			oldState, newState, cb.consecutiveFailures, cb.consecutiveSuccesses)
+	}
 }
 
 // State returns the current circuit breaker state
@@ -176,5 +182,22 @@ func (cb *CircuitBreaker) RecordSuccess() {
 func (cb *CircuitBreaker) RecordFailure() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+	oldState := cb.state
 	cb.onFailure()
+	if oldState == StateClosed {
+		log.Printf("[CIRCUIT BREAKER] Failure recorded (%d/%d), state: %s",
+			cb.consecutiveFailures, cb.config.MaxFailures, cb.state)
+	}
+}
+
+// Reset forces the circuit breaker back to CLOSED state
+// Use after successful reconnection to immediately allow requests
+func (cb *CircuitBreaker) Reset() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	oldState := cb.state
+	cb.consecutiveFailures = 0
+	cb.consecutiveSuccesses = 0
+	cb.setState(StateClosed)
+	log.Printf("[CIRCUIT BREAKER] Manually reset: %s -> CLOSED", oldState)
 }
