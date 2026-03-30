@@ -197,15 +197,6 @@ func (c *MultiTenantConsumer) reconnectionMonitor(ctx context.Context) {
 func (c *MultiTenantConsumer) reconnectConnection(ctx context.Context) error {
 	c.logger.Info("Attempting to reconnect to AMQP broker")
 
-	// Set reconnecting flag to prevent concurrent reconnections
-	c.reconnecting = true
-	defer func() {
-		// Will be set to false by caller on success, or here on early return
-		if c.reconnecting {
-			c.reconnecting = false
-		}
-	}()
-
 	backoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
 	maxAttempts := 30
