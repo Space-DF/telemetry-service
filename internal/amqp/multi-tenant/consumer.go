@@ -65,3 +65,43 @@ func (c *MultiTenantConsumer) Stop() error {
 func (c *MultiTenantConsumer) IsHealthy() bool {
 	return c.orgEventsConn != nil && !c.orgEventsConn.IsClosed()
 }
+
+// PublishEventToDevice publishes an event to the tenant's device queue
+func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *models.Event, orgSlug string) error {
+	c.tenantMu.RLock()
+	consumer, exists := c.tenantConsumers[orgSlug]
+	c.tenantMu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("tenant %s not found", orgSlug)
+	}
+
+	if consumer.Channel == nil || consumer.Channel.IsClosed() {
+		return fmt.Errorf("channel closed for tenant %s", orgSlug)
+	}
+
+	body, err := json.Marshal(event)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event: %w", err)
+	}
+
+	routingKey := fmt.Sprintf("tenant.%s.space.%s.device.%s.events", orgSlug, event.SpaceSlug, event.DeviceID)
+
+	err = consumer.Channel.PublishWithContext(
+		ctx,
+		consumer.Exchange,
+		routingKey,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to publish event: %w", err)
+	}
+
+	return nil
+}

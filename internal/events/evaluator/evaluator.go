@@ -75,7 +75,7 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:    deviceID,
+		DeviceID:    deviceID,
 		EntityType:  entity.EntityType,
 		RuleKey:     rule.RuleKey,
 		EventType:   rule.EventType,
@@ -161,7 +161,7 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:     deviceID,
+		DeviceID:     deviceID,
 		EntityType:   entity.EntityType,
 		RuleKey:      ruleKey,
 		EventType:    "device_event",
@@ -269,7 +269,7 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:     deviceID,
+		DeviceID:     deviceID,
 		EntityType:   "automation",
 		RuleKey:      ruleKey,
 		EventType:    "device_event",
