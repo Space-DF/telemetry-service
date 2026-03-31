@@ -25,7 +25,9 @@ type Client struct {
 
 	// RuleRegistry provides access to the device rules cache
 	// Set this in the server initialization to enable cache invalidation on automation changes
-	RuleRegistry interface{}
+	RuleRegistry interface {
+		InvalidateDeviceCache(deviceID string)
+	}
 }
 
 // NewClient creates a new TimescaleDB client and verifies connectivity.

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/client"
@@ -112,14 +113,47 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 		})
 	}
 
-	// Convert to response format
+	// Collect unique (deviceID, spaceID) pairs to fetch device space info concurrently.
+	type deviceKey struct{ deviceID, spaceID string }
+	uniqueKeys := make(map[deviceKey]struct{})
+	for _, a := range automations {
+		if a.DeviceID != "" && a.SpaceID != nil {
+			uniqueKeys[deviceKey{a.DeviceID, a.SpaceID.String()}] = struct{}{}
+		}
+	}
+
+	deviceSpaceCache := make(map[string]*client.DeviceSpaceInfo, len(uniqueKeys))
+	var cacheMu sync.Mutex
+	var wg sync.WaitGroup
+	for dk := range uniqueKeys {
+		wg.Add(1)
+		go func(deviceID, spaceID string) {
+			defer wg.Done()
+			info, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(c.Request().Context(), deviceID, org, spaceID)
+			if err != nil {
+				h.logger.Warn("failed to fetch device space info", zap.String("device_id", deviceID), zap.Error(err))
+				return
+			}
+			cacheMu.Lock()
+			deviceSpaceCache[deviceID] = info
+			cacheMu.Unlock()
+		}(dk.deviceID, dk.spaceID)
+	}
+	wg.Wait()
+
+	// Convert to response format using the pre-fetched cache.
 	results := make([]map[string]interface{}, len(automations))
 	for i, a := range automations {
-		spaceIDStr := ""
-		if a.SpaceID != nil {
-			spaceIDStr = a.SpaceID.String()
+		result := convertAutomationToMap(&a)
+		if a.DeviceID != "" && a.SpaceID != nil {
+			if info, ok := deviceSpaceCache[a.DeviceID]; ok && info != nil {
+				result["device_space"] = map[string]interface{}{
+					"id":   info.ID,
+					"name": info.Name,
+				}
+			}
 		}
-		results[i] = h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), &a, org, spaceIDStr)
+		results[i] = result
 	}
 
 	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
@@ -381,9 +415,7 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 
 	// Invalidate device cache after successful update
 	if h.tsClient.RuleRegistry != nil {
-		if registry, ok := h.tsClient.RuleRegistry.(interface{ InvalidateDeviceCache(string) }); ok {
-			registry.InvalidateDeviceCache(req.DeviceID)
-		}
+		h.tsClient.RuleRegistry.InvalidateDeviceCache(req.DeviceID)
 	}
 
 	return c.JSON(http.StatusOK, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
@@ -433,9 +465,7 @@ func (h *Handler) DeleteAutomation(c echo.Context) error {
 
 	// Invalidate device cache after successful deletion
 	if deviceID != "" && h.tsClient.RuleRegistry != nil {
-		if registry, ok := h.tsClient.RuleRegistry.(interface{ InvalidateDeviceCache(string) }); ok {
-			registry.InvalidateDeviceCache(deviceID)
-		}
+		h.tsClient.RuleRegistry.InvalidateDeviceCache(deviceID)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{

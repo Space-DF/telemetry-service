@@ -486,7 +486,9 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 
 		// Initialize defaults from current event rule data
 		description := *req.Name
-		if currentDescription.Valid {
+		if req.EventRule != nil && req.EventRule.Description != nil && *req.EventRule.Description != "" {
+			description = *req.EventRule.Description
+		} else if currentDescription.Valid && (req.EventRule == nil || req.EventRule.Description == nil) {
 			description = currentDescription.String
 		}
 		ruleKey := "automation"
