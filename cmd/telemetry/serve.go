@@ -108,6 +108,9 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	// Initialize multi-tenant AMQP consumer with schema initializer
 	consumer := amqp.NewMultiTenantConsumer(appConfig.AMQP, appConfig.OrgEvents, processor, tsClient, logger)
 
+	// Set the publisher for real-time events (used by rule actions)
+	tsClient.SetPublisher(consumer)
+
 	// Connect to RabbitMQ
 	if err := consumer.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to AMQP: %w", err)

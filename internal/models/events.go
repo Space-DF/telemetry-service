@@ -56,7 +56,7 @@ type Event struct {
 	AutomationID *string `json:"automation_id,omitempty" db:"automation_id"` // Automation that triggered this event
 	GeofenceID   *string `json:"geofence_id,omitempty" db:"geofence_id"`     // Geofence that triggered this event
 	SpaceSlug    string  `json:"space_slug,omitempty" db:"space_slug"`
-	DeviceID     *string `json:"device_id,omitempty" db:"device_id"`
+	DeviceID     string  `json:"device_id,omitempty" db:"device_id"`
 	EntityID     *string `json:"entity_id,omitempty" db:"entity_id"`
 	StateID      *int64  `json:"state_id,omitempty" db:"state_id"`
 	Title        string  `json:"title,omitempty" db:"title"`
@@ -210,7 +210,7 @@ func (s *StateAttributes) SetSharedAttrs(attrs map[string]interface{}) error {
 
 // MatchedEvent represents an event rule that matched evaluation
 type MatchedEvent struct {
-	EntityID     string    `json:"entity_id"`
+	DeviceID     string    `json:"device_id"`
 	EntityType   string    `json:"entity_type"`
 	RuleKey      string    `json:"rule_key"`
 	EventType    string    `json:"event_type"`

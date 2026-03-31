@@ -110,7 +110,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 				e.SpaceSlug = slug.String
 			}
 			if deviceIDVal.Valid {
-				e.DeviceID = &deviceIDVal.String
+				e.DeviceID = deviceIDVal.String
 			}
 			if titleVal.Valid {
 				e.Title = titleVal.String
@@ -165,7 +165,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 }
 
 // CreateEvent creates a new event from a matched automation or geofence
-func (c *Client) CreateEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug string) error {
+func (c *Client) CreateEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug, deviceID string) error {
 	if event == nil {
 		return fmt.Errorf("nil event")
 	}
@@ -196,12 +196,29 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 		_, err = tx.ExecContext(txCtx, `
 			INSERT INTO events (
 				event_type_id, event_level, event_rule_id, automation_id, geofence_id,
-				space_id, entity_id, device_id, state_id, location, time_fired_ts, title
-			) VALUES ($1, $2, $3, $4, $5, (SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1), $7::uuid, $8::uuid, $9, $10::jsonb, $11, $12)
-		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, event.EntityID, event.EntityID, event.StateID, locationJSON, event.Timestamp, event.Title)
+				space_id, device_id, state_id, location, time_fired_ts, title
+			) VALUES ($1, $2, $3, $4, $5, (SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1), $7::uuid, $8, $9::jsonb, $10, $11)
+		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, deviceID, event.StateID, locationJSON, event.Timestamp, event.Title)
 
 		if err != nil {
 			return fmt.Errorf("failed to create event: %w", err)
+		}
+
+		// Publish event to AMQP for real-time processing
+		eventLevel := event.EventLevel
+		deviceID := event.DeviceID
+
+		if err := c.PublishEventToDevice(ctx, &models.Event{
+			EventType:   event.EventType,
+			EventLevel:  &eventLevel,
+			EventRuleID: event.EventRuleID,
+			DeviceID:    deviceID,
+			SpaceSlug:   spaceSlug,
+			TimeFiredTs: event.Timestamp,
+			Title:       event.Title,
+			Location:    event.Location,
+		}, org); err != nil {
+			return fmt.Errorf("failed to publish event: %w", err)
 		}
 
 		return nil
@@ -209,7 +226,6 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 }
 
 // Event Rules CRUD operations
-
 // CreateEventRule creates a new event rule
 func (c *Client) CreateEventRule(ctx context.Context, rule *models.EventRule) error {
 	org := orgFromContext(ctx)

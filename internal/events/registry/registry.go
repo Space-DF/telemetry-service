@@ -314,7 +314,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 					}
 
 					event := models.MatchedEvent{
-						EntityID:     deviceID,
+						DeviceID:     deviceID,
 						EntityType:   "location",
 						RuleKey:      ruleKey,
 						EventType:    "device_event",
