@@ -201,13 +201,3 @@ func (cb *CircuitBreaker) Reset() {
 	cb.setState(StateClosed)
 	log.Printf("[CIRCUIT BREAKER] Manually reset: %s -> CLOSED", oldState)
 }
-
-// Reset forces the circuit breaker back to CLOSED state
-// Use after successful reconnection to immediately allow requests
-func (cb *CircuitBreaker) Reset() {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.consecutiveFailures = 0
-	cb.consecutiveSuccesses = 0
-	cb.state = StateClosed
-}

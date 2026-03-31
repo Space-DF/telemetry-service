@@ -127,7 +127,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			if automationID.Valid {
 				e.AutomationID = &automationID.String
 				if automationName.Valid {
-					e.AutomationName = automationName.String
+					e.AutomationName = &automationName.String
 				}
 				if automationDeviceID.Valid {
 					e.AutomationDeviceID = automationDeviceID.String
@@ -136,10 +136,10 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			if geofenceID.Valid {
 				e.GeofenceID = &geofenceID.String
 				if geofenceName.Valid {
-					e.GeofenceName = geofenceName.String
+					e.GeofenceName = &geofenceName.String
 				}
 				if geofenceTypeZone.Valid {
-					e.GeofenceTypeZone = geofenceTypeZone.String
+					e.GeofenceTypeZone = &geofenceTypeZone.String
 				}
 			}
 
@@ -193,30 +193,44 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 		}
 
 		// Create the event - use event_rule_id, automation_id, geofence_id, and device_id from the matched event
-		_, err = tx.ExecContext(txCtx, `
+		// Return only event_id; names are already in MatchedEvent
+		var eventID int64
+		err = tx.QueryRowContext(txCtx, `
 			INSERT INTO events (
 				event_type_id, event_level, event_rule_id, automation_id, geofence_id,
 				space_id, device_id, state_id, location, time_fired_ts, title
-			) VALUES ($1, $2, $3, $4, $5, (SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1), $7::uuid, $8, $9::jsonb, $10, $11)
-		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, deviceID, event.StateID, locationJSON, event.Timestamp, event.Title)
+			) VALUES (
+				$1, $2, $3, $4, $5,
+				(SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1),
+				$7::uuid, $8, $9::jsonb, $10, $11
+			)
+			RETURNING event_id
+		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, deviceID, event.StateID, locationJSON, event.Timestamp, event.Title).Scan(&eventID)
 
 		if err != nil {
 			return fmt.Errorf("failed to create event: %w", err)
 		}
 
 		// Publish event to AMQP for real-time processing
+		// Use names from MatchedEvent (already fetched by the evaluator)
 		eventLevel := event.EventLevel
-		deviceID := event.DeviceID
 
 		if err := c.PublishEventToDevice(ctx, &models.Event{
-			EventType:   event.EventType,
-			EventLevel:  &eventLevel,
-			EventRuleID: event.EventRuleID,
-			DeviceID:    deviceID,
-			SpaceSlug:   spaceSlug,
-			TimeFiredTs: event.Timestamp,
-			Title:       event.Title,
-			Location:    event.Location,
+			EventID:        eventID,
+			EventTypeID:    eventTypeID,
+			EventType:      event.EventType,
+			EventLevel:     &eventLevel,
+			EventRuleID:    event.EventRuleID,
+			AutomationID:   event.AutomationID,
+			AutomationName: event.AutomationName,
+			GeofenceID:     event.GeofenceID,
+			GeofenceName:   event.GeofenceName,
+			StateID:        event.StateID,
+			DeviceID:       deviceID,
+			SpaceSlug:      spaceSlug,
+			TimeFiredTs:    event.Timestamp,
+			Title:          event.Title,
+			Location:       event.Location,
 		}, org); err != nil {
 			return fmt.Errorf("failed to publish event: %w", err)
 		}

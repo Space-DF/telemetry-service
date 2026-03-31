@@ -11,6 +11,7 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/events/loader"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -313,6 +314,12 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 						eventRuleID = &erid
 					}
 
+					// Set geofence name if available
+					var geofenceName *string
+					if rule.GeofenceName != "" {
+						geofenceName = &rule.GeofenceName
+					}
+
 					event := models.MatchedEvent{
 						DeviceID:     deviceID,
 						EntityType:   "location",
@@ -328,6 +335,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 						EventRuleID:  eventRuleID,
 						AutomationID: nil,
 						GeofenceID:   rule.GeofenceID,
+						GeofenceName: geofenceName,
 						StateID:      locationStateID,
 						Location:     &models.Location{Latitude: lat, Longitude: lon},
 					}
@@ -413,7 +421,7 @@ func (r *RuleRegistry) evaluateGeofenceTrigger(isInside bool, typeZone, geofence
 }
 
 // extractLocation searches the entity list for a location-type entity and returns lat/lon/stateID.
-func extractLocation(entities []models.TelemetryEntity) (lat, lon float64, stateID *string, found bool) {
+func extractLocation(entities []models.TelemetryEntity) (lat, lon float64, stateID uuid.UUID, found bool) {
 	for _, e := range entities {
 		if strings.ToLower(e.EntityType) != "location" {
 			continue
@@ -429,7 +437,7 @@ func extractLocation(entities []models.TelemetryEntity) (lat, lon float64, state
 			return latF, lonF, e.StateID, true
 		}
 	}
-	return 0, 0, nil, false
+	return 0, 0, uuid.UUID{}, false
 }
 
 func toFloat64(v interface{}) (float64, bool) {
