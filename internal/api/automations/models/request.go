@@ -10,6 +10,7 @@ import (
 
 type AutomationRequest struct {
 	Name      *string                  `json:"name" validate:"required,min=1,max=100"`
+	Title     *string                  `json:"title" validate:"omitempty,min=1,max=255"`
 	DeviceID  string                   `json:"device_id" validate:"required,uuid"`
 	SpaceID   *uuid.UUID               `json:"space_id,omitempty" validate:"omitempty"`
 	ActionIDs []string                 `json:"action_ids" validate:"required,dive,uuid"`

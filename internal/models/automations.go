@@ -19,6 +19,7 @@ type Action struct {
 type Automation struct {
 	ID          string
 	Name        string
+	Title       *string
 	DeviceID    string
 	EventRuleID *string
 	EventRule   *EventRule

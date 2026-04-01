@@ -16,9 +16,10 @@ import (
 // EventRuleForEvaluation represents an event rule from automation or geofence
 // This is used for evaluation purposes, combining automation and geofence event rules
 type EventRuleForEvaluation struct {
-	EventRuleID    string // UUID of the event_rule row in event_rules table
-	AutomationID   string // UUID of the automation (empty for geofence rules)
-	AutomationName string // Name of the automation (used as event title)
+	EventRuleID    string  // UUID of the event_rule row in event_rules table
+	AutomationID   string  // UUID of the automation (empty for geofence rules)
+	AutomationName string  // Name of the automation (used as event title)
+	Title          *string // Optional title for the rule, used as event title if automation name is not set
 	RuleKey        *string
 	Definition     json.RawMessage
 	IsActive       *bool
@@ -137,10 +138,8 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 
 	// Build description from match details
 	title := ruleKey
-	if rule.AutomationName != "" {
-		title = rule.AutomationName
-	} else if rule.Description != nil && *rule.Description != "" {
-		title = *rule.Description
+	if rule.Title != nil && *rule.Title != "" {
+		title = *rule.Title
 	}
 	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
 	if rule.Description != nil && *rule.Description != "" {
@@ -220,6 +219,8 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		context[k] = v
 	}
 
+	e.logger.Info("Context data: ", zap.Any("context", context))
+
 	// Evaluate definition using condition evaluator with unified context
 	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(string(rule.Definition), context)
 	if err != nil {
@@ -243,10 +244,8 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	// Build description from match details or use rule's description
 	// Title: automation name, fallback to description, fallback to rule_key
 	title := ruleKey
-	if rule.AutomationName != "" {
-		title = rule.AutomationName
-	} else if rule.Description != nil && *rule.Description != "" {
-		title = *rule.Description
+	if rule.Title != nil && *rule.Title != "" {
+		title = *rule.Title
 	}
 	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
 	if rule.Description != nil && *rule.Description != "" {

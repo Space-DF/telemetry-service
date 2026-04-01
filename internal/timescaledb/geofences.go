@@ -284,7 +284,7 @@ func (c *Client) CreateGeofence(ctx context.Context, name, typeZone string, geom
 }
 
 // UpdateGeofence updates an existing geofence
-func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name, typeZone *string, geometry []byte, features []json.RawMessage, color *string, spaceID *uuid.UUID, isActive *bool, eventRuleID *uuid.UUID) (*models.Geofence, error) {
+func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name, typeZone *string, geometry []byte, features []json.RawMessage, color *string, spaceID *uuid.UUID, isActive *bool, eventRuleID *uuid.UUID, definition *json.RawMessage) (*models.Geofence, error) {
 	if geofenceID == uuid.Nil {
 		return nil, fmt.Errorf("geofence_id is required")
 	}
@@ -322,6 +322,72 @@ func (c *Client) UpdateGeofence(ctx context.Context, geofenceID uuid.UUID, name,
 		}
 		if err := json.Unmarshal(featuresRaw, &currentFeatures); err != nil {
 			return fmt.Errorf("failed to unmarshal current features JSON: %w", err)
+		}
+
+		// Update event rule: load current values as defaults, then override with provided values
+		if currentEventRuleID.Valid {
+			var erRuleKey sql.NullString
+			var erDefinition sql.NullString
+			var erIsActive sql.NullBool
+			var erRepeatAble sql.NullBool
+			var erCooldownSec sql.NullInt64
+			var erDescription sql.NullString
+
+			err = tx.QueryRowContext(txCtx, `
+				SELECT rule_key, definition, is_active, repeat_able, cooldown_sec, description
+				FROM event_rules WHERE event_rule_id = $1
+			`, currentEventRuleID.String).Scan(
+				&erRuleKey, &erDefinition, &erIsActive, &erRepeatAble, &erCooldownSec, &erDescription,
+			)
+			if err != nil && err != sql.ErrNoRows {
+				return fmt.Errorf("failed to get current event rule: %w", err)
+			}
+
+			// Initialize defaults from current event rule data
+			ruleKey := "geofence"
+			if erRuleKey.Valid {
+				ruleKey = erRuleKey.String
+			}
+			definitionStr := "{}"
+			if erDefinition.Valid {
+				definitionStr = erDefinition.String
+			}
+			isActiveVal := true
+			if erIsActive.Valid {
+				isActiveVal = erIsActive.Bool
+			}
+			repeatAbleVal := true
+			if erRepeatAble.Valid {
+				repeatAbleVal = erRepeatAble.Bool
+			}
+			cooldownSecVal := 0
+			if erCooldownSec.Valid {
+				cooldownSecVal = int(erCooldownSec.Int64)
+			}
+			descriptionVal := currentName
+			if erDescription.Valid {
+				descriptionVal = erDescription.String
+			}
+
+			// Override with provided definition if supplied
+			if definition != nil && len(*definition) > 0 {
+				var defObj interface{}
+				if err := json.Unmarshal(*definition, &defObj); err == nil {
+					defBytes, _ := json.Marshal(defObj)
+					definitionStr = string(defBytes)
+				} else {
+					definitionStr = string(*definition)
+				}
+			}
+
+			_, err = tx.ExecContext(txCtx, `
+				UPDATE event_rules
+				SET rule_key = $1, definition = $2::jsonb, is_active = $3, repeat_able = $4, cooldown_sec = $5, description = $6
+				WHERE event_rule_id = $7
+			`, ruleKey, definitionStr, isActiveVal, repeatAbleVal, cooldownSecVal, descriptionVal, currentEventRuleID.String)
+			if err != nil {
+				return fmt.Errorf("failed to update event rule: %w", err)
+			}
 		}
 
 		// Use current values if not provided in update request
