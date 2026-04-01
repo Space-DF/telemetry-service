@@ -9,6 +9,7 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/events"
 	"github.com/Space-DF/telemetry-service/internal/events/loader"
 	"github.com/Space-DF/telemetry-service/internal/models"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -24,6 +25,7 @@ type EventRuleForEvaluation struct {
 	RepeatAble     *bool
 	Description    *string
 	GeofenceID     *string // Set if this is a geofence rule
+	GeofenceName   string  // Name of the geofence (used for event title)
 	IsAutomation   bool    // true if from automation, false if from geofence
 }
 
@@ -146,9 +148,14 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	var automationID *string
+	var automationName *string
 	if rule.IsAutomation && rule.AutomationID != "" {
 		aid := rule.AutomationID
 		automationID = &aid
+		if rule.AutomationName != "" {
+			aname := rule.AutomationName
+			automationName = &aname
+		}
 	}
 	var geofenceID *string
 	if !rule.IsAutomation && rule.GeofenceID != nil {
@@ -161,21 +168,22 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		DeviceID:     deviceID,
-		EntityType:   entity.EntityType,
-		RuleKey:      ruleKey,
-		EventType:    "device_event",
-		EventLevel:   "automation",
-		Title:        title,
-		Description:  description,
-		Value:        0,
-		Threshold:    0,
-		Operator:     "complex",
-		Timestamp:    time.Now().UnixMilli(),
-		EventRuleID:  eventRuleID,
-		AutomationID: automationID,
-		GeofenceID:   geofenceID,
-		StateID:      entity.StateID,
+		DeviceID:       deviceID,
+		EntityType:     entity.EntityType,
+		RuleKey:        ruleKey,
+		EventType:      "device_event",
+		EventLevel:     "automation",
+		Title:          title,
+		Description:    description,
+		Value:          0,
+		Threshold:      0,
+		Operator:       "complex",
+		Timestamp:      time.Now().UnixMilli(),
+		EventRuleID:    eventRuleID,
+		AutomationID:   automationID,
+		AutomationName: automationName,
+		GeofenceID:     geofenceID,
+		StateID:        entity.StateID,
 	}
 
 	return matchedEvent
@@ -247,9 +255,14 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 
 	// Set AutomationID only when this is an automation rule
 	var automationID *string
+	var automationName *string
 	if rule.IsAutomation && rule.AutomationID != "" {
 		aid := rule.AutomationID
 		automationID = &aid
+		if rule.AutomationName != "" {
+			aname := rule.AutomationName
+			automationName = &aname
+		}
 	}
 
 	// Set EventRuleID
@@ -260,30 +273,32 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	}
 
 	// Find the first available StateID from entities
-	var stateID *string
+	var stateID uuid.UUID
 	for _, ent := range entities {
-		if ent.StateID != nil {
+		if ent.StateID != (uuid.UUID{}) { // Check if not empty UUID
 			stateID = ent.StateID
 			break
 		}
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		DeviceID:     deviceID,
-		EntityType:   "automation",
-		RuleKey:      ruleKey,
-		EventType:    "device_event",
-		EventLevel:   "automation",
-		Title:        title,
-		Description:  description,
-		Value:        0,
-		Threshold:    0,
-		Operator:     "complex",
-		Timestamp:    time.Now().UnixMilli(),
-		EventRuleID:  eventRuleID,
-		AutomationID: automationID,
-		GeofenceID:   nil,
-		StateID:      stateID,
+		DeviceID:       deviceID,
+		EntityType:     "automation",
+		RuleKey:        ruleKey,
+		EventType:      "device_event",
+		EventLevel:     "automation",
+		Title:          title,
+		Description:    description,
+		Value:          0,
+		Threshold:      0,
+		Operator:       "complex",
+		Timestamp:      time.Now().UnixMilli(),
+		EventRuleID:    eventRuleID,
+		AutomationID:   automationID,
+		AutomationName: automationName,
+		GeofenceID:     nil,
+		GeofenceName:   nil,
+		StateID:        stateID,
 	}
 
 	e.logger.Debug("Rule matched and event created",

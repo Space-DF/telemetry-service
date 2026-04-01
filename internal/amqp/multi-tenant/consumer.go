@@ -2,8 +2,12 @@ package amqp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/models"
+	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
 
@@ -85,7 +89,7 @@ func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *m
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	routingKey := fmt.Sprintf("tenant.%s.space.%s.device.%s.events", orgSlug, event.SpaceSlug, event.DeviceID)
+	routingKey := fmt.Sprintf("tenant.%s.space.%s.device.%s.event", orgSlug, event.SpaceSlug, event.DeviceID)
 
 	err = consumer.Channel.PublishWithContext(
 		ctx,

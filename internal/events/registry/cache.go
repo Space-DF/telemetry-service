@@ -286,6 +286,7 @@ func (c *DeviceRulesCache) convertGeofencesToRules(geofences []models.GeofenceWi
 			RepeatAble:   eventRule.RepeatAble,
 			Description:  eventRule.Description,
 			GeofenceID:   &geofenceID,
+			GeofenceName: gf.Name, // Include geofence name for event title
 			IsAutomation: false,
 		}
 
