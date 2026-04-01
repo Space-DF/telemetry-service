@@ -23,11 +23,13 @@ type Client struct {
 	// Set this to invalidate caches or trigger side-effects.
 	OnGeofenceChange func()
 
+	// OnAutomationChange is called after an automation is created, updated, or deleted.
+	// Set this to invalidate caches or trigger side-effects.
+	OnAutomationChange func()
+
 	// RuleRegistry provides access to the device rules cache
 	// Set this in the server initialization to enable cache invalidation on automation changes
-	RuleRegistry interface {
-		InvalidateDeviceCache(deviceID string)
-	}
+	RuleRegistry interface{}
 }
 
 // NewClient creates a new TimescaleDB client and verifies connectivity.

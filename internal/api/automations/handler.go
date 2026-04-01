@@ -145,14 +145,23 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 	results := make([]map[string]interface{}, len(automations))
 	for i, a := range automations {
 		result := convertAutomationToMap(&a)
-		if a.DeviceID != "" && a.SpaceID != nil {
-			if info, ok := deviceSpaceCache[a.DeviceID]; ok && info != nil {
-				result["device_space"] = map[string]interface{}{
-					"id":   info.ID,
-					"name": info.Name,
-				}
-			}
+
+		if a.DeviceID == "" || a.SpaceID == nil {
+			results[i] = result
+			continue
 		}
+
+		info, ok := deviceSpaceCache[a.DeviceID]
+		if !ok || info == nil {
+			results[i] = result
+			continue
+		}
+
+		result["device_space"] = map[string]interface{}{
+			"id":   info.ID,
+			"name": info.Name,
+		}
+
 		results[i] = result
 	}
 
@@ -413,11 +422,6 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 		spaceIDStr = automation.SpaceID.String()
 	}
 
-	// Invalidate device cache after successful update
-	if h.tsClient.RuleRegistry != nil {
-		h.tsClient.RuleRegistry.InvalidateDeviceCache(req.DeviceID)
-	}
-
 	return c.JSON(http.StatusOK, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
@@ -450,7 +454,7 @@ func (h *Handler) DeleteAutomation(c echo.Context) error {
 
 	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
 
-	deviceID, err := h.tsClient.DeleteAutomation(ctx, automationID)
+	_, err := h.tsClient.DeleteAutomation(ctx, automationID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return c.JSON(http.StatusNotFound, map[string]string{
@@ -461,11 +465,6 @@ func (h *Handler) DeleteAutomation(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": "failed to delete automation",
 		})
-	}
-
-	// Invalidate device cache after successful deletion
-	if deviceID != "" && h.tsClient.RuleRegistry != nil {
-		h.tsClient.RuleRegistry.InvalidateDeviceCache(deviceID)
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{
@@ -694,21 +693,34 @@ func (h *Handler) DeleteAction(c echo.Context) error {
 func (h *Handler) convertAutomationToMapWithDeviceSpace(ctx context.Context, a *models.AutomationWithActions, organization, spaceID string) map[string]interface{} {
 	result := convertAutomationToMap(a)
 
-	if a.DeviceID != "" && spaceID != "" {
-		deviceSpace, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(ctx, a.DeviceID, organization, spaceID)
-		if err != nil {
-			h.logger.Warn("failed to fetch device space info",
-				zap.String("device_id", a.DeviceID),
-				zap.Error(err))
-		} else if deviceSpace != nil {
-			result["device_space"] = map[string]interface{}{
-				"id":   deviceSpace.ID,
-				"name": deviceSpace.Name,
-			}
-		} else {
-			h.logger.Info("no device space found",
-				zap.String("device_id", a.DeviceID))
-		}
+	if a.DeviceID == "" || spaceID == "" {
+		return result
+	}
+
+	deviceSpace, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(
+		ctx,
+		a.DeviceID,
+		organization,
+		spaceID,
+	)
+	if err != nil {
+		h.logger.Warn("failed to fetch device space info",
+			zap.String("device_id", a.DeviceID),
+			zap.Error(err),
+		)
+		return result
+	}
+
+	if deviceSpace == nil {
+		h.logger.Info("no device space found",
+			zap.String("device_id", a.DeviceID),
+		)
+		return result
+	}
+
+	result["device_space"] = map[string]interface{}{
+		"id":   deviceSpace.ID,
+		"name": deviceSpace.Name,
 	}
 
 	return result

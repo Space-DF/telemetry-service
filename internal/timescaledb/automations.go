@@ -428,6 +428,10 @@ func (c *Client) CreateAutomation(ctx context.Context, req *apimodels.Automation
 		return nil, err
 	}
 
+	if c.OnAutomationChange != nil {
+		c.OnAutomationChange()
+	}
+
 	return &result, nil
 }
 
@@ -612,6 +616,10 @@ func (c *Client) UpdateAutomation(ctx context.Context, automationID string, req 
 		return nil, err
 	}
 
+	if c.OnAutomationChange != nil {
+		c.OnAutomationChange()
+	}
+
 	return &result, nil
 }
 
@@ -654,6 +662,10 @@ func (c *Client) DeleteAutomation(ctx context.Context, automationID string) (str
 
 		return nil
 	})
+
+	if err == nil && c.OnAutomationChange != nil {
+		c.OnAutomationChange()
+	}
 
 	return deviceID, err
 }

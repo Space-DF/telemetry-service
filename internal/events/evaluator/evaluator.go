@@ -211,6 +211,8 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		context[k] = v
 	}
 
+	e.logger.Info("Context data: ", zap.Any("context", context))
+
 	// Evaluate definition using condition evaluator with unified context
 	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(string(rule.Definition), context)
 	if err != nil {
