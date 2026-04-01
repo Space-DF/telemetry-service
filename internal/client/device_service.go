@@ -84,7 +84,11 @@ func (c *DeviceServiceClient) GetDeviceSpaceByDeviceID(ctx context.Context, devi
 		c.logger.Error("failed to call device-service", zap.Error(err), zap.String("device_id", deviceID), zap.String("url", url))
 		return nil, fmt.Errorf("failed to call device-service: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			c.logger.Warn("failed to close response body", zap.Error(err))
+		}
+	}()
 
 	if resp.StatusCode == http.StatusNotFound {
 		c.logger.Info("device not found in device-service", zap.String("device_id", deviceID))
