@@ -29,7 +29,6 @@ type EventItem struct {
 	EventType  string             `json:"event_type"`
 	EventLevel string             `json:"event_level,omitempty"`
 	Title      string             `json:"title,omitempty"`
-	EntityID   string             `json:"entity_id,omitempty"`
 	TimeFired  time.Time          `json:"time_fired"`
 	Automation *AutomationSummary `json:"automation,omitempty"`
 	Geofence   *GeofenceSummary   `json:"geofence,omitempty"`

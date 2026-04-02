@@ -99,7 +99,6 @@ func convertEventsToItems(events []models.Event) []apimodels.EventItem {
 			EventType:  e.EventType,
 			EventLevel: safeString(e.EventLevel),
 			Title:      e.Title,
-			EntityID:   safeString(e.EntityID),
 			TimeFired:  e.TimeFired(),
 		}
 

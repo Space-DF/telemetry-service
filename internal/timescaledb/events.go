@@ -63,7 +63,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 		query := fmt.Sprintf(`
 			SELECT e.event_id, e.event_type_id, sp.space_slug,
 				   e.device_id, e.title, e.time_fired_ts, et.event_type,
-				   e.event_level, e.event_rule_id, e.entity_id,
+				   e.event_level, e.event_rule_id,
 				   e.automation_id, a.name AS automation_name, a.device_id AS automation_device_id,
 				   e.geofence_id, g.name AS geofence_name, g.type_zone AS geofence_type_zone,
 				   e.location
@@ -90,7 +90,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			var slug sql.NullString
 			var deviceIDVal sql.NullString
 			var titleVal sql.NullString
-			var eventLevel, eventRuleID, entityID sql.NullString
+			var eventLevel, eventRuleID sql.NullString
 			var automationID, automationName, automationDeviceID sql.NullString
 			var geofenceID, geofenceName, geofenceTypeZone sql.NullString
 			var locationJSON []byte
@@ -98,7 +98,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			if err := rows.Scan(
 				&e.EventID, &e.EventTypeID, &slug,
 				&deviceIDVal, &titleVal, &e.TimeFiredTs, &e.EventType,
-				&eventLevel, &eventRuleID, &entityID,
+				&eventLevel, &eventRuleID,
 				&automationID, &automationName, &automationDeviceID,
 				&geofenceID, &geofenceName, &geofenceTypeZone,
 				&locationJSON,
@@ -120,9 +120,6 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			}
 			if eventRuleID.Valid {
 				e.EventRuleID = &eventRuleID.String
-			}
-			if entityID.Valid {
-				e.EntityID = &entityID.String
 			}
 			if automationID.Valid {
 				e.AutomationID = &automationID.String
