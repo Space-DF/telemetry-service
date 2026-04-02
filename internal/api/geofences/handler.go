@@ -29,8 +29,8 @@ import (
 // @Param limit query int false "Number of results per page (default 20)"
 // @Param offset query int false "Number of results to skip (default 0)"
 // @Success 200 {object} common.PaginatedResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences [get]
 func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -210,10 +210,10 @@ func testGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 // @Accept json
 // @Produce json
 // @Param geofence_id path string true "Geofence UUID"
-// @Success 200 {object} models.GeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 404 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Success 200 {object} apimodels.GeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 404 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences/{geofence_id} [get]
 func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -256,10 +256,10 @@ func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 // @Tags geofences
 // @Accept json
 // @Produce json
-// @Param request body models.CreateGeofenceRequest true "Geofence configuration"
-// @Success 201 {object} models.CreateGeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Param request body apimodels.CreateGeofenceRequest true "Geofence configuration"
+// @Success 201 {object} apimodels.CreateGeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences [post]
 func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -362,11 +362,11 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 // @Accept json
 // @Produce json
 // @Param geofence_id path string true "Geofence UUID"
-// @Param request body models.UpdateGeofenceRequest true "Geofence updates"
-// @Success 200 {object} models.UpdateGeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 404 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Param request body apimodels.UpdateGeofenceRequest true "Geofence updates"
+// @Success 200 {object} apimodels.UpdateGeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 404 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences/{geofence_id} [put]
 func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -452,10 +452,10 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 // @Accept json
 // @Produce json
 // @Param geofence_id path string true "Geofence UUID"
-// @Success 200 {object} models.DeleteGeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 404 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Success 200 {object} apimodels.DeleteGeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 404 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences/{geofence_id} [delete]
 func deleteGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {

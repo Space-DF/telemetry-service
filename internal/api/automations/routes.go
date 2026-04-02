@@ -10,6 +10,7 @@ func RegisterRoutes(group *echo.Group, logger *zap.Logger, tsClient *timescaledb
 	handler := NewHandler(logger, tsClient)
 
 	// Automations CRUD routes
+	group.GET("/automations/summary", handler.GetAutomationsSummary)
 	group.GET("/automations", handler.GetAutomations)
 	group.GET("/automations/:automation_id", handler.GetAutomationByID)
 	group.POST("/automations", handler.CreateAutomation)

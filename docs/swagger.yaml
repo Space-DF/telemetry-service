@@ -1,15 +1,5 @@
 definitions:
-  common.PaginatedResponse:
-    properties:
-      count:
-        type: integer
-      next:
-        type: string
-      previous:
-        type: string
-      results: {}
-    type: object
-  models.ActionRequest:
+  github_com_Space-DF_telemetry-service_internal_api_automations_models.ActionRequest:
     properties:
       data:
         additionalProperties: true
@@ -26,9 +16,61 @@ definitions:
     - key
     - name
     type: object
-  models.AutomationRequest:
+  github_com_Space-DF_telemetry-service_internal_api_automations_models.AutomationRequest:
+    properties:
+      action_ids:
+        items:
+          type: string
+        type: array
+      device_id:
+        type: string
+      event_rule:
+        $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_events_models.EventRuleRequest'
+      name:
+        maxLength: 100
+        minLength: 1
+        type: string
+      space_id:
+        type: string
+      title:
+        maxLength: 255
+        minLength: 1
+        type: string
+    required:
+    - action_ids
+    - device_id
+    - name
     type: object
-  models.CreateGeofenceRequest:
+  github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse:
+    properties:
+      count:
+        type: integer
+      next:
+        type: string
+      previous:
+        type: string
+      results: {}
+    type: object
+  github_com_Space-DF_telemetry-service_internal_api_events_models.EventRuleRequest:
+    properties:
+      cooldown_sec:
+        type: integer
+      definition:
+        items:
+          type: integer
+        type: array
+      description:
+        type: string
+      is_active:
+        type: boolean
+      repeat_able:
+        type: boolean
+      rule_key:
+        type: string
+    required:
+    - rule_key
+    type: object
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceRequest:
     properties:
       color:
         type: string
@@ -61,26 +103,26 @@ definitions:
     - name
     - type_zone
     type: object
-  models.CreateGeofenceResponse:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceResponse:
     properties:
       geofence:
-        $ref: '#/definitions/models.GeofenceResponse'
+        $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse'
       message:
         type: string
     type: object
-  models.DeleteGeofenceResponse:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.DeleteGeofenceResponse:
     properties:
       message:
         type: string
     type: object
-  models.ErrorResponse:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse:
     properties:
       error:
         type: string
       message:
         type: string
     type: object
-  models.EventRuleInfo:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.EventRuleInfo:
     properties:
       created_at:
         type: string
@@ -93,14 +135,14 @@ definitions:
       rule_key:
         type: string
     type: object
-  models.GeofenceResponse:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse:
     properties:
       color:
         type: string
       created_at:
         type: string
       event_rule:
-        $ref: '#/definitions/models.EventRuleInfo'
+        $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.EventRuleInfo'
       features:
         items:
           type: object
@@ -118,7 +160,7 @@ definitions:
       updated_at:
         type: string
     type: object
-  models.UpdateGeofenceRequest:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceRequest:
     properties:
       color:
         type: string
@@ -146,12 +188,21 @@ definitions:
     required:
     - features
     type: object
-  models.UpdateGeofenceResponse:
+  github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceResponse:
     properties:
       geofence:
-        $ref: '#/definitions/models.GeofenceResponse'
+        $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse'
       message:
         type: string
+    type: object
+  github_com_Space-DF_telemetry-service_internal_models.AutomationSummary:
+    properties:
+      active:
+        type: integer
+      disabled:
+        type: integer
+      total:
+        type: integer
     type: object
 info:
   contact: {}
@@ -184,7 +235,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -211,7 +262,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.ActionRequest'
+          $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.ActionRequest'
       produces:
       - application/json
       responses:
@@ -293,7 +344,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.ActionRequest'
+          $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.ActionRequest'
       produces:
       - application/json
       responses:
@@ -377,7 +428,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -405,10 +456,6 @@ paths:
         in: query
         name: device_id
         type: string
-      - description: Filter by space ID
-        in: query
-        name: space_id
-        type: string
       - description: Search by name or device ID
         in: query
         name: search
@@ -427,7 +474,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -454,7 +501,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.AutomationRequest'
+          $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.AutomationRequest'
       produces:
       - application/json
       responses:
@@ -576,7 +623,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.AutomationRequest'
+          $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.AutomationRequest'
       produces:
       - application/json
       responses:
@@ -604,6 +651,34 @@ paths:
               type: string
             type: object
       summary: Update automation
+      tags:
+      - automations
+  /telemetry/v1/automations/summary:
+    get:
+      consumes:
+      - application/json
+      description: Returns total, active, and disabled counts for automations in a
+        space. Organization is resolved from X-Organization header or hostname.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_models.AutomationSummary'
+        "400":
+          description: Invalid request parameters
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Internal server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get automation summary
       tags:
       - automations
   /telemetry/v1/data/latest:
@@ -635,56 +710,18 @@ paths:
         "400":
           description: Invalid request parameters
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Get device properties
       tags:
       - data
-  /telemetry/v1/devices/{device_id}/automations:
-    get:
-      consumes:
-      - application/json
-      description: Retrieve all automations for a specific device. Organization is
-        resolved from X-Organization header or hostname (e.g., {org}.localhost)
-      parameters:
-      - description: Device ID
-        in: path
-        name: device_id
-        required: true
-        type: string
-      - description: Number of results per page (default 20)
-        in: query
-        name: limit
-        type: integer
-      - description: Number of results to skip (default 0)
-        in: query
-        name: offset
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            $ref: '#/definitions/common.PaginatedResponse'
-        "400":
-          description: Invalid request parameters
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "500":
-          description: Internal server error
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-      summary: Get automations by device
-      tags:
-      - automations
   /telemetry/v1/entities:
     get:
       consumes:
@@ -722,15 +759,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Get entities
       tags:
       - entities
@@ -775,7 +816,7 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
@@ -817,15 +858,15 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
       summary: Get geofences
       tags:
       - geofences
@@ -840,22 +881,22 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.CreateGeofenceRequest'
+          $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceRequest'
       produces:
       - application/json
       responses:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/models.CreateGeofenceResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
       summary: Create geofence
       tags:
       - geofences
@@ -877,19 +918,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.DeleteGeofenceResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.DeleteGeofenceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
       summary: Delete geofence
       tags:
       - geofences
@@ -910,19 +951,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.GeofenceResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
       summary: Get geofence by ID
       tags:
       - geofences
@@ -942,26 +983,26 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/models.UpdateGeofenceRequest'
+          $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceRequest'
       produces:
       - application/json
       responses:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/models.UpdateGeofenceResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceResponse'
         "400":
           description: Bad Request
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "404":
           description: Not Found
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse'
       summary: Update geofence
       tags:
       - geofences
@@ -1006,15 +1047,19 @@ paths:
         "200":
           description: OK
           schema:
-            $ref: '#/definitions/common.PaginatedResponse'
+            $ref: '#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse'
         "400":
           description: Invalid request parameters
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Get device location history
       tags:
       - location
@@ -1064,11 +1109,15 @@ paths:
         "400":
           description: Invalid request parameters
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
         "500":
           description: Internal server error
           schema:
-            $ref: '#/definitions/models.ErrorResponse'
+            additionalProperties:
+              type: string
+            type: object
       summary: Get widget data
       tags:
       - widget
