@@ -3,6 +3,8 @@ package models
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // EventType represents a type of event (e.g., "state_changed", "service_call")
@@ -14,14 +16,15 @@ type EventType struct {
 
 // EventRule represents a rule that can trigger events
 type EventRule struct {
-	EventRuleID string    `json:"event_rule_id" db:"event_rule_id"`
-	RuleKey     string    `json:"rule_key" db:"rule_key"`
-	Definition  *string   `json:"definition,omitempty" db:"definition"`
-	IsActive    *bool     `json:"is_active,omitempty" db:"is_active"`
-	RepeatAble  *bool     `json:"repeat_able,omitempty" db:"repeat_able"`
-	CooldownSec *int      `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
-	Description *string   `json:"description,omitempty" db:"description"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	EventRuleID string `json:"event_rule_id" db:"event_rule_id"`
+	RuleKey     string `json:"rule_key" db:"rule_key"`
+	// Definition  *string   `json:"definition,omitempty" db:"definition"`
+	Definition  json.RawMessage `json:"definition" db:"definition"`
+	IsActive    *bool           `json:"is_active,omitempty" db:"is_active"`
+	RepeatAble  *bool           `json:"repeat_able,omitempty" db:"repeat_able"`
+	CooldownSec *int            `json:"cooldown_sec,omitempty" db:"cooldown_sec"`
+	Description *string         `json:"description,omitempty" db:"description"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 }
 
 // EventRuleRequest represents a request to create or update an event rule
@@ -48,25 +51,25 @@ type EventRuleResponse struct {
 
 // Event represents an event occurrence
 type Event struct {
-	EventID      int64   `json:"event_id" db:"event_id"`
-	EventTypeID  int     `json:"event_type_id" db:"event_type_id"`
-	EventLevel   *string `json:"event_level,omitempty" db:"event_level"`     // manufacturer, system, automation
-	EventRuleID  *string `json:"event_rule_id,omitempty" db:"event_rule_id"` // Rule that triggered this event
-	AutomationID *string `json:"automation_id,omitempty" db:"automation_id"` // Automation that triggered this event
-	GeofenceID   *string `json:"geofence_id,omitempty" db:"geofence_id"`     // Geofence that triggered this event
-	SpaceSlug    string  `json:"space_slug,omitempty" db:"space_slug"`
-	DeviceID     *string `json:"device_id,omitempty" db:"device_id"`
-	EntityID     *string `json:"entity_id,omitempty" db:"entity_id"`
-	StateID      *int64  `json:"state_id,omitempty" db:"state_id"`
-	Title        string  `json:"title,omitempty" db:"title"`
-	TimeFiredTs  int64   `json:"time_fired_ts" db:"time_fired_ts"`
+	EventID      int64     `json:"event_id" db:"event_id"`
+	EventTypeID  int       `json:"event_type_id" db:"event_type_id"`
+	EventLevel   *string   `json:"event_level,omitempty" db:"event_level"`     // manufacturer, system, automation
+	EventRuleID  *string   `json:"event_rule_id,omitempty" db:"event_rule_id"` // Rule that triggered this event
+	AutomationID *string   `json:"automation_id,omitempty" db:"automation_id"` // Automation that triggered this event
+	GeofenceID   *string   `json:"geofence_id,omitempty" db:"geofence_id"`     // Geofence that triggered this event
+	SpaceSlug    string    `json:"space_slug,omitempty" db:"space_slug"`
+	DeviceID     string    `json:"device_id,omitempty" db:"device_id"`
+	EntityID     *string   `json:"entity_id,omitempty" db:"entity_id"`
+	StateID      uuid.UUID `json:"state_id,omitempty" db:"state_id"`
+	Title        string    `json:"title,omitempty" db:"title"`
+	TimeFiredTs  int64     `json:"time_fired_ts" db:"time_fired_ts"`
 
 	// Joined fields for internal use
-	EventType          string `json:"event_type,omitempty" db:"event_type"`
-	AutomationName     string `json:"automation_name,omitempty" db:"automation_name"`
-	AutomationDeviceID string `json:"automation_device_id,omitempty" db:"automation_device_id"`
-	GeofenceName       string `json:"geofence_name,omitempty" db:"geofence_name"`
-	GeofenceTypeZone   string `json:"geofence_type_zone,omitempty" db:"geofence_type_zone"`
+	EventType          string  `json:"event_type,omitempty" db:"event_type"`
+	AutomationName     *string `json:"automation_name,omitempty" db:"automation_name"`
+	AutomationDeviceID string  `json:"automation_device_id,omitempty" db:"automation_device_id"`
+	GeofenceName       *string `json:"geofence_name,omitempty" db:"geofence_name"`
+	GeofenceTypeZone   *string `json:"geofence_type_zone,omitempty" db:"geofence_type_zone"`
 
 	Location *Location `json:"location,omitempty"`
 }
@@ -94,7 +97,7 @@ type StateAttributes struct {
 
 // State represents an entity state with event linkage
 type State struct {
-	StateID       int64     `json:"state_id" db:"state_id"`
+	StateID       uuid.UUID `json:"state_id" db:"state_id"`
 	MetadataID    int       `json:"metadata_id" db:"metadata_id"`
 	State         string    `json:"state" db:"state"`
 	AttributesID  *int      `json:"attributes_id,omitempty" db:"attributes_id"`
@@ -141,7 +144,7 @@ type EventsListResponse struct {
 
 // StateDetailResponse combines state with metadata and attributes
 type StateDetailResponse struct {
-	StateID         int64                  `json:"state_id"`
+	StateID         uuid.UUID              `json:"state_id"`
 	EntityID        string                 `json:"entity_id"`
 	State           string                 `json:"state"`
 	Attributes      map[string]interface{} `json:"attributes,omitempty"`
@@ -160,7 +163,7 @@ type EventDetail struct {
 	GeofenceID   *string                `json:"geofence_id,omitempty"`   // Geofence that triggered this event
 	SpaceSlug    string                 `json:"space_slug,omitempty"`
 	EntityID     *string                `json:"entity_id,omitempty"`
-	StateID      *int64                 `json:"state_id,omitempty"`
+	StateID      uuid.UUID              `json:"state_id"`
 	TriggerID    *string                `json:"trigger_id,omitempty"`
 	TimeFired    time.Time              `json:"time_fired"`
 	EventData    map[string]interface{} `json:"event_data,omitempty"`
@@ -209,20 +212,22 @@ func (s *StateAttributes) SetSharedAttrs(attrs map[string]interface{}) error {
 
 // MatchedEvent represents an event rule that matched evaluation
 type MatchedEvent struct {
-	EntityID     string    `json:"entity_id"`
-	EntityType   string    `json:"entity_type"`
-	RuleKey      string    `json:"rule_key"`
-	EventType    string    `json:"event_type"`
-	EventLevel   string    `json:"event_level"`
-	Title        string    `json:"title"`
-	Description  string    `json:"description"`
-	Value        float64   `json:"value"`
-	Threshold    float64   `json:"threshold"`
-	Operator     string    `json:"operator"`
-	Timestamp    int64     `json:"timestamp"`               // Unix timestamp in milliseconds
-	EventRuleID  *string   `json:"event_rule_id,omitempty"` // Rule that triggered this event
-	AutomationID *string   `json:"automation_id,omitempty"` // Automation that triggered this event
-	GeofenceID   *string   `json:"geofence_id,omitempty"`   // Geofence that triggered this event
-	StateID      *string   `json:"state_id,omitempty"`
-	Location     *Location `json:"location,omitempty"`
+	DeviceID       string     `json:"device_id"`
+	EntityType     string     `json:"entity_type"`
+	RuleKey        string     `json:"rule_key"`
+	EventType      string     `json:"event_type"`
+	EventLevel     string     `json:"event_level"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Value          float64    `json:"value"`
+	Threshold      float64    `json:"threshold"`
+	Operator       string     `json:"operator"`
+	Timestamp      int64      `json:"timestamp"`               // Unix timestamp in milliseconds
+	EventRuleID    *string    `json:"event_rule_id,omitempty"` // Rule that triggered this event
+	AutomationID   *string    `json:"automation_id,omitempty"` // Automation that triggered this event
+	AutomationName *string    `json:"automation_name,omitempty"`
+	GeofenceID     *string    `json:"geofence_id,omitempty"` // Geofence that triggered this event
+	GeofenceName   *string    `json:"geofence_name,omitempty"`
+	StateID        uuid.UUID `json:"state_id"`
+	Location       *Location  `json:"location,omitempty"`
 }

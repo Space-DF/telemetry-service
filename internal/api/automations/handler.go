@@ -1,12 +1,16 @@
 package automations
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/client"
 
 	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
@@ -17,14 +21,16 @@ import (
 )
 
 type Handler struct {
-	logger   *zap.Logger
-	tsClient *timescaledb.Client
+	logger              *zap.Logger
+	tsClient            *timescaledb.Client
+	deviceServiceClient *client.DeviceServiceClient
 }
 
 func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 	return &Handler{
-		logger:   logger,
-		tsClient: tsClient,
+		logger:              logger,
+		tsClient:            tsClient,
+		deviceServiceClient: client.NewDeviceServiceClient(logger),
 	}
 }
 
@@ -35,7 +41,6 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 // @Accept json
 // @Produce json
 // @Param device_id query string false "Filter by device ID"
-// @Param space_id query string false "Filter by space ID"
 // @Param search query string false "Search by name or device ID"
 // @Param limit query int false "Number of results per page (default 20)"
 // @Param offset query int false "Number of results to skip (default 0)"
@@ -51,12 +56,45 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 		})
 	}
 
+	// Resolve space_id from X-Space header
+	spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "X-Space header is required",
+		})
+	}
+
+	spaceID, err := h.tsClient.GetSpaceIDBySlug(c.Request().Context(), org, spaceSlug)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Space '%s' not found", spaceSlug),
+		})
+	}
+
 	// Parse query parameters
 	var deviceID *string
 
 	if deviceIDStr := strings.TrimSpace(c.QueryParam("device_id")); deviceIDStr != "" {
 		if _, err := uuid.Parse(deviceIDStr); err == nil {
 			deviceID = &deviceIDStr
+		}
+	}
+
+	// Parse status query parameter (comma-separated booleans, e.g. "true,false")
+	var statusList []bool
+	if statusStr := strings.TrimSpace(c.QueryParam("status")); statusStr != "" {
+		for _, s := range strings.Split(statusStr, ",") {
+			trimmedS := strings.TrimSpace(s)
+			if trimmedS == "" {
+				continue
+			}
+			b, err := strconv.ParseBool(trimmedS)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": fmt.Sprintf("invalid status value: '%s'", s),
+				})
+			}
+			statusList = append(statusList, b)
 		}
 	}
 
@@ -67,7 +105,7 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 
 	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
 
-	automations, totalCount, err := h.tsClient.GetAutomations(ctx, deviceID, search, p.Limit, p.Offset)
+	automations, totalCount, err := h.tsClient.GetAutomations(ctx, spaceID, deviceID, statusList, search, p.Limit, p.Offset)
 	if err != nil {
 		h.logger.Error("failed to get automations", zap.Error(err))
 		return c.JSON(http.StatusInternalServerError, map[string]string{
@@ -75,10 +113,56 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 		})
 	}
 
-	// Convert to response format
+	// Collect unique (deviceID, spaceID) pairs to fetch device space info concurrently.
+	type deviceKey struct{ deviceID, spaceID string }
+	uniqueKeys := make(map[deviceKey]struct{})
+	for _, a := range automations {
+		if a.DeviceID != "" && a.SpaceID != nil {
+			uniqueKeys[deviceKey{a.DeviceID, a.SpaceID.String()}] = struct{}{}
+		}
+	}
+
+	deviceSpaceCache := make(map[string]*client.DeviceSpaceInfo, len(uniqueKeys))
+	var cacheMu sync.Mutex
+	var wg sync.WaitGroup
+	for dk := range uniqueKeys {
+		wg.Add(1)
+		go func(deviceID, spaceID string) {
+			defer wg.Done()
+			info, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(c.Request().Context(), deviceID, org, spaceID)
+			if err != nil {
+				h.logger.Warn("failed to fetch device space info", zap.String("device_id", deviceID), zap.Error(err))
+				return
+			}
+			cacheMu.Lock()
+			deviceSpaceCache[deviceID] = info
+			cacheMu.Unlock()
+		}(dk.deviceID, dk.spaceID)
+	}
+	wg.Wait()
+
+	// Convert to response format using the pre-fetched cache.
 	results := make([]map[string]interface{}, len(automations))
 	for i, a := range automations {
-		results[i] = convertAutomationToMap(&a)
+		result := convertAutomationToMap(&a)
+
+		if a.DeviceID == "" || a.SpaceID == nil {
+			results[i] = result
+			continue
+		}
+
+		info, ok := deviceSpaceCache[a.DeviceID]
+		if !ok || info == nil {
+			results[i] = result
+			continue
+		}
+
+		result["device_space"] = map[string]interface{}{
+			"id":   info.ID,
+			"name": info.Name,
+		}
+
+		results[i] = result
 	}
 
 	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
@@ -89,6 +173,51 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 		Previous: previous,
 		Results:  results,
 	})
+}
+
+// GetAutomationSummary returns total, active, and disabled automation counts for a space.
+// @Summary Get automation summary
+// @Description Returns total, active, and disabled counts for automations in a space. Organization is resolved from X-Organization header or hostname.
+// @Tags automations
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.AutomationSummary
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /telemetry/v1/automations/summary [get]
+func (h *Handler) GetAutomationsSummary(c echo.Context) error {
+	org := common.ResolveOrgFromRequest(c)
+	if org == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Could not determine organization from hostname or X-Organization header",
+		})
+	}
+
+	spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "X-Space header is required",
+		})
+	}
+
+	spaceID, err := h.tsClient.GetSpaceIDBySlug(c.Request().Context(), org, spaceSlug)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Space '%s' not found", spaceSlug),
+		})
+	}
+
+	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
+
+	summary, err := h.tsClient.GetAutomationSummary(ctx, spaceID)
+	if err != nil {
+		h.logger.Error("failed to get automation summary", zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to get automation summary",
+		})
+	}
+
+	return c.JSON(http.StatusOK, summary)
 }
 
 // GetAutomationByID returns a single automation by ID
@@ -133,7 +262,11 @@ func (h *Handler) GetAutomationByID(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, convertAutomationToMap(automation))
+	spaceIDStr := ""
+	if automation.SpaceID != nil {
+		spaceIDStr = automation.SpaceID.String()
+	}
+	return c.JSON(http.StatusOK, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
 // CreateAutomation creates a new automation
@@ -142,7 +275,7 @@ func (h *Handler) GetAutomationByID(c echo.Context) error {
 // @Tags automations
 // @Accept json
 // @Produce json
-// @Param request body models.AutomationRequest true "Automation configuration"
+// @Param request body apimodels.AutomationRequest true "Automation configuration"
 // @Success 201 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 500 {object} map[string]string "Internal server error"
@@ -230,7 +363,11 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusCreated, convertAutomationToMap(automation))
+	spaceIDStr := ""
+	if automation.SpaceID != nil {
+		spaceIDStr = automation.SpaceID.String()
+	}
+	return c.JSON(http.StatusCreated, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
 // UpdateAutomation updates an existing automation
@@ -240,7 +377,7 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param automation_id path string true "Automation ID"
-// @Param request body models.AutomationRequest true "Automation configuration"
+// @Param request body apimodels.AutomationRequest true "Automation configuration"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 404 {object} map[string]string "Automation not found"
@@ -325,7 +462,12 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, convertAutomationToMap(automation))
+	spaceIDStr := ""
+	if automation.SpaceID != nil {
+		spaceIDStr = automation.SpaceID.String()
+	}
+
+	return c.JSON(http.StatusOK, h.convertAutomationToMapWithDeviceSpace(c.Request().Context(), automation, org, spaceIDStr))
 }
 
 // DeleteAutomation deletes an automation
@@ -357,7 +499,7 @@ func (h *Handler) DeleteAutomation(c echo.Context) error {
 
 	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
 
-	err := h.tsClient.DeleteAutomation(ctx, automationID)
+	_, err := h.tsClient.DeleteAutomation(ctx, automationID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return c.JSON(http.StatusNotFound, map[string]string{
@@ -433,7 +575,7 @@ func (h *Handler) GetActions(c echo.Context) error {
 // @Tags automations
 // @Accept json
 // @Produce json
-// @Param request body models.ActionRequest true "Action configuration"
+// @Param request body apimodels.ActionRequest true "Action configuration"
 // @Success 201 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 500 {object} map[string]string "Internal server error"
@@ -486,7 +628,7 @@ func (h *Handler) CreateAction(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param action_id path string true "Action ID"
-// @Param request body models.ActionRequest true "Action configuration"
+// @Param request body apimodels.ActionRequest true "Action configuration"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 404 {object} map[string]string "Action not found"
@@ -592,61 +734,41 @@ func (h *Handler) DeleteAction(c echo.Context) error {
 	})
 }
 
-// GetAutomationsByDevice returns automations for a specific device
-// @Summary Get automations by device
-// @Description Retrieve all automations for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
-// @Tags automations
-// @Accept json
-// @Produce json
-// @Param device_id path string true "Device ID"
-// @Param limit query int false "Number of results per page (default 20)"
-// @Param offset query int false "Number of results to skip (default 0)"
-// @Success 200 {object} common.PaginatedResponse
-// @Failure 400 {object} map[string]string "Invalid request parameters"
-// @Failure 500 {object} map[string]string "Internal server error"
-// @Router /telemetry/v1/devices/{device_id}/automations [get]
-func (h *Handler) GetAutomationsByDevice(c echo.Context) error {
-	org := common.ResolveOrgFromRequest(c)
-	if org == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "Could not determine organization from hostname or X-Organization header",
-		})
+// convertAutomationToMapWithDeviceSpace enriches automation response with device space information
+func (h *Handler) convertAutomationToMapWithDeviceSpace(ctx context.Context, a *models.AutomationWithActions, organization, spaceID string) map[string]interface{} {
+	result := convertAutomationToMap(a)
+
+	if a.DeviceID == "" || spaceID == "" {
+		return result
 	}
 
-	deviceID := strings.TrimSpace(c.Param("device_id"))
-	if deviceID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "device_id is required",
-		})
-	}
-
-	// Pagination
-	p := common.ParsePagination(c)
-
-	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
-
-	automations, totalCount, err := h.tsClient.GetAutomations(ctx, &deviceID, "", p.Limit, p.Offset)
+	deviceSpace, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(
+		ctx,
+		a.DeviceID,
+		organization,
+		spaceID,
+	)
 	if err != nil {
-		h.logger.Error("failed to get automations by device", zap.String("device_id", deviceID), zap.Error(err))
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to get automations",
-		})
+		h.logger.Warn("failed to fetch device space info",
+			zap.String("device_id", a.DeviceID),
+			zap.Error(err),
+		)
+		return result
 	}
 
-	// Convert to response format
-	results := make([]map[string]interface{}, len(automations))
-	for i, a := range automations {
-		results[i] = convertAutomationToMap(&a)
+	if deviceSpace == nil {
+		h.logger.Info("no device space found",
+			zap.String("device_id", a.DeviceID),
+		)
+		return result
 	}
 
-	next, previous := common.Paginate(totalCount, p, common.BuildBaseURL(c), common.ExtraParams(c))
+	result["device_space"] = map[string]interface{}{
+		"id":   deviceSpace.ID,
+		"name": deviceSpace.Name,
+	}
 
-	return c.JSON(http.StatusOK, common.PaginatedResponse{
-		Count:    totalCount,
-		Next:     next,
-		Previous: previous,
-		Results:  results,
-	})
+	return result
 }
 
 // Helper functions to convert models to maps
@@ -654,6 +776,7 @@ func convertAutomationToMap(a *models.AutomationWithActions) map[string]interfac
 	result := map[string]interface{}{
 		"id":         a.ID,
 		"name":       a.Name,
+		"title":      a.Title,
 		"device_id":  a.DeviceID,
 		"updated_at": a.UpdatedAt,
 		"created_at": a.CreatedAt,

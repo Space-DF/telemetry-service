@@ -41,6 +41,11 @@ type TaskConsumer struct {
 	deviceQueueName string
 }
 
+// SchemaInitializer handles database schema initialization
+type SchemaInitializer interface {
+	CreateSchemaAndTables(ctx context.Context, orgSlug string) error
+}
+
 // NewTaskConsumer creates a new Celery task consumer
 func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.Logger) *TaskConsumer {
 	return &TaskConsumer{

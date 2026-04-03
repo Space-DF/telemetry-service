@@ -180,6 +180,43 @@ func (c *Client) DeleteSpace(ctx context.Context, orgSlug string, spaceID uuid.U
 				zap.Error(err))
 		}
 
+		// Delete event rules associated with automations in this space
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM event_rules
+			WHERE event_rule_id IN (
+				SELECT event_rule_id FROM automations WHERE space_id = $1
+			)
+		`, spaceID)
+		if err != nil {
+			c.Logger.Warn("Failed to delete event_rules for space",
+				zap.String("org", orgSlug),
+				zap.String("space_id", spaceID.String()),
+				zap.Error(err))
+		}
+
+		// Delete automations associated with this space
+		_, err = tx.ExecContext(txCtx, `DELETE FROM automations WHERE space_id = $1`, spaceID)
+		if err != nil {
+			c.Logger.Warn("Failed to delete automations for space",
+				zap.String("org", orgSlug),
+				zap.String("space_id", spaceID.String()),
+				zap.Error(err))
+		}
+
+		// Delete events associated with devices in this space
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM events
+			WHERE device_id IN (
+				SELECT device_id FROM entities WHERE space_id = $1
+			)
+		`, spaceID)
+		if err != nil {
+			c.Logger.Warn("Failed to delete events for space",
+				zap.String("org", orgSlug),
+				zap.String("space_id", spaceID.String()),
+				zap.Error(err))
+		}
+
 		//  Delete the space itself
 		_, err = tx.ExecContext(txCtx, `DELETE FROM spaces WHERE space_id = $1`, spaceID)
 		if err != nil {
@@ -237,6 +274,29 @@ func (c *Client) DeleteDeviceFromSpace(ctx context.Context, orgSlug string, devi
 		_, err = tx.ExecContext(txCtx, `DELETE FROM entities WHERE device_id = $1`, deviceID)
 		if err != nil {
 			return fmt.Errorf("failed to delete entities for device '%s': %w", deviceID, err)
+		}
+
+		// Delete event rules associated with this device's automations
+		_, err = tx.ExecContext(txCtx, `
+			DELETE FROM event_rules
+			WHERE event_rule_id IN (
+				SELECT event_rule_id FROM automations WHERE device_id = $1
+			)
+		`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete event_rules for device '%s': %w", deviceID, err)
+		}
+
+		// Delete automations associated with this device
+		_, err = tx.ExecContext(txCtx, `DELETE FROM automations WHERE device_id = $1`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete automations for device '%s': %w", deviceID, err)
+		}
+
+		// Delete events associated with this device
+		_, err = tx.ExecContext(txCtx, `DELETE FROM events WHERE device_id = $1`, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to delete events for device '%s': %w", deviceID, err)
 		}
 
 		return nil

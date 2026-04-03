@@ -1,5 +1,7 @@
 package models
 
+import "github.com/google/uuid"
+
 // TelemetryPayload represents the entity-centric telemetry emitted by transformer-service.
 type TelemetryPayload struct {
 	Organization string            `json:"organization"`
@@ -35,5 +37,5 @@ type TelemetryEntity struct {
 	UnitOfMeas  string         `json:"unit_of_measurement,omitempty"`
 	Icon        string         `json:"icon,omitempty"`
 	Timestamp   string         `json:"timestamp"`
-	StateID     *string        `json:"state_id,omitempty"`
+	StateID     uuid.UUID      `json:"state_id,omitempty"`
 }

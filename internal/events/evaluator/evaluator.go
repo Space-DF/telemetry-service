@@ -1,6 +1,7 @@
 package evaluator
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -8,21 +9,24 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/events"
 	"github.com/Space-DF/telemetry-service/internal/events/loader"
 	"github.com/Space-DF/telemetry-service/internal/models"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
 // EventRuleForEvaluation represents an event rule from automation or geofence
 // This is used for evaluation purposes, combining automation and geofence event rules
 type EventRuleForEvaluation struct {
-	EventRuleID    string // UUID of the event_rule row in event_rules table
-	AutomationID   string // UUID of the automation (empty for geofence rules)
-	AutomationName string // Name of the automation (used as event title)
+	EventRuleID    string  // UUID of the event_rule row in event_rules table
+	AutomationID   string  // UUID of the automation (empty for geofence rules)
+	AutomationName string  // Name of the automation (used as event title)
+	Title          *string // Optional title for the rule, used as event title if automation name is not set
 	RuleKey        *string
-	Definition     *string
+	Definition     json.RawMessage
 	IsActive       *bool
 	RepeatAble     *bool
 	Description    *string
 	GeofenceID     *string // Set if this is a geofence rule
+	GeofenceName   string  // Name of the geofence (used for event title)
 	IsAutomation   bool    // true if from automation, false if from geofence
 }
 
@@ -74,7 +78,7 @@ func (e *Evaluator) EvaluateRule(rule loader.YAMLRule, deviceID string, entity m
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:    deviceID,
+		DeviceID:    deviceID,
 		EntityType:  entity.EntityType,
 		RuleKey:     rule.RuleKey,
 		EventType:   rule.EventType,
@@ -113,18 +117,18 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	// Parse and evaluate definition conditions
-	if rule.Definition == nil || *rule.Definition == "" {
+	if len(rule.Definition) == 0 {
 		e.logger.Warn("Rule definition is null or empty",
 			zap.String("rule_key", ruleKey))
 		return nil
 	}
 
 	// Evaluate definition using condition evaluator
-	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinition(*rule.Definition, entity, deviceID)
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinition(string(rule.Definition), entity, deviceID)
 	if err != nil {
 		e.logger.Warn("Failed to evaluate rule definition",
 			zap.String("rule_key", ruleKey),
-			zap.String("definition", *rule.Definition),
+			zap.String("definition", string(rule.Definition)),
 			zap.Error(err))
 		return nil
 	}
@@ -134,10 +138,8 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 
 	// Build description from match details
 	title := ruleKey
-	if rule.AutomationName != "" {
-		title = rule.AutomationName
-	} else if rule.Description != nil && *rule.Description != "" {
-		title = *rule.Description
+	if rule.Title != nil && *rule.Title != "" {
+		title = *rule.Title
 	}
 	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
 	if rule.Description != nil && *rule.Description != "" {
@@ -145,9 +147,14 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	var automationID *string
+	var automationName *string
 	if rule.IsAutomation && rule.AutomationID != "" {
 		aid := rule.AutomationID
 		automationID = &aid
+		if rule.AutomationName != "" {
+			aname := rule.AutomationName
+			automationName = &aname
+		}
 	}
 	var geofenceID *string
 	if !rule.IsAutomation && rule.GeofenceID != nil {
@@ -160,21 +167,22 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:     deviceID,
-		EntityType:   entity.EntityType,
-		RuleKey:      ruleKey,
-		EventType:    "device_event",
-		EventLevel:   "automation",
-		Title:        title,
-		Description:  description,
-		Value:        0,
-		Threshold:    0,
-		Operator:     "complex",
-		Timestamp:    time.Now().UnixMilli(),
-		EventRuleID:  eventRuleID,
-		AutomationID: automationID,
-		GeofenceID:   geofenceID,
-		StateID:      entity.StateID,
+		DeviceID:       deviceID,
+		EntityType:     entity.EntityType,
+		RuleKey:        ruleKey,
+		EventType:      "device_event",
+		EventLevel:     "automation",
+		Title:          title,
+		Description:    description,
+		Value:          0,
+		Threshold:      0,
+		Operator:       "complex",
+		Timestamp:      time.Now().UnixMilli(),
+		EventRuleID:    eventRuleID,
+		AutomationID:   automationID,
+		AutomationName: automationName,
+		GeofenceID:     geofenceID,
+		StateID:        entity.StateID,
 	}
 
 	return matchedEvent
@@ -199,7 +207,7 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	}
 
 	// Parse and evaluate definition conditions
-	if rule.Definition == nil || *rule.Definition == "" {
+	if len(rule.Definition) == 0 {
 		return nil
 	}
 
@@ -211,13 +219,15 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		context[k] = v
 	}
 
+	e.logger.Info("Context data: ", zap.Any("context", context))
+
 	// Evaluate definition using condition evaluator with unified context
-	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(*rule.Definition, context)
+	matched, matchDetails, err := e.conditionEvaluator.EvaluateDefinitionWithContext(string(rule.Definition), context)
 	if err != nil {
 		e.logger.Info("Error evaluating rule definition",
 			zap.String("device_id", deviceID),
 			zap.String("rule_key", ruleKey),
-			zap.String("definition", *rule.Definition),
+			zap.String("definition", string(rule.Definition)),
 			zap.Error(err),
 		)
 		return nil
@@ -226,7 +236,7 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		e.logger.Info("Rule definition did not match",
 			zap.String("device_id", deviceID),
 			zap.String("rule_key", ruleKey),
-			zap.String("definition", *rule.Definition),
+			zap.String("definition", string(rule.Definition)),
 		)
 		return nil
 	}
@@ -234,10 +244,8 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	// Build description from match details or use rule's description
 	// Title: automation name, fallback to description, fallback to rule_key
 	title := ruleKey
-	if rule.AutomationName != "" {
-		title = rule.AutomationName
-	} else if rule.Description != nil && *rule.Description != "" {
-		title = *rule.Description
+	if rule.Title != nil && *rule.Title != "" {
+		title = *rule.Title
 	}
 	description := fmt.Sprintf("Rule %s matched: %s", ruleKey, matchDetails)
 	if rule.Description != nil && *rule.Description != "" {
@@ -246,9 +254,14 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 
 	// Set AutomationID only when this is an automation rule
 	var automationID *string
+	var automationName *string
 	if rule.IsAutomation && rule.AutomationID != "" {
 		aid := rule.AutomationID
 		automationID = &aid
+		if rule.AutomationName != "" {
+			aname := rule.AutomationName
+			automationName = &aname
+		}
 	}
 
 	// Set EventRuleID
@@ -259,30 +272,32 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 	}
 
 	// Find the first available StateID from entities
-	var stateID *string
+	var stateID uuid.UUID
 	for _, ent := range entities {
-		if ent.StateID != nil {
+		if ent.StateID != (uuid.UUID{}) { // Check if not empty UUID
 			stateID = ent.StateID
 			break
 		}
 	}
 
 	matchedEvent := &models.MatchedEvent{
-		EntityID:     deviceID,
-		EntityType:   "automation",
-		RuleKey:      ruleKey,
-		EventType:    "device_event",
-		EventLevel:   "automation",
-		Title:        title,
-		Description:  description,
-		Value:        0,
-		Threshold:    0,
-		Operator:     "complex",
-		Timestamp:    time.Now().UnixMilli(),
-		EventRuleID:  eventRuleID,
-		AutomationID: automationID,
-		GeofenceID:   nil,
-		StateID:      stateID,
+		DeviceID:       deviceID,
+		EntityType:     "automation",
+		RuleKey:        ruleKey,
+		EventType:      "device_event",
+		EventLevel:     "automation",
+		Title:          title,
+		Description:    description,
+		Value:          0,
+		Threshold:      0,
+		Operator:       "complex",
+		Timestamp:      time.Now().UnixMilli(),
+		EventRuleID:    eventRuleID,
+		AutomationID:   automationID,
+		AutomationName: automationName,
+		GeofenceID:     nil,
+		GeofenceName:   nil,
+		StateID:        stateID,
 	}
 
 	e.logger.Debug("Rule matched and event created",

@@ -164,19 +164,17 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 			if event.Timestamp == 0 {
 				event.Timestamp = time.Now().UnixMilli()
 			}
-			if err := p.tsClient.CreateEvent(ctx, payload.Organization, &event, payload.SpaceSlug); err != nil {
+			if err := p.tsClient.CreateEvent(ctx, payload.Organization, &event, payload.SpaceSlug, payload.DeviceID); err != nil {
 				p.logger.Error("Failed to create event",
 					zap.Error(err),
-					zap.String("entity_id", event.EntityID),
+					zap.String("device_id", event.DeviceID),
 					zap.String("rule_key", event.RuleKey))
 			} else {
 				p.logger.Info("Event created from rule match",
-					zap.String("entity_id", event.EntityID),
+					zap.String("device_id", event.DeviceID),
 					zap.String("rule_key", event.RuleKey),
 					zap.String("event_type", event.EventType),
-					zap.String("event_level", event.EventLevel),
-					zap.Float64("value", event.Value),
-					zap.Float64("threshold", event.Threshold))
+					zap.String("event_level", event.EventLevel))
 			}
 		}
 	}

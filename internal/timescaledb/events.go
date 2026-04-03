@@ -63,7 +63,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 		query := fmt.Sprintf(`
 			SELECT e.event_id, e.event_type_id, sp.space_slug,
 				   e.device_id, e.title, e.time_fired_ts, et.event_type,
-				   e.event_level, e.event_rule_id, e.entity_id,
+				   e.event_level, e.event_rule_id,
 				   e.automation_id, a.name AS automation_name, a.device_id AS automation_device_id,
 				   e.geofence_id, g.name AS geofence_name, g.type_zone AS geofence_type_zone,
 				   e.location
@@ -90,7 +90,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			var slug sql.NullString
 			var deviceIDVal sql.NullString
 			var titleVal sql.NullString
-			var eventLevel, eventRuleID, entityID sql.NullString
+			var eventLevel, eventRuleID sql.NullString
 			var automationID, automationName, automationDeviceID sql.NullString
 			var geofenceID, geofenceName, geofenceTypeZone sql.NullString
 			var locationJSON []byte
@@ -98,7 +98,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			if err := rows.Scan(
 				&e.EventID, &e.EventTypeID, &slug,
 				&deviceIDVal, &titleVal, &e.TimeFiredTs, &e.EventType,
-				&eventLevel, &eventRuleID, &entityID,
+				&eventLevel, &eventRuleID,
 				&automationID, &automationName, &automationDeviceID,
 				&geofenceID, &geofenceName, &geofenceTypeZone,
 				&locationJSON,
@@ -110,7 +110,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 				e.SpaceSlug = slug.String
 			}
 			if deviceIDVal.Valid {
-				e.DeviceID = &deviceIDVal.String
+				e.DeviceID = deviceIDVal.String
 			}
 			if titleVal.Valid {
 				e.Title = titleVal.String
@@ -121,13 +121,10 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			if eventRuleID.Valid {
 				e.EventRuleID = &eventRuleID.String
 			}
-			if entityID.Valid {
-				e.EntityID = &entityID.String
-			}
 			if automationID.Valid {
 				e.AutomationID = &automationID.String
 				if automationName.Valid {
-					e.AutomationName = automationName.String
+					e.AutomationName = &automationName.String
 				}
 				if automationDeviceID.Valid {
 					e.AutomationDeviceID = automationDeviceID.String
@@ -136,10 +133,10 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			if geofenceID.Valid {
 				e.GeofenceID = &geofenceID.String
 				if geofenceName.Valid {
-					e.GeofenceName = geofenceName.String
+					e.GeofenceName = &geofenceName.String
 				}
 				if geofenceTypeZone.Valid {
-					e.GeofenceTypeZone = geofenceTypeZone.String
+					e.GeofenceTypeZone = &geofenceTypeZone.String
 				}
 			}
 
@@ -165,7 +162,7 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 }
 
 // CreateEvent creates a new event from a matched automation or geofence
-func (c *Client) CreateEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug string) error {
+func (c *Client) CreateEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug, deviceID string) error {
 	if event == nil {
 		return fmt.Errorf("nil event")
 	}
@@ -193,15 +190,46 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 		}
 
 		// Create the event - use event_rule_id, automation_id, geofence_id, and device_id from the matched event
-		_, err = tx.ExecContext(txCtx, `
+		// Return only event_id; names are already in MatchedEvent
+		var eventID int64
+		err = tx.QueryRowContext(txCtx, `
 			INSERT INTO events (
 				event_type_id, event_level, event_rule_id, automation_id, geofence_id,
-				space_id, entity_id, device_id, state_id, location, time_fired_ts, title
-			) VALUES ($1, $2, $3, $4, $5, (SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1), $7::uuid, $8::uuid, $9, $10::jsonb, $11, $12)
-		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, event.EntityID, event.EntityID, event.StateID, locationJSON, event.Timestamp, event.Title)
+				space_id, device_id, state_id, location, time_fired_ts, title
+			) VALUES (
+				$1, $2, $3, $4, $5,
+				(SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1),
+				$7::uuid, $8, $9::jsonb, $10, $11
+			)
+			RETURNING event_id
+		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, deviceID, event.StateID, locationJSON, event.Timestamp, event.Title).Scan(&eventID)
 
 		if err != nil {
 			return fmt.Errorf("failed to create event: %w", err)
+		}
+
+		// Publish event to AMQP for real-time processing
+		// Use names from MatchedEvent (already fetched by the evaluator)
+		eventLevel := event.EventLevel
+
+		if err := c.PublishEventToDevice(ctx, &models.Event{
+			EventID:        eventID,
+			EventTypeID:    eventTypeID,
+			EventType:      event.EventType,
+			EventLevel:     &eventLevel,
+			EventRuleID:    event.EventRuleID,
+			AutomationID:   event.AutomationID,
+			AutomationName: event.AutomationName,
+			GeofenceID:     event.GeofenceID,
+			GeofenceName:   event.GeofenceName,
+			StateID:        event.StateID,
+			DeviceID:       deviceID,
+			SpaceSlug:      spaceSlug,
+			TimeFiredTs:    event.Timestamp,
+			Title:          event.Title,
+			Location:       event.Location,
+		}, org); err != nil {
+			return fmt.Errorf("failed to publish event: %w", err)
 		}
 
 		return nil
@@ -209,7 +237,6 @@ func (c *Client) CreateEvent(ctx context.Context, org string, event *models.Matc
 }
 
 // Event Rules CRUD operations
-
 // CreateEventRule creates a new event rule
 func (c *Client) CreateEventRule(ctx context.Context, rule *models.EventRule) error {
 	org := orgFromContext(ctx)
@@ -287,7 +314,7 @@ func (c *Client) GetEventRules(ctx context.Context) ([]models.EventRule, error) 
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -362,7 +389,7 @@ func (c *Client) GetEventRulesByIDs(ctx context.Context, eventRuleIDs []string) 
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -414,7 +441,7 @@ func (c *Client) GetEventRuleByID(ctx context.Context, ruleID string) (*models.E
 			rule.Description = &description.String
 		}
 		if definition.Valid {
-			rule.Definition = &definition.String
+			rule.Definition = json.RawMessage(definition.String)
 		}
 		if cooldownSec.Valid {
 			val := int(cooldownSec.Int64)
@@ -478,7 +505,7 @@ func (c *Client) GetEventRulesByGeofenceID(ctx context.Context, geofenceID strin
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -542,7 +569,7 @@ func (c *Client) GetActiveRulesForDevice(ctx context.Context, deviceID string) (
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)
@@ -570,25 +597,61 @@ func (c *Client) UpdateEventRule(ctx context.Context, ruleID string, rule *model
 	}
 
 	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		query := `
-			UPDATE event_rules
-			SET rule_key = $1, definition = $2, is_active = $3, repeat_able = $4, cooldown_sec = $5, description = $6
-			WHERE event_rule_id = $7
-		`
+		// Load current values from DB to use as defaults
+		var currentRuleKey sql.NullString
+		var currentDefinition sql.NullString
+		var currentIsActive sql.NullBool
+		var currentRepeatAble sql.NullBool
+		var currentCooldownSec sql.NullInt64
+		var currentDescription sql.NullString
 
-		isActive := true
-		repeatAble := true
+		err := tx.QueryRowContext(txCtx, `
+			SELECT rule_key, definition, is_active, repeat_able, cooldown_sec, description
+			FROM event_rules WHERE event_rule_id = $1
+		`, ruleID).Scan(
+			&currentRuleKey, &currentDefinition, &currentIsActive,
+			&currentRepeatAble, &currentCooldownSec, &currentDescription,
+		)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("event rule not found")
+			}
+			return fmt.Errorf("failed to get current event rule: %w", err)
+		}
+
+		// Initialize defaults from current DB data
+		ruleKey := currentRuleKey.String
+		definition := json.RawMessage(currentDefinition.String)
+		isActive := currentIsActive.Bool
+		repeatAble := currentRepeatAble.Bool
+		cooldownSec := int(currentCooldownSec.Int64)
+		description := currentDescription.String
+
+		// Override with provided values if set
+		if rule.RuleKey != "" {
+			ruleKey = rule.RuleKey
+		}
+		if len(rule.Definition) > 0 {
+			definition = rule.Definition
+		}
 		if rule.IsActive != nil {
 			isActive = *rule.IsActive
 		}
 		if rule.RepeatAble != nil {
 			repeatAble = *rule.RepeatAble
 		}
+		if rule.CooldownSec != nil {
+			cooldownSec = *rule.CooldownSec
+		}
+		if rule.Description != nil {
+			description = *rule.Description
+		}
 
-		_, err := tx.ExecContext(txCtx, query,
-			rule.RuleKey, rule.Definition, isActive, repeatAble,
-			rule.CooldownSec, rule.Description, ruleID,
-		)
+		_, err = tx.ExecContext(txCtx, `
+			UPDATE event_rules
+			SET rule_key = $1, definition = $2::jsonb, is_active = $3, repeat_able = $4, cooldown_sec = $5, description = $6
+			WHERE event_rule_id = $7
+		`, ruleKey, definition, isActive, repeatAble, cooldownSec, description, ruleID)
 
 		if err != nil {
 			return fmt.Errorf("failed to update event rule: %w", err)
@@ -669,7 +732,7 @@ func (c *Client) GetEventRulesWithAutomationInfo(ctx context.Context) ([]models.
 				rule.Description = &description.String
 			}
 			if definition.Valid {
-				rule.Definition = &definition.String
+				rule.Definition = json.RawMessage(definition.String)
 			}
 			if cooldownSec.Valid {
 				val := int(cooldownSec.Int64)

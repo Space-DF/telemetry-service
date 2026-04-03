@@ -19,6 +19,7 @@ type Action struct {
 type Automation struct {
 	ID          string
 	Name        string
+	Title       *string
 	DeviceID    string
 	EventRuleID *string
 	EventRule   *EventRule
@@ -31,4 +32,11 @@ type Automation struct {
 type AutomationWithActions struct {
 	Automation
 	Actions []Action
+}
+
+// AutomationSummary holds counts of automations grouped by status.
+type AutomationSummary struct {
+	Total    int `json:"total"`
+	Active   int `json:"active"`
+	Disabled int `json:"disabled"`
 }

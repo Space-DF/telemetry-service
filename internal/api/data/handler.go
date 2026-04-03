@@ -19,8 +19,8 @@ import (
 // @Param device_id query string true "Device ID"
 // @Param space_slug query string true "Space slug"
 // @Success 200 {object} map[string]interface{} "Device properties as key-value pairs"
-// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
-// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
 // @Router /telemetry/v1/data/latest [get]
 func getDeviceProperties(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {

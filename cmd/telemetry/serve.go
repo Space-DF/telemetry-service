@@ -108,6 +108,9 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	// Initialize multi-tenant AMQP consumer with schema initializer
 	consumer := amqp.NewMultiTenantConsumer(appConfig.AMQP, appConfig.OrgEvents, processor, tsClient, logger)
 
+	// Set the publisher for real-time events (used by rule actions)
+	tsClient.SetPublisher(consumer)
+
 	// Connect to RabbitMQ
 	if err := consumer.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to AMQP: %w", err)
@@ -142,6 +145,14 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		ruleRegistry.InvalidateAllDeviceCache()
 		logger.Info("Invalidated device rules cache after geofence change")
 	}
+
+	tsClient.OnAutomationChange = func() {
+		ruleRegistry.InvalidateAllDeviceCache()
+		logger.Info("Invalidated device rules cache after automation change")
+	}
+
+	// Attach rule registry to client for use in handlers
+	tsClient.RuleRegistry = ruleRegistry
 
 	api.Setup(appConfig, group, logger, tsClient)
 	health.Setup(group, consumer, tsClient, logger)

@@ -28,8 +28,8 @@ const (
 // @Param limit query int false "Number of results per page (default 100)"
 // @Param offset query int false "Number of results to skip (default 0)"
 // @Success 200 {object} common.PaginatedResponse
-// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
-// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
 // @Router /telemetry/v1/location/history [get]
 func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {

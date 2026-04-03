@@ -29,8 +29,8 @@ import (
 // @Param limit query int false "Number of results per page (default 20)"
 // @Param offset query int false "Number of results to skip (default 0)"
 // @Success 200 {object} common.PaginatedResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences [get]
 func getGeofences(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -210,10 +210,10 @@ func testGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handler
 // @Accept json
 // @Produce json
 // @Param geofence_id path string true "Geofence UUID"
-// @Success 200 {object} models.GeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 404 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Success 200 {object} apimodels.GeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 404 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences/{geofence_id} [get]
 func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -256,10 +256,10 @@ func getGeofenceByID(logger *zap.Logger, tsClient *timescaledb.Client) echo.Hand
 // @Tags geofences
 // @Accept json
 // @Produce json
-// @Param request body models.CreateGeofenceRequest true "Geofence configuration"
-// @Success 201 {object} models.CreateGeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Param request body apimodels.CreateGeofenceRequest true "Geofence configuration"
+// @Success 201 {object} apimodels.CreateGeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences [post]
 func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -323,7 +323,7 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		// Pass definition to CreateGeofence which will create the event rule with it
 		var definition *json.RawMessage
 		if len(req.Definition) > 0 {
-			def := ensureDistanceCondition(req.Definition)
+			def := ensureDistanceCondition(req.Definition, req.Type)
 			definition = &def
 		}
 		geofence, err := tsClient.CreateGeofence(ctx, req.Name, req.Type, multiPolygonGeoJSON, req.Features, req.Color, req.SpaceID, req.IsActive, nil, definition)
@@ -362,11 +362,11 @@ func createGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 // @Accept json
 // @Produce json
 // @Param geofence_id path string true "Geofence UUID"
-// @Param request body models.UpdateGeofenceRequest true "Geofence updates"
-// @Success 200 {object} models.UpdateGeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 404 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Param request body apimodels.UpdateGeofenceRequest true "Geofence updates"
+// @Success 200 {object} apimodels.UpdateGeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 404 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences/{geofence_id} [put]
 func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -409,7 +409,13 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		// event_rule_id is managed separately - not updated through geofence endpoint
 		var eventRuleID *uuid.UUID
 
-		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.Features, req.Color, req.SpaceID, req.IsActive, eventRuleID)
+		// Pass definition so UpdateGeofence can update the event rule atomically
+		var def *json.RawMessage
+		if len(req.Definition) > 0 {
+			def = &req.Definition
+		}
+
+		geofence, err := tsClient.UpdateGeofence(ctx, geofenceID, req.Name, req.Type, geometryJSON, req.Features, req.Color, req.SpaceID, req.IsActive, eventRuleID, def)
 		if err != nil {
 			if errors.Is(err, models.ErrGeofenceNotFound) {
 				return c.JSON(http.StatusNotFound, apimodels.ErrorResponse{
@@ -425,37 +431,6 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			return c.JSON(http.StatusInternalServerError, apimodels.ErrorResponse{
 				Error: "Failed to update geofence",
 			})
-		}
-
-		// Update event rule definition: ensure distance_from_geofence_km is present
-		defToUse := ensureDistanceCondition(req.Definition)
-		if geofence.EventRuleID != nil {
-			eventRule, err := tsClient.GetEventRuleByID(ctx, geofence.EventRuleID.String())
-			if err != nil || eventRule == nil {
-				logger.Warn("failed to get event rule for definition update",
-					zap.String("geofence_id", geofenceIDStr),
-					zap.Error(err))
-			} else {
-				// Use request definition if provided, otherwise fix the existing one
-				if len(req.Definition) == 0 && eventRule.Definition != nil {
-					defToUse = ensureDistanceCondition(json.RawMessage(*eventRule.Definition))
-				}
-				defStr := string(defToUse)
-				updateReq := &models.EventRule{
-					RuleKey:     eventRule.RuleKey,
-					Definition:  &defStr,
-					IsActive:    eventRule.IsActive,
-					RepeatAble:  eventRule.RepeatAble,
-					CooldownSec: eventRule.CooldownSec,
-					Description: eventRule.Description,
-				}
-				if err = tsClient.UpdateEventRule(ctx, eventRule.EventRuleID, updateReq); err != nil {
-					logger.Warn("failed to update event rule definition",
-						zap.String("geofence_id", geofenceIDStr),
-						zap.String("event_rule_id", eventRule.EventRuleID),
-						zap.Error(err))
-				}
-			}
 		}
 
 		// Build response with event rule information
@@ -477,10 +452,10 @@ func updateGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 // @Accept json
 // @Produce json
 // @Param geofence_id path string true "Geofence UUID"
-// @Success 200 {object} models.DeleteGeofenceResponse
-// @Failure 400 {object} models.ErrorResponse
-// @Failure 404 {object} models.ErrorResponse
-// @Failure 500 {object} models.ErrorResponse
+// @Success 200 {object} apimodels.DeleteGeofenceResponse
+// @Failure 400 {object} apimodels.ErrorResponse
+// @Failure 404 {object} apimodels.ErrorResponse
+// @Failure 500 {object} apimodels.ErrorResponse
 // @Router /telemetry/v1/geofences/{geofence_id} [delete]
 func deleteGeofence(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -543,26 +518,38 @@ func convertGeofenceToResponse(ctx context.Context, tsClient *timescaledb.Client
 	}
 
 	// Fetch event rule for this geofence
-	if g.EventRuleID != nil {
-		eventRule, err := tsClient.GetEventRuleByID(ctx, g.EventRuleID.String())
-		if err == nil && eventRule != nil {
-			ruleKey := eventRule.RuleKey
-			isActive := false
-			if eventRule.IsActive != nil {
-				isActive = *eventRule.IsActive
-			}
-			resp.EventRule = &apimodels.EventRuleInfo{
-				EventRuleID: eventRule.EventRuleID,
-				RuleKey:     ruleKey,
-				IsActive:    isActive,
-				CreatedAt:   eventRule.CreatedAt,
-			}
-			if eventRule.Definition != nil {
-				resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
-			}
-		}
+	if g.EventRuleID == nil {
+		return resp
 	}
-
+	eventRule, err := tsClient.GetEventRuleByID(ctx, g.EventRuleID.String())
+	if err != nil || eventRule == nil {
+		return resp
+	}
+	ruleKey := eventRule.RuleKey
+	isActive := false
+	if eventRule.IsActive != nil {
+		isActive = *eventRule.IsActive
+	}
+	resp.EventRule = &apimodels.EventRuleInfo{
+		EventRuleID: eventRule.EventRuleID,
+		RuleKey:     ruleKey,
+		IsActive:    isActive,
+		CreatedAt:   eventRule.CreatedAt,
+	}
+	if len(eventRule.Definition) == 0 {
+		return resp
+	}
+	var defMap map[string]interface{}
+	if err := json.Unmarshal(eventRule.Definition, &defMap); err != nil {
+		resp.EventRule.Definition = eventRule.Definition
+		return resp
+	}
+	removeZeroDistanceFromDef(defMap)
+	if newDef, err := json.Marshal(defMap); err == nil {
+		resp.EventRule.Definition = json.RawMessage(newDef)
+	} else {
+		resp.EventRule.Definition = eventRule.Definition
+	}
 	return resp
 }
 
@@ -593,8 +580,18 @@ func convertModelGeofenceToResponse(ctx context.Context, tsClient *timescaledb.C
 				IsActive:    isActive,
 				CreatedAt:   eventRule.CreatedAt,
 			}
-			if eventRule.Definition != nil {
-				resp.EventRule.Definition = json.RawMessage(*eventRule.Definition)
+			if len(eventRule.Definition) > 0 {
+				var defMap map[string]interface{}
+				if err := json.Unmarshal(eventRule.Definition, &defMap); err == nil {
+					removeZeroDistanceFromDef(defMap)
+					if newDef, err := json.Marshal(defMap); err == nil {
+						resp.EventRule.Definition = json.RawMessage(newDef)
+					} else {
+						resp.EventRule.Definition = eventRule.Definition
+					}
+				} else {
+					resp.EventRule.Definition = eventRule.Definition
+				}
 			}
 		}
 	}
@@ -635,8 +632,16 @@ func convertFeaturesToMultiPolygon(features []json.RawMessage) ([]byte, error) {
 }
 
 // ensureDistanceCondition checks if the definition JSON includes a distance_from_geofence_km
-// condition. If not, it adds a default one with {"lte": 0} to the conditions.and array.
-func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
+// condition. If not, it adds a default one to the conditions.and array.
+// For safe zones: uses "gte": 0 (trigger when device is far from safe zone)
+// For danger zones: uses "lte": 0 (trigger when device is close to danger zone)
+func ensureDistanceCondition(raw json.RawMessage, typeZone string) json.RawMessage {
+	// Determine operator based on zone type: safe → gte, danger/other → lte
+	distOp := "lte"
+	if typeZone == "safe" {
+		distOp = "gte"
+	}
+
 	str := string(raw)
 	if strings.Contains(str, "distance_from_geofence_km") {
 		return raw
@@ -648,7 +653,7 @@ func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
 		newDef := map[string]interface{}{
 			"conditions": map[string]interface{}{
 				"and": []interface{}{
-					map[string]interface{}{"distance_from_geofence_km": map[string]interface{}{"lte": 0}},
+					map[string]interface{}{"distance_from_geofence_km": map[string]interface{}{distOp: 0}},
 				},
 			},
 		}
@@ -657,7 +662,7 @@ func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
 	}
 
 	distCondition := map[string]interface{}{
-		"distance_from_geofence_km": map[string]interface{}{"lte": 0},
+		"distance_from_geofence_km": map[string]interface{}{distOp: 0},
 	}
 
 	conditions, hasConditions := def["conditions"]
@@ -686,4 +691,49 @@ func ensureDistanceCondition(raw json.RawMessage) json.RawMessage {
 	def["conditions"] = condMap
 	b, _ := json.Marshal(def)
 	return b
+}
+
+// removeZeroDistanceFromDef removes distance_from_geofence_km entries from conditions.and
+// where the operator value is 0 (e.g. {"lte": 0} or {"gte": 0}).
+func removeZeroDistanceFromDef(defMap map[string]interface{}) {
+	conditions, ok := defMap["conditions"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	andArr, ok := conditions["and"].([]interface{})
+	if !ok {
+		return
+	}
+	filtered := make([]interface{}, 0, len(andArr))
+	for _, item := range andArr {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		distVal, hasDist := itemMap["distance_from_geofence_km"]
+		if !hasDist {
+			filtered = append(filtered, item)
+			continue
+		}
+		// distVal is a map like {"lte": 0} or {"gte": 0}
+		distMap, ok := distVal.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		allZero := true
+		for _, v := range distMap {
+			fv, isFloat := v.(float64)
+			if !isFloat || fv != 0 {
+				allZero = false
+				break
+			}
+		}
+		if !allZero {
+			filtered = append(filtered, item)
+		}
+	}
+	conditions["and"] = filtered
+	defMap["conditions"] = conditions
 }
