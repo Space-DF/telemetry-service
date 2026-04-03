@@ -890,3 +890,31 @@ func (c *Client) getActionsByIDs(ctx context.Context, tx bob.Tx, actionIDs []str
 
 	return actions, nil
 }
+
+// GetAutomationSummary returns total, active, and disabled automation counts for a space.
+func (c *Client) GetAutomationSummary(ctx context.Context, spaceID uuid.UUID) (*models.AutomationSummary, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	var stats models.AutomationSummary
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		query := `
+			SELECT
+			  COUNT(*) AS total,
+			  COUNT(*) FILTER (WHERE er.is_active = true)  AS active,
+			  COUNT(*) FILTER (WHERE er.is_active = false) AS disabled
+			FROM automations a
+			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
+			WHERE a.space_id = $1
+		`
+		return tx.QueryRowContext(txCtx, query, spaceID).Scan(&stats.Total, &stats.Active, &stats.Disabled)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query automation summary: %w", err)
+	}
+
+	return &stats, nil
+}

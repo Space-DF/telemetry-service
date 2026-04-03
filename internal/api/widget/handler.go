@@ -24,8 +24,8 @@ import (
 // @Param aggregation query string false "Aggregation method (mean, min, max, sum, count)"
 // @Param interval query string false "Time interval for grouping (e.g., 1m, 5m, 1h, 1d)"
 // @Success 200 {object} map[string]interface{} "Widget data based on display type"
-// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
-// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
 // @Router /telemetry/v1/widget/data/{entity_id} [get]
 func getWidgetData(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {

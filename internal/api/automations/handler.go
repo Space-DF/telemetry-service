@@ -175,6 +175,51 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 	})
 }
 
+// GetAutomationSummary returns total, active, and disabled automation counts for a space.
+// @Summary Get automation summary
+// @Description Returns total, active, and disabled counts for automations in a space. Organization is resolved from X-Organization header or hostname.
+// @Tags automations
+// @Accept json
+// @Produce json
+// @Success 200 {object} models.AutomationSummary
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /telemetry/v1/automations/summary [get]
+func (h *Handler) GetAutomationsSummary(c echo.Context) error {
+	org := common.ResolveOrgFromRequest(c)
+	if org == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Could not determine organization from hostname or X-Organization header",
+		})
+	}
+
+	spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "X-Space header is required",
+		})
+	}
+
+	spaceID, err := h.tsClient.GetSpaceIDBySlug(c.Request().Context(), org, spaceSlug)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("Space '%s' not found", spaceSlug),
+		})
+	}
+
+	ctx := timescaledb.ContextWithOrg(c.Request().Context(), org)
+
+	summary, err := h.tsClient.GetAutomationSummary(ctx, spaceID)
+	if err != nil {
+		h.logger.Error("failed to get automation summary", zap.Error(err))
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to get automation summary",
+		})
+	}
+
+	return c.JSON(http.StatusOK, summary)
+}
+
 // GetAutomationByID returns a single automation by ID
 // @Summary Get automation by ID
 // @Description Retrieve a single automation by ID. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
@@ -230,7 +275,7 @@ func (h *Handler) GetAutomationByID(c echo.Context) error {
 // @Tags automations
 // @Accept json
 // @Produce json
-// @Param request body models.AutomationRequest true "Automation configuration"
+// @Param request body apimodels.AutomationRequest true "Automation configuration"
 // @Success 201 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 500 {object} map[string]string "Internal server error"
@@ -332,7 +377,7 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param automation_id path string true "Automation ID"
-// @Param request body models.AutomationRequest true "Automation configuration"
+// @Param request body apimodels.AutomationRequest true "Automation configuration"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 404 {object} map[string]string "Automation not found"
@@ -530,7 +575,7 @@ func (h *Handler) GetActions(c echo.Context) error {
 // @Tags automations
 // @Accept json
 // @Produce json
-// @Param request body models.ActionRequest true "Action configuration"
+// @Param request body apimodels.ActionRequest true "Action configuration"
 // @Success 201 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 500 {object} map[string]string "Internal server error"
@@ -583,7 +628,7 @@ func (h *Handler) CreateAction(c echo.Context) error {
 // @Accept json
 // @Produce json
 // @Param action_id path string true "Action ID"
-// @Param request body models.ActionRequest true "Action configuration"
+// @Param request body apimodels.ActionRequest true "Action configuration"
 // @Success 200 {object} map[string]interface{}
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 404 {object} map[string]string "Action not found"
