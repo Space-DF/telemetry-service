@@ -9,6 +9,7 @@ import (
 
 	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
+	"github.com/Space-DF/telemetry-service/pkgs/db/dberrors"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
@@ -765,6 +766,10 @@ func (c *Client) CreateAction(ctx context.Context, name, key string, data map[st
 		)
 
 		if err != nil {
+			// Check for unique constraint violation on name or key
+			if errors.Is(err, dberrors.ErrUniqueConstraint) {
+				return fmt.Errorf("action with name '%s' or key '%s' already exists", name, key)
+			}
 			return fmt.Errorf("failed to insert action: %w", err)
 		}
 
