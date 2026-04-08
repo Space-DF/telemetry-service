@@ -59,10 +59,10 @@ type MultiTenantConsumer struct {
 	reconnecting         bool // Flag to prevent concurrent reconnections
 }
 
-// MessageProcessor processes device location messages
+// MessageProcessor processes device telemetry messages and triggers automations
 type MessageProcessor interface {
-	ProcessMessage(context context.Context, msg *models.DeviceLocationMessage) error
-	ProcessTelemetry(ctx context.Context, payload *models.TelemetryPayload) error
+	ProcessTelemetryAndTriggerAutomations(context context.Context, msg *models.DeviceLocationMessage) error
+	ProcessTelemetry(context context.Context, payload *models.TelemetryPayload) error
 	OnOrgCreated(ctx context.Context, orgSlug string) error
 	OnOrgDeleted(ctx context.Context, orgSlug string) error
 }

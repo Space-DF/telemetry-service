@@ -75,9 +75,15 @@ func (r *RuleRegistry) LoadDefaultRulesFromDir(dir string) error {
 	return nil
 }
 
-// This function is the core of the rule evaluation process, It checks if there's any custom automation event rules that
-// Created by the user for the the specific device. If there are, it evaluates those first. If not, it falls back to the default system rules
-func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model string, entities []models.TelemetryEntity) []models.MatchedEvent {
+// ruleSplit contains rules split by type
+type ruleSplit struct {
+	definitionRules []evaluator.EventRuleForEvaluation
+	geofenceRules   []evaluator.EventRuleForEvaluation
+}
+
+// MatchAutomationEvents evaluates automation rules against telemetry entities and returns matched events.
+// It checks for custom automation event rules created for the specific device. If none exist, it falls back to default system rules.
+func (r *RuleRegistry) MatchAutomationEvents(ctx context.Context, deviceID, brand, model string, entities []models.TelemetryEntity) []models.MatchedEvent {
 	var matchedEvents []models.MatchedEvent
 	matchedRuleKeys := make(map[string]bool)
 
@@ -86,7 +92,7 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 	}
 
 	// Try to get grouped automation rules from cache first
-	rulesByKey := r.cache.GetGrouped(ctx, deviceID)
+	rulesByKey := r.cache.LoadAutomationRulesForDevice(ctx, deviceID)
 
 	r.logger.Info("Loaded rule groups",
 		zap.String("device_id", deviceID),
@@ -94,280 +100,20 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 
 	// Evaluate custom automation rules if they exist.
 	if len(rulesByKey) > 0 {
-		// Split rules into definition-based and geofence-based
-		seenIDs := make(map[string]bool)
-		var definitionRules, geofenceRules []evaluator.EventRuleForEvaluation
-
-		for _, rules := range rulesByKey {
-			for _, rule := range rules {
-				uniqueKey := rule.AutomationID
-				if rule.GeofenceID != nil && *rule.GeofenceID != "" {
-					uniqueKey = *rule.GeofenceID
-				}
-				if uniqueKey == "" {
-					uniqueKey = rule.EventRuleID
-				}
-				if seenIDs[uniqueKey] {
-					continue
-				}
-				seenIDs[uniqueKey] = true
-
-				if rule.GeofenceID != nil && *rule.GeofenceID != "" {
-					geofenceRules = append(geofenceRules, rule)
-				} else {
-					definitionRules = append(definitionRules, rule)
-				}
-			}
-		}
+		split := r.splitRulesByType(rulesByKey)
 
 		r.logger.Info("Split rules",
 			zap.String("device_id", deviceID),
-			zap.Int("automation_rules", len(definitionRules)),
-			zap.Int("geofence_rules", len(geofenceRules)))
+			zap.Int("automation_rules", len(split.definitionRules)),
+			zap.Int("geofence_rules", len(split.geofenceRules)))
 
-		// Evaluate definition rules against unified context from ALL entities
-		for _, rule := range definitionRules {
-			matched := r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, map[string]interface{}{})
-			ruleKey := ""
-			if rule.RuleKey != nil {
-				ruleKey = *rule.RuleKey
-			}
-			r.logger.Info("Automation rule evaluated",
-				zap.String("device_id", deviceID),
-				zap.String("rule_key", ruleKey),
-				zap.String("event_rule_id", rule.EventRuleID),
-				zap.Bool("matched", matched != nil))
-			if matched != nil {
-				matchedEvents = append(matchedEvents, *matched)
-				if ruleKey != "" {
-					matchedRuleKeys[ruleKey] = true
-				}
-			}
-		}
+		// Evaluate definition rules
+		matchedEvents = append(matchedEvents, r.evaluateDefinitionRules(split.definitionRules, deviceID, entities, matchedRuleKeys)...)
 
 		// Evaluate geofence rules
-		if len(geofenceRules) > 0 {
-			if lat, lon, locationStateID, hasLocation := extractLocation(entities); hasLocation {
-				r.logger.Info("Evaluating geofence rules with location",
-					zap.String("device_id", deviceID),
-					zap.Float64("lat", lat),
-					zap.Float64("lon", lon),
-					zap.Int("geofence_rule_count", len(geofenceRules)))
-
-				// Check all geofences and classify results
-				type geofenceResult struct {
-					rule     evaluator.EventRuleForEvaluation
-					isInside bool
-					typeZone string
-				}
-
-				var results []geofenceResult
-
-				for _, rule := range geofenceRules {
-					if rule.IsActive != nil && !*rule.IsActive {
-						continue
-					}
-
-					isInside, typeZone, err := r.db.IsPointInGeofence(ctx, *rule.GeofenceID, lat, lon)
-					if err != nil {
-						r.logger.Warn("IsPointInGeofence failed",
-							zap.String("geofence_id", *rule.GeofenceID),
-							zap.Error(err))
-						continue
-					}
-
-					r.logger.Info("Geofence check",
-						zap.String("device_id", deviceID),
-						zap.String("geofence_id", *rule.GeofenceID),
-						zap.String("type_zone", typeZone),
-						zap.Bool("is_inside", isInside))
-
-					results = append(results, geofenceResult{rule: rule, isInside: isInside, typeZone: typeZone})
-				}
-
-				// If device is inside ANY safe zone AND its definition conditions match,
-				// it is considered safe — skip all safe zone exit events.
-				// Requires two passes: first evaluate all definitions, then determine shouldTrigger.
-				type evaluatedResult struct {
-					res               geofenceResult
-					definitionMatched bool
-					hasDefinition     bool
-				}
-
-				var evaluated []evaluatedResult
-				isInsideAnySafeZone := false
-
-				for _, res := range results {
-					rule := res.rule
-					geofenceIDDebug := ""
-					if rule.GeofenceID != nil {
-						geofenceIDDebug = *rule.GeofenceID
-					}
-
-					definitionMatched := false
-					hasDefinition := len(rule.Definition) > 0
-
-					if hasDefinition {
-						extraCtx := map[string]interface{}{}
-						distKm, distErr := r.db.DistanceToGeofenceKm(ctx, *rule.GeofenceID, lat, lon)
-						if distErr == nil {
-							r.logger.Info("Geofence distance calculated",
-								zap.String("device_id", deviceID),
-								zap.String("geofence_id", geofenceIDDebug),
-								zap.Float64("distance_km", distKm))
-							extraCtx["distance_from_geofence_km"] = distKm
-						}
-						definitionMatched = r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, extraCtx) != nil
-						r.logger.Info("Geofence definition evaluation result",
-							zap.String("device_id", deviceID),
-							zap.String("geofence_id", geofenceIDDebug),
-							zap.Bool("definition_matched", definitionMatched))
-					}
-
-					// Check if this safe zone qualifies the device as "safe"
-					if res.typeZone == "safe" && res.isInside {
-						if hasDefinition {
-							// Only consider device safe if definition also matches
-							if definitionMatched {
-								isInsideAnySafeZone = true
-							}
-						} else {
-							// No definition → inside safe zone is enough
-							isInsideAnySafeZone = true
-						}
-					}
-
-					evaluated = append(evaluated, evaluatedResult{
-						res:               res,
-						definitionMatched: definitionMatched,
-						hasDefinition:     hasDefinition,
-					})
-				}
-
-				if isInsideAnySafeZone {
-					r.logger.Info("Device is inside a safe zone (with conditions met), will skip all safe zone exit events",
-						zap.String("device_id", deviceID))
-				}
-
-				// Collect all triggered geofence events, grouped by zone type.
-				var dangerEvents []models.MatchedEvent
-				var safeEvents []models.MatchedEvent
-
-				for _, ev := range evaluated {
-					res := ev.res
-					rule := res.rule
-					geofenceIDDebug := ""
-					if rule.GeofenceID != nil {
-						geofenceIDDebug = *rule.GeofenceID
-					}
-
-					// Determine shouldTrigger based on zone type:
-					shouldTrigger := false
-					switch res.typeZone {
-					case "safe":
-						if isInsideAnySafeZone {
-							shouldTrigger = false
-						} else if ev.hasDefinition {
-							shouldTrigger = (!res.isInside && ev.definitionMatched)
-						} else {
-							shouldTrigger = !res.isInside
-						}
-					default:
-						if ev.hasDefinition {
-							shouldTrigger = (res.isInside && ev.definitionMatched) || (!res.isInside && ev.definitionMatched)
-						} else {
-							shouldTrigger = res.isInside
-						}
-					}
-
-					r.logger.Info("Geofence shouldTrigger evaluated",
-						zap.String("device_id", deviceID),
-						zap.String("geofence_id", geofenceIDDebug),
-						zap.String("type_zone", res.typeZone),
-						zap.Bool("is_inside", res.isInside),
-						zap.Bool("has_definition", ev.hasDefinition),
-						zap.Bool("definition_matched", ev.definitionMatched),
-						zap.Bool("should_trigger", shouldTrigger))
-
-					if !shouldTrigger {
-						r.logger.Info("Geofence skipped - shouldTrigger is false",
-							zap.String("device_id", deviceID),
-							zap.String("geofence_id", geofenceIDDebug))
-						continue
-					}
-
-					// Build the matched event
-					_, geofenceTitle, eventDesc := r.evaluateGeofenceTrigger(res.isInside, res.typeZone, *rule.GeofenceID)
-
-					if rule.Description != nil && *rule.Description != "" {
-						eventDesc = *rule.Description
-					}
-
-					ruleKey := ""
-					if rule.RuleKey != nil {
-						ruleKey = *rule.RuleKey
-					}
-
-					var eventRuleID *string
-					if rule.EventRuleID != "" {
-						erid := rule.EventRuleID
-						eventRuleID = &erid
-					}
-
-					// Set geofence name if available
-					var geofenceName *string
-					if rule.GeofenceName != "" {
-						geofenceName = &rule.GeofenceName
-					}
-
-					event := models.MatchedEvent{
-						DeviceID:     deviceID,
-						EntityType:   "location",
-						RuleKey:      ruleKey,
-						EventType:    "device_event",
-						EventLevel:   "automation",
-						Title:        geofenceTitle,
-						Description:  eventDesc,
-						Value:        lat,
-						Threshold:    lon,
-						Operator:     "geofence:" + res.typeZone,
-						Timestamp:    time.Now().UnixMilli(),
-						EventRuleID:  eventRuleID,
-						AutomationID: nil,
-						GeofenceID:   rule.GeofenceID,
-						GeofenceName: geofenceName,
-						StateID:      locationStateID,
-						Location:     &models.Location{Latitude: lat, Longitude: lon},
-					}
-
-					// Classify event by zone type
-					switch res.typeZone {
-					case "danger":
-						dangerEvents = append(dangerEvents, event)
-					case "safe":
-						safeEvents = append(safeEvents, event)
-					default:
-						// Other zone types treated as danger-priority
-						dangerEvents = append(dangerEvents, event)
-					}
-				}
-
-				// Priority: danger events take precedence over safe events.
-				// Only one group is returned — all danger OR all safe, never mixed.
-				var geofenceMatchedEvents []models.MatchedEvent
-				if len(dangerEvents) > 0 {
-					geofenceMatchedEvents = dangerEvents
-				} else if len(safeEvents) > 0 {
-					geofenceMatchedEvents = safeEvents
-				}
-
-				for _, evt := range geofenceMatchedEvents {
-					matchedEvents = append(matchedEvents, evt)
-					if evt.RuleKey != "" {
-						matchedRuleKeys[evt.RuleKey] = true
-					}
-				}
-			}
+		if len(split.geofenceRules) > 0 {
+			geofenceEvents := r.evaluateGeofenceRules(ctx, split.geofenceRules, deviceID, entities, matchedRuleKeys)
+			matchedEvents = append(matchedEvents, geofenceEvents...)
 		}
 	}
 
@@ -376,27 +122,354 @@ func (r *RuleRegistry) Evaluate(ctx context.Context, deviceID, brand, model stri
 		zap.Int("matched_events", len(matchedEvents)))
 
 	// Evaluate default system rules — skip rule_keys already matched by custom rules
+	defaultEvents := r.evaluateDefaultRules(brand, model, entities, matchedRuleKeys, deviceID)
+	matchedEvents = append(matchedEvents, defaultEvents...)
+
+	return matchedEvents
+}
+
+// splitRulesByType splits automation rules into definition-based and geofence-based rules
+func (r *RuleRegistry) splitRulesByType(rulesByKey map[string][]evaluator.EventRuleForEvaluation) ruleSplit {
+	seenIDs := make(map[string]bool)
+	var definitionRules, geofenceRules []evaluator.EventRuleForEvaluation
+
+	for _, rules := range rulesByKey {
+		for _, rule := range rules {
+			uniqueKey := r.getRuleUniqueKey(rule)
+			if uniqueKey == "" || seenIDs[uniqueKey] {
+				continue
+			}
+			seenIDs[uniqueKey] = true
+
+			if rule.GeofenceID != nil && *rule.GeofenceID != "" {
+				geofenceRules = append(geofenceRules, rule)
+			} else {
+				definitionRules = append(definitionRules, rule)
+			}
+		}
+	}
+
+	return ruleSplit{
+		definitionRules: definitionRules,
+		geofenceRules:   geofenceRules,
+	}
+}
+
+// getRuleUniqueKey returns a unique key for deduplication
+func (r *RuleRegistry) getRuleUniqueKey(rule evaluator.EventRuleForEvaluation) string {
+	if rule.GeofenceID != nil && *rule.GeofenceID != "" {
+		return *rule.GeofenceID
+	}
+	if rule.AutomationID != "" {
+		return rule.AutomationID
+	}
+	return rule.EventRuleID
+}
+
+// evaluateDefinitionRules evaluates definition-based rules and returns matched events
+func (r *RuleRegistry) evaluateDefinitionRules(rules []evaluator.EventRuleForEvaluation, deviceID string, entities []models.TelemetryEntity, matchedRuleKeys map[string]bool) []models.MatchedEvent {
+	var matchedEvents []models.MatchedEvent
+
+	for _, rule := range rules {
+		matched := r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, map[string]interface{}{})
+		ruleKey := r.getRuleKey(rule)
+
+		r.logger.Info("Automation rule evaluated",
+			zap.String("device_id", deviceID),
+			zap.String("rule_key", ruleKey),
+			zap.String("event_rule_id", rule.EventRuleID),
+			zap.Bool("matched", matched != nil))
+
+		if matched != nil {
+			matchedEvents = append(matchedEvents, *matched)
+			if ruleKey != "" {
+				matchedRuleKeys[ruleKey] = true
+			}
+		}
+	}
+
+	return matchedEvents
+}
+
+// getRuleKey safely extracts the rule key from a rule
+func (r *RuleRegistry) getRuleKey(rule evaluator.EventRuleForEvaluation) string {
+	if rule.RuleKey != nil {
+		return *rule.RuleKey
+	}
+	return ""
+}
+
+// evaluateDefaultRules evaluates default system rules for entities that haven't been matched by custom rules
+func (r *RuleRegistry) evaluateDefaultRules(brand, model string, entities []models.TelemetryEntity, matchedRuleKeys map[string]bool, deviceID string) []models.MatchedEvent {
+	var matchedEvents []models.MatchedEvent
+
 	r.defaultRulesMu.RLock()
 	key := fmt.Sprintf("%s/%s", strings.ToLower(brand), strings.ToLower(model))
 	defaultRulesByKey, exists := r.groupedDefaultRules[key]
 	r.defaultRulesMu.RUnlock()
 
-	if exists {
-		for _, entity := range entities {
-			if entity.EntityType == "" || matchedRuleKeys[entity.EntityType] {
-				continue
-			}
-			if rules, ok := defaultRulesByKey[entity.EntityType]; ok {
-				for _, rule := range rules {
-					if matched := r.evaluator.EvaluateRule(rule, deviceID, entity); matched != nil {
-						matchedEvents = append(matchedEvents, *matched)
-					}
+	if !exists {
+		return matchedEvents
+	}
+
+	for _, entity := range entities {
+		if entity.EntityType == "" || matchedRuleKeys[entity.EntityType] {
+			continue
+		}
+		if rules, ok := defaultRulesByKey[entity.EntityType]; ok {
+			for _, rule := range rules {
+				if matched := r.evaluator.EvaluateRule(rule, deviceID, entity); matched != nil {
+					matchedEvents = append(matchedEvents, *matched)
 				}
 			}
 		}
 	}
 
 	return matchedEvents
+}
+
+// geofenceResult holds the result of a geofence check
+type geofenceResult struct {
+	rule     evaluator.EventRuleForEvaluation
+	isInside bool
+	typeZone string
+}
+
+// evaluatedResult holds an evaluated geofence result with definition matching info
+type evaluatedResult struct {
+	res               geofenceResult
+	definitionMatched bool
+	hasDefinition     bool
+}
+
+// evaluateGeofenceRules evaluates geofence-based rules and returns matched events
+func (r *RuleRegistry) evaluateGeofenceRules(ctx context.Context, rules []evaluator.EventRuleForEvaluation, deviceID string, entities []models.TelemetryEntity, matchedRuleKeys map[string]bool) []models.MatchedEvent {
+	lat, lon, locationStateID, hasLocation := extractLocation(entities)
+	if !hasLocation {
+		return nil
+	}
+
+	r.logger.Info("Evaluating geofence rules with location",
+		zap.String("device_id", deviceID),
+		zap.Float64("lat", lat),
+		zap.Float64("lon", lon),
+		zap.Int("geofence_rule_count", len(rules)))
+
+	results := r.checkGeofences(ctx, rules, deviceID, lat, lon)
+	evaluated := r.evaluateGeofenceDefinitions(ctx, results, deviceID, lat, lon, entities)
+
+	isInsideAnySafeZone := r.checkSafeZoneStatus(evaluated)
+	if isInsideAnySafeZone {
+		r.logger.Info("Device is inside a safe zone (with conditions met), will skip all safe zone exit events",
+			zap.String("device_id", deviceID))
+	}
+
+	return r.buildGeofenceEvents(evaluated, deviceID, lat, lon, locationStateID, isInsideAnySafeZone, matchedRuleKeys)
+}
+
+// checkGeofences checks all geofences and returns the results
+func (r *RuleRegistry) checkGeofences(ctx context.Context, rules []evaluator.EventRuleForEvaluation, deviceID string, lat, lon float64) []geofenceResult {
+	var results []geofenceResult
+
+	for _, rule := range rules {
+		if rule.IsActive != nil && !*rule.IsActive {
+			continue
+		}
+
+		isInside, typeZone, err := r.db.IsPointInGeofence(ctx, *rule.GeofenceID, lat, lon)
+		if err != nil {
+			r.logger.Warn("IsPointInGeofence failed",
+				zap.String("geofence_id", *rule.GeofenceID),
+				zap.Error(err))
+			continue
+		}
+
+		r.logger.Info("Geofence check",
+			zap.String("device_id", deviceID),
+			zap.String("geofence_id", *rule.GeofenceID),
+			zap.String("type_zone", typeZone),
+			zap.Bool("is_inside", isInside))
+
+		results = append(results, geofenceResult{rule: rule, isInside: isInside, typeZone: typeZone})
+	}
+
+	return results
+}
+
+// evaluateGeofenceDefinitions evaluates definition conditions for geofence rules
+func (r *RuleRegistry) evaluateGeofenceDefinitions(ctx context.Context, results []geofenceResult, deviceID string, lat, lon float64, entities []models.TelemetryEntity) []evaluatedResult {
+	var evaluated []evaluatedResult
+
+	for _, res := range results {
+		rule := res.rule
+		geofenceIDDebug := ""
+		if rule.GeofenceID != nil {
+			geofenceIDDebug = *rule.GeofenceID
+		}
+
+		definitionMatched := false
+		hasDefinition := len(rule.Definition) > 0
+
+		if hasDefinition {
+			extraCtx := map[string]interface{}{}
+			distKm, distErr := r.db.DistanceToGeofenceKm(ctx, *rule.GeofenceID, lat, lon)
+			if distErr == nil {
+				r.logger.Info("Geofence distance calculated",
+					zap.String("device_id", deviceID),
+					zap.String("geofence_id", geofenceIDDebug),
+					zap.Float64("distance_km", distKm))
+				extraCtx["distance_from_geofence_km"] = distKm
+			}
+			definitionMatched = r.evaluator.EvaluateRuleDBWithEntities(rule, deviceID, entities, map[string]interface{}{}, extraCtx) != nil
+			r.logger.Info("Geofence definition evaluation result",
+				zap.String("device_id", deviceID),
+				zap.String("geofence_id", geofenceIDDebug),
+				zap.Bool("definition_matched", definitionMatched))
+		}
+
+		evaluated = append(evaluated, evaluatedResult{
+			res:               res,
+			definitionMatched: definitionMatched,
+			hasDefinition:     hasDefinition,
+		})
+	}
+
+	return evaluated
+}
+
+// checkSafeZoneStatus checks if device is inside any safe zone with conditions met
+func (r *RuleRegistry) checkSafeZoneStatus(evaluated []evaluatedResult) bool {
+	for _, ev := range evaluated {
+		if ev.res.typeZone == "safe" && ev.res.isInside {
+			if ev.hasDefinition {
+				if ev.definitionMatched {
+					return true
+				}
+			} else {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// buildGeofenceEvents builds matched events from evaluated geofence results
+func (r *RuleRegistry) buildGeofenceEvents(evaluated []evaluatedResult, deviceID string, lat, lon float64, locationStateID uuid.UUID, isInsideAnySafeZone bool, matchedRuleKeys map[string]bool) []models.MatchedEvent {
+	var dangerEvents, safeEvents []models.MatchedEvent
+
+	for _, ev := range evaluated {
+		res := ev.res
+		rule := res.rule
+		geofenceIDDebug := ""
+		if rule.GeofenceID != nil {
+			geofenceIDDebug = *rule.GeofenceID
+		}
+
+		shouldTrigger := r.shouldTriggerGeofence(res.typeZone, res.isInside, ev.hasDefinition, ev.definitionMatched, isInsideAnySafeZone)
+
+		r.logger.Info("Geofence shouldTrigger evaluated",
+			zap.String("device_id", deviceID),
+			zap.String("geofence_id", geofenceIDDebug),
+			zap.String("type_zone", res.typeZone),
+			zap.Bool("is_inside", res.isInside),
+			zap.Bool("has_definition", ev.hasDefinition),
+			zap.Bool("definition_matched", ev.definitionMatched),
+			zap.Bool("should_trigger", shouldTrigger))
+
+		if !shouldTrigger {
+			continue
+		}
+
+		event := r.buildGeofenceEvent(rule, deviceID, lat, lon, locationStateID, res.typeZone, res.isInside)
+
+		// Classify event by zone type
+		switch res.typeZone {
+		case "danger":
+			dangerEvents = append(dangerEvents, event)
+		case "safe":
+			safeEvents = append(safeEvents, event)
+		default:
+			dangerEvents = append(dangerEvents, event)
+		}
+	}
+
+	// Priority: danger events take precedence over safe events
+	var geofenceMatchedEvents []models.MatchedEvent
+	if len(dangerEvents) > 0 {
+		geofenceMatchedEvents = dangerEvents
+	} else if len(safeEvents) > 0 {
+		geofenceMatchedEvents = safeEvents
+	}
+
+	// Mark rule keys as matched
+	for _, evt := range geofenceMatchedEvents {
+		if evt.RuleKey != "" {
+			matchedRuleKeys[evt.RuleKey] = true
+		}
+	}
+
+	return geofenceMatchedEvents
+}
+
+// shouldTriggerGeofence determines if a geofence event should trigger
+func (r *RuleRegistry) shouldTriggerGeofence(typeZone string, isInside, hasDefinition, definitionMatched, isInsideAnySafeZone bool) bool {
+	switch typeZone {
+	case "safe":
+		if isInsideAnySafeZone {
+			return false
+		}
+		if hasDefinition {
+			return !isInside && definitionMatched
+		}
+		return !isInside
+	default:
+		if hasDefinition {
+			return definitionMatched
+		}
+		return isInside
+	}
+}
+
+// buildGeofenceEvent builds a matched event from geofence data
+func (r *RuleRegistry) buildGeofenceEvent(rule evaluator.EventRuleForEvaluation, deviceID string, lat, lon float64, locationStateID uuid.UUID, typeZone string, isInside bool) models.MatchedEvent {
+	_, geofenceTitle, eventDesc := r.evaluateGeofenceTrigger(isInside, typeZone, *rule.GeofenceID)
+
+	if rule.Description != nil && *rule.Description != "" {
+		eventDesc = *rule.Description
+	}
+
+	ruleKey := r.getRuleKey(rule)
+
+	var eventRuleID *string
+	if rule.EventRuleID != "" {
+		erid := rule.EventRuleID
+		eventRuleID = &erid
+	}
+
+	var geofenceName *string
+	if rule.GeofenceName != "" {
+		geofenceName = &rule.GeofenceName
+	}
+
+	return models.MatchedEvent{
+		DeviceID:     deviceID,
+		EntityType:   "location",
+		RuleKey:      ruleKey,
+		EventType:    "device_event",
+		EventLevel:   "automation",
+		Title:        geofenceTitle,
+		Description:  eventDesc,
+		Value:        lat,
+		Threshold:    lon,
+		Operator:     "geofence:" + typeZone,
+		Timestamp:    time.Now().UnixMilli(),
+		EventRuleID:  eventRuleID,
+		AutomationID: nil,
+		GeofenceID:   rule.GeofenceID,
+		GeofenceName: geofenceName,
+		StateID:      locationStateID,
+		Location:     &models.Location{Latitude: lat, Longitude: lon},
+	}
 }
 
 // evaluateGeofenceTrigger determines if geofence should trigger based on zone type.

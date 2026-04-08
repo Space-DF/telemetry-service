@@ -90,7 +90,7 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				continue
 			}
 
-			if err := c.processor.ProcessMessage(orgCtx, &deviceMsg); err != nil {
+			if err := c.processor.ProcessTelemetryAndTriggerAutomations(orgCtx, &deviceMsg); err != nil {
 				c.logger.Error("Failed to process message",
 					zap.Error(err),
 					zap.String("org", tenant.OrgSlug))
