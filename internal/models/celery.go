@@ -47,8 +47,9 @@ type SpaceData struct {
 	IsActive     bool      `json:"is_active"`
 	IsDefault    bool      `json:"is_default"`
 	TotalDevices int       `json:"total_devices"`
-	Description  *string   `json:"description,omitempty"`
-	CreatedBy    uuid.UUID `json:"-"`
+	Description   *string   `json:"description,omitempty"`
+	BuildArtifact *string   `json:"build_artifact,omitempty"`
+	CreatedBy     uuid.UUID `json:"-"`
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for SpaceData

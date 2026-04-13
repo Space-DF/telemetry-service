@@ -37,8 +37,8 @@ func (c *Client) UpsertSpace(ctx context.Context, orgSlug string, space models.S
 
 		if hasIsDefault {
 			query = `
-				INSERT INTO spaces (space_id, name, logo, space_slug, is_active, is_default, total_devices, description, created_by)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+				INSERT INTO spaces (space_id, name, logo, space_slug, is_active, is_default, total_devices, description, build_artifact, created_by)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 				ON CONFLICT (space_id) DO UPDATE
 					SET name = EXCLUDED.name,
 						logo = EXCLUDED.logo,
@@ -47,6 +47,7 @@ func (c *Client) UpsertSpace(ctx context.Context, orgSlug string, space models.S
 						is_default = EXCLUDED.is_default,
 						total_devices = EXCLUDED.total_devices,
 						description = EXCLUDED.description,
+						build_artifact = EXCLUDED.build_artifact,
 						created_by = EXCLUDED.created_by
 			`
 			args = []interface{}{
@@ -58,12 +59,13 @@ func (c *Client) UpsertSpace(ctx context.Context, orgSlug string, space models.S
 				space.IsDefault,
 				space.TotalDevices,
 				space.Description,
+				space.BuildArtifact,
 				space.CreatedBy,
 			}
 		} else {
 			query = `
-				INSERT INTO spaces (space_id, name, logo, space_slug, is_active, total_devices, description, created_by)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				INSERT INTO spaces (space_id, name, logo, space_slug, is_active, total_devices, description, build_artifact, created_by)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 				ON CONFLICT (space_id) DO UPDATE
 					SET name = EXCLUDED.name,
 						logo = EXCLUDED.logo,
@@ -71,6 +73,7 @@ func (c *Client) UpsertSpace(ctx context.Context, orgSlug string, space models.S
 						is_active = EXCLUDED.is_active,
 						total_devices = EXCLUDED.total_devices,
 						description = EXCLUDED.description,
+						build_artifact = EXCLUDED.build_artifact,
 						created_by = EXCLUDED.created_by
 			`
 			args = []interface{}{
@@ -81,6 +84,7 @@ func (c *Client) UpsertSpace(ctx context.Context, orgSlug string, space models.S
 				space.IsActive,
 				space.TotalDevices,
 				space.Description,
+				space.BuildArtifact,
 				space.CreatedBy,
 			}
 		}
