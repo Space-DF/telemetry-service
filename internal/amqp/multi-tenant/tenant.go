@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/circuitbreaker"
@@ -26,6 +27,7 @@ type TenantConsumer struct {
 	ConsumerTag string
 	Channel     *amqp.Channel
 	Cancel      context.CancelFunc
+	ParentCtx   context.Context
 }
 
 // SchemaInitializer handles database schema initialization
@@ -56,7 +58,11 @@ type MultiTenantConsumer struct {
 	reconnectChan        chan struct{}
 	connCloseNotifier    chan *amqp.Error
 	channelCloseNotifier chan *amqp.Error
-	reconnecting         bool // Flag to prevent concurrent reconnections
+	reconnecting         atomic.Bool
+	orgEventsCancel      context.CancelFunc
+	monitorCancel        context.CancelFunc
+	monitorWg            sync.WaitGroup
+	stopOnce             sync.Once
 }
 
 // MessageProcessor processes device telemetry messages and triggers automations
@@ -222,6 +228,7 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 		ConsumerTag: consumerTag,
 		Channel:     channel,
 		Cancel:      cancel,
+		ParentCtx:   parentCtx,
 	}
 
 	c.tenantMu.Lock()
@@ -298,15 +305,16 @@ func (c *MultiTenantConsumer) stopAllConsumers() {
 }
 
 // resubscribeTenant resubscribes to a tenant's queue after a channel closure
-func (c *MultiTenantConsumer) resubscribeTenant(ctx context.Context, oldTenant *TenantConsumer) {
+func (c *MultiTenantConsumer) resubscribeTenant(_ context.Context, oldTenant *TenantConsumer) {
 	// Check if main connection is down - trigger reconnection if needed
 	if c.orgEventsConn == nil || c.orgEventsConn.IsClosed() {
 		c.logger.Info("Main connection down, triggering centralized reconnection",
 			zap.String("org", oldTenant.OrgSlug))
-		// Trigger reconnection
-		select {
-		case c.reconnectChan <- struct{}{}:
-		default:
+		if !c.reconnecting.Load() {
+			select {
+			case c.reconnectChan <- struct{}{}:
+			default:
+			}
 		}
 		return
 	}
@@ -317,6 +325,8 @@ func (c *MultiTenantConsumer) resubscribeTenant(ctx context.Context, oldTenant *
 		_ = oldTenant.Channel.Cancel(oldTenant.ConsumerTag, false)
 		_ = oldTenant.Channel.Close()
 	}
+	// Release vhost connection to properly decrement refCount
+	c.releaseVhostConnection(oldTenant.Vhost)
 
 	backoff := 1 * time.Second
 	maxBackoff := 30 * time.Second
@@ -324,7 +334,7 @@ func (c *MultiTenantConsumer) resubscribeTenant(ctx context.Context, oldTenant *
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		select {
-		case <-ctx.Done():
+		case <-oldTenant.ParentCtx.Done():
 			return
 		case <-time.After(backoff):
 		}
@@ -341,8 +351,8 @@ func (c *MultiTenantConsumer) resubscribeTenant(ctx context.Context, oldTenant *
 		delete(c.tenantConsumers, oldTenant.OrgSlug)
 		c.tenantMu.Unlock()
 
-		// Try to resubscribe
-		err := c.subscribeToOrganization(ctx, oldTenant.OrgSlug, oldTenant.Vhost, oldTenant.QueueName, oldTenant.Exchange)
+		// Try to resubscribe using parent context (not tenant's cancelled context)
+		err := c.subscribeToOrganization(oldTenant.ParentCtx, oldTenant.OrgSlug, oldTenant.Vhost, oldTenant.QueueName, oldTenant.Exchange)
 		if err == nil {
 			c.logger.Info("Successfully resubscribed tenant",
 				zap.String("org", oldTenant.OrgSlug),
