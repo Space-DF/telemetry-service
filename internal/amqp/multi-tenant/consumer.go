@@ -22,7 +22,7 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 	go c.reconnectionMonitor(ctx)
 
 	// Start listening to organization events
-	orgEventsCtx, orgEventsCancel := context.WithCancel(ctx)
+	orgEventsCtx, orgEventsCancel := context.WithCancel(ctx) //#nosec G118
 	c.orgEventsCancel = orgEventsCancel
 	go func() {
 		if err := c.listenToOrgEvents(orgEventsCtx); err != nil {

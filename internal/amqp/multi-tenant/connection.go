@@ -66,7 +66,7 @@ func (c *MultiTenantConsumer) setupConnectionMonitoring() {
 	c.orgEventsChannel.NotifyClose(c.channelCloseNotifier)
 
 	// Start monitoring goroutine with cancelable context
-	monitorCtx, monitorCancel := context.WithCancel(context.Background())
+	monitorCtx, monitorCancel := context.WithCancel(context.Background()) //#nosec G118
 	c.monitorCancel = monitorCancel
 	c.monitorWg.Add(1)
 	go c.monitorConnection(monitorCtx)
@@ -202,7 +202,7 @@ func (c *MultiTenantConsumer) reconnectionMonitor(ctx context.Context) {
 				}
 
 				// Restart org events listener after successful reconnection
-				orgEventsCtx, orgEventsCancel := context.WithCancel(ctx)
+				orgEventsCtx, orgEventsCancel := context.WithCancel(ctx) //#nosec G118
 				c.orgEventsCancel = orgEventsCancel
 				go func() {
 					if err := c.listenToOrgEvents(orgEventsCtx); err != nil {
@@ -299,7 +299,7 @@ func (c *MultiTenantConsumer) reconnectConnection(ctx context.Context) error {
 			}
 
 			// Start new monitor goroutine to watch the new notifier channels
-			monitorCtx, monitorCancel := context.WithCancel(ctx)
+			monitorCtx, monitorCancel := context.WithCancel(ctx) //#nosec G118
 			c.monitorCancel = monitorCancel
 			c.monitorWg.Add(1)
 			go c.monitorConnection(monitorCtx)

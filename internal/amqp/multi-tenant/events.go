@@ -75,7 +75,11 @@ func (c *MultiTenantConsumer) sendDiscoveryRequestOnConn(ctx context.Context, co
 	if err != nil {
 		return fmt.Errorf("failed to open channel for discovery request: %w", err)
 	}
-	defer ch.Close()
+	defer func() {
+		if err := ch.Close(); err != nil {
+			c.logger.Error("Failed to close channel after sending discovery request", zap.Error(err))
+		}
+	}()
 
 	request := models.OrgDiscoveryRequest{
 		EventType:   models.OrgDiscoveryReq,
