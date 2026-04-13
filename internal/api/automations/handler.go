@@ -330,12 +330,7 @@ func (h *Handler) CreateAutomation(c echo.Context) error {
 		})
 	}
 
-	if len(req.ActionIDs) == 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "action_ids is required",
-		})
-	}
-
+	// Validate action_id formats
 	for _, actionID := range req.ActionIDs {
 		if _, err := uuid.Parse(actionID); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{
@@ -424,12 +419,7 @@ func (h *Handler) UpdateAutomation(c echo.Context) error {
 		})
 	}
 
-	if len(req.ActionIDs) == 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{
-			"error": "action_ids is required",
-		})
-	}
-
+	// Validate action_id formats
 	for _, actionID := range req.ActionIDs {
 		if _, err := uuid.Parse(actionID); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{

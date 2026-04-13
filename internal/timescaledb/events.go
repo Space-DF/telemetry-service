@@ -161,8 +161,8 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 	return events, total, nil
 }
 
-// CreateEvent creates a new event from a matched automation or geofence
-func (c *Client) CreateEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug, deviceID string) error {
+// CreateAndPublishAutomationEvent creates a new event from a matched automation and publishes it to AMQP
+func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug, deviceID string) error {
 	if event == nil {
 		return fmt.Errorf("nil event")
 	}

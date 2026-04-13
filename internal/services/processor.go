@@ -12,6 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// LoggingInterval is the interval for logging processing progress
+const LoggingInterval = 100
+
 // LocationProcessor processes device location messages and stores them in Psql
 type LocationProcessor struct {
 	tsClient     *timescaledb.Client
@@ -33,8 +36,8 @@ func NewLocationProcessor(tsClient *timescaledb.Client, ruleRegistry *registry.R
 	}
 }
 
-// ProcessMessage processes a device location message
-func (p *LocationProcessor) ProcessMessage(ctx context.Context, msg *models.DeviceLocationMessage) error {
+// ProcessTelemetryAndTriggerAutomations processes a device telemetry message and triggers any matched automation events
+func (p *LocationProcessor) ProcessTelemetryAndTriggerAutomations(ctx context.Context, msg *models.DeviceLocationMessage) error {
 	p.logger.Debug("Processing device location message",
 		zap.String("device_id", msg.DeviceID),
 		zap.String("space", msg.Space),
@@ -87,8 +90,8 @@ func (p *LocationProcessor) ProcessMessage(ctx context.Context, msg *models.Devi
 		zap.Int64("total_processed", p.processedCount.Load()),
 	)
 
-	// Log progress every 100 messages
-	if p.processedCount.Load()%100 == 0 {
+	// Log progress at configured intervals
+	if p.processedCount.Load()%LoggingInterval == 0 {
 		p.logger.Info("Processing progress",
 			zap.Int64("processed", p.processedCount.Load()),
 			zap.Int64("errors", p.errorCount.Load()),
@@ -151,9 +154,9 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 		return err
 	}
 
-	// Evaluate rules and create events for matched rules
+	// Match automation rules and create events for matched rules
 	if p.ruleRegistry != nil {
-		matchedEvents := p.ruleRegistry.Evaluate(ctx,
+		matchedEvents := p.ruleRegistry.MatchAutomationEvents(ctx,
 			payload.DeviceID,
 			payload.DeviceInfo.Manufacturer,
 			payload.DeviceInfo.Model,
@@ -164,7 +167,7 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 			if event.Timestamp == 0 {
 				event.Timestamp = time.Now().UnixMilli()
 			}
-			if err := p.tsClient.CreateEvent(ctx, payload.Organization, &event, payload.SpaceSlug, payload.DeviceID); err != nil {
+			if err := p.tsClient.CreateAndPublishAutomationEvent(ctx, payload.Organization, &event, payload.SpaceSlug, payload.DeviceID); err != nil {
 				p.logger.Error("Failed to create event",
 					zap.Error(err),
 					zap.String("device_id", event.DeviceID),

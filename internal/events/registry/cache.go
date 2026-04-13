@@ -188,8 +188,8 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []evaluator
 	return rules
 }
 
-// GetGrouped retrieves grouped device automation rules from cache or database
-func (c *DeviceRulesCache) GetGrouped(ctx context.Context, deviceID string) map[string][]evaluator.EventRuleForEvaluation {
+// LoadAutomationRulesForDevice retrieves grouped device automation rules from cache or database
+func (c *DeviceRulesCache) LoadAutomationRulesForDevice(ctx context.Context, deviceID string) map[string][]evaluator.EventRuleForEvaluation {
 	now := time.Now()
 
 	// Try cache first (read lock)

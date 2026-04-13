@@ -43,7 +43,8 @@ import (
 	"go.uber.org/zap"
 )
 
-const ShutdownTimeout = 30 * time.Second
+// DefaultShutdownTimeout is the default timeout for graceful shutdown if not configured
+const DefaultShutdownTimeout = 30 * time.Second
 
 func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	defer func() {
@@ -76,11 +77,14 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	}
 	logger.Info("Database migrations completed successfully")
 
-	// Initialize Psql client
-	tsClient, err := timescaledb.NewClient(
+	// Initialize Psql client with configured pool settings
+	tsClient, err := timescaledb.NewClientWithPool(
 		dsn,
 		appConfig.Db.BatchSize,
 		appConfig.Db.FlushInterval,
+		appConfig.Db.MaxConnections,
+		appConfig.Db.MaxIdleConns,
+		appConfig.Db.ConnMaxLifetime,
 		logger,
 	)
 	if err != nil {
@@ -215,7 +219,11 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	cancel()
 
 	// Give components time to cleanup
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), ShutdownTimeout)
+	shutdownTimeout := appConfig.Db.ShutdownTimeout
+	if shutdownTimeout == 0 {
+		shutdownTimeout = DefaultShutdownTimeout
+	}
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
 
 	// Stop Echo server
