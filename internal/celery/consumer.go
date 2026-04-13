@@ -35,6 +35,7 @@ type TaskConsumer struct {
 	channel  *amqp.Channel
 	done     chan bool
 	wg       sync.WaitGroup
+	stopOnce sync.Once
 
 	updateQueueName string
 	deleteQueueName string
@@ -244,16 +245,62 @@ func (c *TaskConsumer) Connect() error {
 	return nil
 }
 
-// Start begins consuming Celery tasks from both queues
+// Start begins consuming Celery tasks and handles reconnection
 func (c *TaskConsumer) Start(ctx context.Context) error {
+	for {
+		if err := c.connectAndConsume(ctx); err != nil {
+			c.logger.Error("Celery consumer error, will reconnect", zap.Error(err))
+		}
+
+		// Wait for context cancellation or reconnect
+		select {
+		case <-ctx.Done():
+			c.logger.Info("Celery task consumer context cancelled")
+			return nil
+		case <-c.done:
+			c.logger.Info("Celery task consumer stopped")
+			return nil
+		default:
+		}
+
+		// Reconnect with backoff
+		backoff := 1 * time.Second
+		maxBackoff := 30 * time.Second
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-c.done:
+				return nil
+			case <-time.After(backoff):
+			}
+
+			c.logger.Info("Celery consumer attempting reconnection", zap.Duration("backoff", backoff))
+
+			if err := c.reconnect(); err != nil {
+				c.logger.Error("Celery consumer reconnection failed", zap.Error(err))
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+				continue
+			}
+
+			break
+		}
+	}
+}
+
+// connectAndConsume sets up consumption on the current connection
+func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
 	// Consume from update queue
 	updateMessages, err := c.channel.Consume(
 		c.updateQueueName,
-		"telemetry_update_consumer", // consumer tag
-		false,                       // manual ack
-		false,                       // non-exclusive
-		false,                       // no-local
-		false,                       // no-wait
+		"telemetry_update_consumer",
+		false,
+		false,
+		false,
+		false,
 		nil,
 	)
 	if err != nil {
@@ -263,11 +310,11 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 	// Consume from delete queue
 	deleteMessages, err := c.channel.Consume(
 		c.deleteQueueName,
-		"telemetry_delete_consumer", // consumer tag
-		false,                       // manual ack
-		false,                       // non-exclusive
-		false,                       // no-local
-		false,                       // no-wait
+		"telemetry_delete_consumer",
+		false,
+		false,
+		false,
+		false,
 		nil,
 	)
 	if err != nil {
@@ -277,11 +324,11 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 	// Consume from device queue
 	deviceMessages, err := c.channel.Consume(
 		c.deviceQueueName,
-		"telemetry_device_consumer", // consumer tag
-		false,                       // manual ack
-		false,                       // non-exclusive
-		false,                       // no-local
-		false,                       // no-wait
+		"telemetry_device_consumer",
+		false,
+		false,
+		false,
+		false,
 		nil,
 	)
 	if err != nil {
@@ -308,7 +355,25 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 		c.processMessages(ctx, deviceMessages, DeleteDeviceTaskName)
 	}()
 
+	// Wait for all goroutines to finish (they exit when channel closes)
+	c.wg.Wait()
+
 	return nil
+}
+
+// reconnect closes the existing connection and establishes a new one
+func (c *TaskConsumer) reconnect() error {
+	if c.channel != nil {
+		if err := c.channel.Close(); err != nil {
+			c.logger.Error("Failed to close channel", zap.Error(err))
+		}
+	}
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			c.logger.Error("Failed to close connection", zap.Error(err))
+		}
+	}
+	return c.Connect()
 }
 
 // processMessages processes incoming Celery task messages
@@ -462,29 +527,34 @@ func (c *TaskConsumer) handleDeleteDevice(ctx context.Context, body []byte) erro
 
 // Stop gracefully stops the consumer
 func (c *TaskConsumer) Stop() error {
-	close(c.done)
+	c.stopOnce.Do(func() {
+		close(c.done)
 
-	// Wait for processing to finish
-	done := make(chan struct{})
-	go func() {
-		c.wg.Wait()
-		close(done)
-	}()
+		// Wait for processing to finish
+		done := make(chan struct{})
+		go func() {
+			c.wg.Wait()
+			close(done)
+		}()
 
-	select {
-	case <-done:
-		c.logger.Info("Celery task consumer stopped gracefully")
-	case <-time.After(5 * time.Second):
-		c.logger.Warn("Celery task consumer stop timeout")
-	}
+		select {
+		case <-done:
+			c.logger.Info("Celery task consumer stopped gracefully")
+		case <-time.After(5 * time.Second):
+			c.logger.Warn("Celery task consumer stop timeout")
+		}
 
-	if c.channel != nil {
-		_ = c.channel.Close()
-	}
-	if c.conn != nil {
-		_ = c.conn.Close()
-	}
-
+		if c.channel != nil {
+			if err := c.channel.Close(); err != nil {
+				c.logger.Error("Failed to close channel", zap.Error(err))
+			}
+		}
+		if c.conn != nil {
+			if err := c.conn.Close(); err != nil {
+				c.logger.Error("Failed to close connection", zap.Error(err))
+			}
+		}
+	})
 	return nil
 }
 

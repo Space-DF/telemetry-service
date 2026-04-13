@@ -22,8 +22,10 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 	go c.reconnectionMonitor(ctx)
 
 	// Start listening to organization events
+	orgEventsCtx, orgEventsCancel := context.WithCancel(ctx)
+	c.orgEventsCancel = orgEventsCancel
 	go func() {
-		if err := c.listenToOrgEvents(ctx); err != nil {
+		if err := c.listenToOrgEvents(orgEventsCtx); err != nil {
 			c.logger.Error("Org events listener error", zap.Error(err))
 		}
 	}()
@@ -51,17 +53,25 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 
 // Stop gracefully stops the consumer
 func (c *MultiTenantConsumer) Stop() error {
-	close(c.done)
-	c.stopAllConsumers()
+	c.stopOnce.Do(func() {
+		close(c.done)
 
-	if c.orgEventsChannel != nil {
-		_ = c.orgEventsChannel.Close()
-	}
+		// Cancel monitor goroutine
+		if c.monitorCancel != nil {
+			c.monitorCancel()
+		}
+		c.monitorWg.Wait()
 
-	if c.orgEventsConn != nil {
-		_ = c.orgEventsConn.Close()
-	}
+		c.stopAllConsumers()
 
+		if c.orgEventsChannel != nil {
+			_ = c.orgEventsChannel.Close()
+		}
+
+		if c.orgEventsConn != nil {
+			_ = c.orgEventsConn.Close()
+		}
+	})
 	return nil
 }
 

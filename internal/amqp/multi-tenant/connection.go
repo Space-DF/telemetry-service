@@ -65,24 +65,28 @@ func (c *MultiTenantConsumer) setupConnectionMonitoring() {
 	c.channelCloseNotifier = make(chan *amqp.Error, 1)
 	c.orgEventsChannel.NotifyClose(c.channelCloseNotifier)
 
-	// Start monitoring goroutine
-	go c.monitorConnection()
+	// Start monitoring goroutine with cancelable context
+	monitorCtx, monitorCancel := context.WithCancel(context.Background())
+	c.monitorCancel = monitorCancel
+	c.monitorWg.Add(1)
+	go c.monitorConnection(monitorCtx)
 }
 
 // monitorConnection monitors the connection and channel for unexpected closures
-func (c *MultiTenantConsumer) monitorConnection() {
+func (c *MultiTenantConsumer) monitorConnection(ctx context.Context) {
+	defer c.monitorWg.Done()
+
 	for {
 		select {
 		case <-c.done:
 			return
-
+		case <-ctx.Done():
+			return
 		case err, ok := <-c.connCloseNotifier:
 			if !ok {
-				// Channel closed, expected during shutdown
 				return
 			}
 			c.handleConnectionClosed(err)
-
 		case err, ok := <-c.channelCloseNotifier:
 			if !ok {
 				return
@@ -95,7 +99,7 @@ func (c *MultiTenantConsumer) monitorConnection() {
 // handleConnectionClosed handles unexpected connection closure
 func (c *MultiTenantConsumer) handleConnectionClosed(err *amqp.Error) {
 	// Ignore stale close events if we're already reconnecting
-	if c.reconnecting {
+	if c.reconnecting.Load() {
 		c.logger.Debug("Ignoring stale connection close event (already reconnecting)",
 			zap.Error(err),
 			zap.Int("code", err.Code))
@@ -111,10 +115,7 @@ func (c *MultiTenantConsumer) handleConnectionClosed(err *amqp.Error) {
 	c.vhostConnections = make(map[string]*pooledConnection)
 	c.vhostMu.Unlock()
 
-	// Record failure in circuit breaker
-	c.circuitBreaker.RecordFailure()
-
-	// Notify reconnection goroutine
+	// Notify reconnection goroutine (reconnect loop handles failure counting)
 	select {
 	case c.reconnectChan <- struct{}{}:
 	default:
@@ -123,8 +124,7 @@ func (c *MultiTenantConsumer) handleConnectionClosed(err *amqp.Error) {
 
 // handleChannelClosed handles unexpected channel closure
 func (c *MultiTenantConsumer) handleChannelClosed(err *amqp.Error) {
-	// Ignore stale close events if we're already reconnecting
-	if c.reconnecting {
+	if c.reconnecting.Load() {
 		c.logger.Debug("Ignoring stale channel close event (already reconnecting)",
 			zap.Error(err),
 			zap.Int("code", err.Code))
@@ -134,6 +134,9 @@ func (c *MultiTenantConsumer) handleChannelClosed(err *amqp.Error) {
 	c.logger.Error("AMQP channel closed unexpectedly",
 		zap.Error(err),
 		zap.Int("code", err.Code))
+
+	// Record failure — channel error means something went wrong
+	c.circuitBreaker.RecordFailure()
 
 	// Just trigger full reconnection - it's safer and simpler
 	select {
@@ -152,41 +155,72 @@ func (c *MultiTenantConsumer) reconnectionMonitor(ctx context.Context) {
 			return
 		case <-c.reconnectChan:
 			// Check if already reconnecting to prevent concurrent reconnections
-			if c.reconnecting {
+			if c.reconnecting.Load() {
 				c.logger.Debug("Already reconnecting, skipping duplicate request")
 				continue
 			}
 
 			// Set flag before calling reconnectConnection
-			c.reconnecting = true
+			c.reconnecting.Store(true)
 
 			c.logger.Warn("Reconnection triggered, attempting to reconnect...")
 			if err := c.reconnectConnection(ctx); err != nil {
-				c.reconnecting = false
+				c.reconnecting.Store(false)
 				c.logger.Error("Failed to reconnect", zap.Error(err))
 				// Schedule another reconnection attempt
 				go func() {
-					time.Sleep(10 * time.Second)
 					select {
-					case c.reconnectChan <- struct{}{}:
-					default:
+					case <-time.After(10 * time.Second):
+						select {
+						case c.reconnectChan <- struct{}{}:
+						default:
+						}
+					case <-ctx.Done():
 					}
 				}()
 			} else {
-				// Successfully reconnected - keep reconnecting flag true briefly
-				// to filter out any stale close events from the old connection
+				// Successfully reconnected — clear flag immediately so org events
+				// are not blocked. reestablishTenantConnections already resubscribed.
+				c.reconnecting.Store(false)
+				// Drain stale reconnection requests
+				for {
+					select {
+					case _, ok := <-c.reconnectChan:
+						if !ok {
+							goto done
+						}
+					default:
+						goto done
+					}
+				}
+			done:
 				c.logger.Info("Successfully reconnected and re-established tenants")
+
+				// Cancel old org events listener (may be retrying on dead channel)
+				if c.orgEventsCancel != nil {
+					c.orgEventsCancel()
+				}
+
 				// Restart org events listener after successful reconnection
+				orgEventsCtx, orgEventsCancel := context.WithCancel(ctx)
+				c.orgEventsCancel = orgEventsCancel
 				go func() {
-					if err := c.listenToOrgEvents(ctx); err != nil {
+					if err := c.listenToOrgEvents(orgEventsCtx); err != nil {
 						c.logger.Error("Org events listener error after reconnection", zap.Error(err))
 					}
 				}()
-				// Delayed flag reset
+
+				// Re-send discovery request on a separate channel to avoid racing
+				// with listenToOrgEvents on orgEventsChannel
 				go func() {
-					time.Sleep(5 * time.Second)
-					c.reconnecting = false
-					c.logger.Info("Reconnection window closed, ready for new events")
+					time.Sleep(2 * time.Second)
+					conn := c.orgEventsConn
+					if conn == nil || conn.IsClosed() {
+						return
+					}
+					if err := c.sendDiscoveryRequestOnConn(ctx, conn); err != nil {
+						c.logger.Error("Failed to send discovery request after reconnection", zap.Error(err))
+					}
 				}()
 			}
 		}
@@ -204,12 +238,13 @@ func (c *MultiTenantConsumer) reconnectConnection(ctx context.Context) error {
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		// Check circuit breaker
 		if c.circuitBreaker.State() == circuitbreaker.StateOpen {
+			cbTimeout := c.circuitBreaker.ResetTimeout()
 			c.logger.Warn("Circuit breaker is open, waiting",
-				zap.Duration("reset_timeout", 30*time.Second))
+				zap.Duration("reset_timeout", cbTimeout))
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(30 * time.Second):
+			case <-time.After(cbTimeout):
 			}
 		}
 
@@ -257,6 +292,18 @@ func (c *MultiTenantConsumer) reconnectConnection(ctx context.Context) error {
 			// Re-establish all tenant connections
 			c.reestablishTenantConnections(ctx)
 
+			// Cancel and wait for old monitor goroutine to exit
+			if c.monitorCancel != nil {
+				c.monitorCancel()
+				c.monitorWg.Wait()
+			}
+
+			// Start new monitor goroutine to watch the new notifier channels
+			monitorCtx, monitorCancel := context.WithCancel(ctx)
+			c.monitorCancel = monitorCancel
+			c.monitorWg.Add(1)
+			go c.monitorConnection(monitorCtx)
+
 			return nil
 		}
 
@@ -293,6 +340,7 @@ func (c *MultiTenantConsumer) reestablishTenantConnections(ctx context.Context) 
 	}
 	c.tenantMu.RUnlock()
 
+	successCount := 0
 	for _, tenant := range tenants {
 		// Remove from map so subscribeToOrganization can add it back
 		c.tenantMu.Lock()
@@ -304,6 +352,12 @@ func (c *MultiTenantConsumer) reestablishTenantConnections(ctx context.Context) 
 			c.logger.Error("Failed to resubscribe to tenant",
 				zap.String("org", tenant.OrgSlug),
 				zap.Error(err))
+		} else {
+			successCount++
 		}
 	}
+
+	c.logger.Info("Re-established tenant connections",
+		zap.Int("success", successCount),
+		zap.Int("total", len(tenants)))
 }

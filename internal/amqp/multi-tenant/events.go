@@ -12,7 +12,6 @@ import (
 )
 
 func (c *MultiTenantConsumer) getOrgEventsQueueName() string {
-	// Each instance gets its own queue to ensure all instances receive all org events
 	return fmt.Sprintf("%s.%s", c.orgEventsConfig.Queue, c.instanceID)
 }
 
@@ -65,15 +64,25 @@ func (c *MultiTenantConsumer) ensureOrgEventsTopology() error {
 
 // sendDiscoveryRequest sends a request to console service to get all active orgs
 func (c *MultiTenantConsumer) sendDiscoveryRequest(ctx context.Context) error {
+	return c.sendDiscoveryRequestOnConn(ctx, c.orgEventsConn)
+}
+
+func (c *MultiTenantConsumer) sendDiscoveryRequestOnConn(ctx context.Context, conn *amqp.Connection) error {
 	c.logger.Info("Sending discovery request to console service for existing organizations",
 		zap.String("reply_to", c.getOrgEventsQueueName()))
+
+	ch, err := conn.Channel()
+	if err != nil {
+		return fmt.Errorf("failed to open channel for discovery request: %w", err)
+	}
+	defer ch.Close()
 
 	request := models.OrgDiscoveryRequest{
 		EventType:   models.OrgDiscoveryReq,
 		EventID:     fmt.Sprintf("discovery-%s-%d", c.instanceID, time.Now().Unix()),
 		Timestamp:   time.Now(),
 		ServiceName: "telemetry-service",
-		ReplyTo:     c.getOrgEventsQueueName(), // Use instance-specific queue
+		ReplyTo:     c.getOrgEventsQueueName(),
 	}
 
 	body, err := json.Marshal(request)
@@ -81,7 +90,7 @@ func (c *MultiTenantConsumer) sendDiscoveryRequest(ctx context.Context) error {
 		return fmt.Errorf("failed to marshal discovery request: %w", err)
 	}
 
-	err = c.orgEventsChannel.PublishWithContext(
+	err = ch.PublishWithContext(
 		ctx,
 		c.orgEventsConfig.Exchange,
 		"org.discovery.request",
@@ -194,12 +203,18 @@ func (c *MultiTenantConsumer) handleOrgEvent(ctx context.Context, msg amqp.Deliv
 
 	switch event.EventType {
 	case models.OrgCreated:
-		// New org created - subscribe to its queue
 		if vhost == "" {
 			c.logger.Warn("Org created event missing vhost", zap.String("org", orgSlug))
 			return nil
 		}
-		// Use empty strings to let subscribeToOrganization create default names
+		c.tenantMu.RLock()
+		_, already := c.tenantConsumers[orgSlug]
+		c.tenantMu.RUnlock()
+		if already {
+			c.logger.Debug("Skipping org.created: already subscribed",
+				zap.String("org", orgSlug))
+			return nil
+		}
 		if err := c.subscribeToOrganization(ctx, orgSlug, vhost, "", ""); err != nil {
 			return err
 		}
