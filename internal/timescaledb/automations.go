@@ -19,22 +19,22 @@ import (
 // automationRow represents a database row exactly as returned by SQL
 // Using sql.Null* types directly eliminates manual null checking
 type automationRow struct {
-	ID           sql.NullString  `db:"id"`
-	Name         sql.NullString  `db:"name"`
-	Title        sql.NullString  `db:"title"`
-	DeviceID     sql.NullString  `db:"device_id"`
-	EventRuleID  sql.NullString  `db:"event_rule_id"`
-	SpaceID      sql.NullString  `db:"space_id"`
-	UpdatedAt    sql.NullTime    `db:"updated_at"`
-	CreatedAt    sql.NullTime    `db:"created_at"`
+	ID          sql.NullString `db:"id"`
+	Name        sql.NullString `db:"name"`
+	Title       sql.NullString `db:"title"`
+	DeviceID    sql.NullString `db:"device_id"`
+	EventRuleID sql.NullString `db:"event_rule_id"`
+	SpaceID     sql.NullString `db:"space_id"`
+	UpdatedAt   sql.NullTime   `db:"updated_at"`
+	CreatedAt   sql.NullTime   `db:"created_at"`
 	// Event rule fields
-	EREventRuleID   sql.NullString `db:"er_event_rule_id"`
-	ERRuleKey       sql.NullString `db:"er_rule_key"`
-	ERDefinition    sql.NullString `db:"er_definition"`
-	ERIsActive      sql.NullBool   `db:"er_is_active"`
-	ERRepeatAble    sql.NullBool   `db:"er_repeat_able"`
-	ERCooldownSec   sql.NullInt64  `db:"er_cooldown_sec"`
-	ERDescription   sql.NullString `db:"er_description"`
+	EREventRuleID sql.NullString `db:"er_event_rule_id"`
+	ERRuleKey     sql.NullString `db:"er_rule_key"`
+	ERDefinition  sql.NullString `db:"er_definition"`
+	ERIsActive    sql.NullBool   `db:"er_is_active"`
+	ERRepeatAble  sql.NullBool   `db:"er_repeat_able"`
+	ERCooldownSec sql.NullInt64  `db:"er_cooldown_sec"`
+	ERDescription sql.NullString `db:"er_description"`
 	// Actions as JSON
 	ActionsJSON sql.NullString `db:"actions"`
 }
@@ -52,13 +52,13 @@ func nullPtr[T any](v T, valid bool) *T {
 // Returns an error if JSON parsing fails for actions or event rule definition.
 func (r *automationRow) toModel() (*models.AutomationWithActions, error) {
 	a := models.Automation{
-		ID:        r.ID.String,
-		Name:      r.Name.String,
-		DeviceID:  r.DeviceID.String,
-		UpdatedAt: r.UpdatedAt.Time,
-		CreatedAt: r.CreatedAt.Time,
-		Title:        nullPtr(r.Title.String, r.Title.Valid),
-		EventRuleID:  nullPtr(r.EventRuleID.String, r.EventRuleID.Valid),
+		ID:          r.ID.String,
+		Name:        r.Name.String,
+		DeviceID:    r.DeviceID.String,
+		UpdatedAt:   r.UpdatedAt.Time,
+		CreatedAt:   r.CreatedAt.Time,
+		Title:       nullPtr(r.Title.String, r.Title.Valid),
+		EventRuleID: nullPtr(r.EventRuleID.String, r.EventRuleID.Valid),
 	}
 
 	// Parse SpaceID as UUID
@@ -115,19 +115,19 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		qb.AddCondition("a.space_id = $1", spaceID)
 
 		if deviceID != nil {
-			qb.AddCondition("a.device_id = $"+fmt.Sprint(qb.NextIndex()), *deviceID)
+			qb.AddCondition(fmt.Sprintf("a.device_id = $%d", qb.argIndex), *deviceID)
 		}
 
 		if len(statusList) > 0 {
-			qb.AddCondition("er.is_active = ANY($"+fmt.Sprint(qb.NextIndex())+")", pq.Array(statusList))
+			qb.AddCondition(fmt.Sprintf("er.is_active = ANY($%d::boolean[])", qb.argIndex), pq.Array(statusList))
 		}
 
 		// Add search filter if provided
 		if search != "" {
 			searchPattern := "%" + search + "%"
-			idx1 := qb.NextIndex()
-			idx2 := qb.NextIndex()
-			qb.AddConditionMulti("(a.name ILIKE $"+fmt.Sprint(idx1)+" OR CAST(a.device_id AS VARCHAR) ILIKE $"+fmt.Sprint(idx2)+")", searchPattern, searchPattern)
+			idx1 := qb.argIndex
+			idx2 := qb.argIndex + 1
+			qb.AddConditionMulti(fmt.Sprintf("(a.name ILIKE $%d OR CAST(a.device_id AS VARCHAR) ILIKE $%d)", idx1, idx2), searchPattern, searchPattern)
 		}
 
 		whereClause := qb.BuildWhere()
@@ -164,7 +164,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		` + whereClause + `
 			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 			ORDER BY a.created_at DESC
-			LIMIT $` + fmt.Sprint(qb.NextIndex()) + ` OFFSET $` + fmt.Sprint(qb.NextIndex())
+			LIMIT $` + fmt.Sprint(qb.argIndex) + ` OFFSET $` + fmt.Sprint(qb.argIndex+1)
 		qb.AddLimitOffset(limit, offset)
 		args = qb.Args()
 
@@ -679,7 +679,7 @@ func (c *Client) GetActions(ctx context.Context, search string, limit, offset in
 		query := `
 			SELECT id, name, key, data::text, created_at
 			FROM actions
-		` + whereClause + ` ORDER BY created_at DESC LIMIT $` + fmt.Sprint(qb.NextIndex()) + ` OFFSET $` + fmt.Sprint(qb.NextIndex())
+		` + whereClause + ` ORDER BY created_at DESC LIMIT $` + fmt.Sprint(qb.argIndex) + ` OFFSET $` + fmt.Sprint(qb.argIndex+1)
 		qb.AddLimitOffset(limit, offset)
 		args = qb.Args()
 
