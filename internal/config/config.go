@@ -46,15 +46,28 @@ type AMQP struct {
 
 // Db contains Db configuration
 type Db struct {
-	Name           string        `mapstructure:"name"`
-	Username       string        `mapstructure:"username"`
-	Password       string        `mapstructure:"password"`
-	Host           string        `mapstructure:"host"`
-	Port           int           `mapstructure:"port"`
-	BatchSize      int           `mapstructure:"batch_size"`
-	FlushInterval  time.Duration `mapstructure:"flush_interval"`
-	MaxConnections int           `mapstructure:"max_connections"`
-	MaxIdleConns   int           `mapstructure:"max_idle_conns"`
+	Name               string        `mapstructure:"name"`
+	Username           string        `mapstructure:"username"`
+	Password           string        `mapstructure:"password"`
+	Host               string        `mapstructure:"host"`
+	Port               int           `mapstructure:"port"`
+	BatchSize          int           `mapstructure:"batch_size"`
+	FlushInterval      time.Duration `mapstructure:"flush_interval"`
+	MaxConnections     int           `mapstructure:"max_connections"`
+	MaxIdleConns       int           `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime    time.Duration `mapstructure:"conn_max_lifetime"`
+	ShutdownTimeout    time.Duration `mapstructure:"shutdown_timeout"`
+}
+
+// DefaultDb returns default database configuration
+func DefaultDb() Db {
+	return Db{
+		BatchSize:       1000,
+		FlushInterval:   time.Second,
+		MaxConnections:  25,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: 5 * time.Minute,
+	}
 }
 
 // LoadConfig loads configuration from file and environment variables
@@ -119,6 +132,19 @@ func validateConfig(cfg *Config) error {
 	if cfg.Db.MaxIdleConns > cfg.Db.MaxConnections {
 		return fmt.Errorf("max idle connections (%d) cannot exceed max connections (%d)",
 			cfg.Db.MaxIdleConns, cfg.Db.MaxConnections)
+	}
+
+	// Validate conn max lifetime (must be positive or zero for no limit)
+	if cfg.Db.ConnMaxLifetime < 0 {
+		return fmt.Errorf("conn max lifetime must be non-negative: %v", cfg.Db.ConnMaxLifetime)
+	}
+
+	// Validate shutdown timeout (default to 30 seconds if not set)
+	if cfg.Db.ShutdownTimeout == 0 {
+		cfg.Db.ShutdownTimeout = 30 * time.Second
+	}
+	if cfg.Db.ShutdownTimeout < 0 {
+		return fmt.Errorf("shutdown timeout must be non-negative: %v", cfg.Db.ShutdownTimeout)
 	}
 
 	// Validate prefetch count

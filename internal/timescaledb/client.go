@@ -52,14 +52,22 @@ func WithPublisher(publisher EventPublisher) Option {
 
 // NewClient creates a new TimescaleDB client and verifies connectivity.
 func NewClient(connStr string, batchSize int, flushInterval time.Duration, logger *zap.Logger, opts ...Option) (*Client, error) {
+	return NewClientWithPool(connStr, batchSize, flushInterval, 25, 5, 5*time.Minute, logger, opts...)
+}
+
+// NewClientWithPool creates a new TimescaleDB client with custom pool settings.
+func NewClientWithPool(connStr string, batchSize int, flushInterval time.Duration, maxOpenConns, maxIdleConns int, connMaxLifetime time.Duration, logger *zap.Logger, opts ...Option) (*Client, error) {
 	db, err := bob.Open("postgres", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	// Use configured pool settings
+	db.SetMaxOpenConns(maxOpenConns)
+	db.SetMaxIdleConns(maxIdleConns)
+	if connMaxLifetime > 0 {
+		db.SetConnMaxLifetime(connMaxLifetime)
+	}
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)

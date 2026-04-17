@@ -31,8 +31,8 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 					// Just drain, don't process or ACK
 				}
 
-				// Trigger resubscription for this tenant
-				go c.resubscribeTenant(ctx, tenant)
+				// Trigger resubscription for this tenant using parent context
+				go c.resubscribeTenant(tenant.ParentCtx, tenant)
 				return
 			}
 
@@ -41,7 +41,7 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 			if tenant.Channel == nil || tenant.Channel.IsClosed() {
 				c.logger.Warn("Tenant channel closed, skipping message processing",
 					zap.String("org", tenant.OrgSlug))
-				go c.resubscribeTenant(ctx, tenant)
+				go c.resubscribeTenant(tenant.ParentCtx, tenant)
 				return
 			}
 
@@ -90,7 +90,7 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				continue
 			}
 
-			if err := c.processor.ProcessMessage(orgCtx, &deviceMsg); err != nil {
+			if err := c.processor.ProcessTelemetryAndTriggerAutomations(orgCtx, &deviceMsg); err != nil {
 				c.logger.Error("Failed to process message",
 					zap.Error(err),
 					zap.String("org", tenant.OrgSlug))

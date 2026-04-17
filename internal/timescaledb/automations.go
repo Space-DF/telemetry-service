@@ -9,10 +9,95 @@ import (
 
 	apimodels "github.com/Space-DF/telemetry-service/internal/api/automations/models"
 	"github.com/Space-DF/telemetry-service/internal/models"
+	"github.com/Space-DF/telemetry-service/pkgs/db/dberrors"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
+	"go.uber.org/zap"
 )
+
+// automationRow represents a database row exactly as returned by SQL
+// Using sql.Null* types directly eliminates manual null checking
+type automationRow struct {
+	ID          sql.NullString `db:"id"`
+	Name        sql.NullString `db:"name"`
+	Title       sql.NullString `db:"title"`
+	DeviceID    sql.NullString `db:"device_id"`
+	EventRuleID sql.NullString `db:"event_rule_id"`
+	SpaceID     sql.NullString `db:"space_id"`
+	UpdatedAt   sql.NullTime   `db:"updated_at"`
+	CreatedAt   sql.NullTime   `db:"created_at"`
+	// Event rule fields
+	EREventRuleID sql.NullString `db:"er_event_rule_id"`
+	ERRuleKey     sql.NullString `db:"er_rule_key"`
+	ERDefinition  sql.NullString `db:"er_definition"`
+	ERIsActive    sql.NullBool   `db:"er_is_active"`
+	ERRepeatAble  sql.NullBool   `db:"er_repeat_able"`
+	ERCooldownSec sql.NullInt64  `db:"er_cooldown_sec"`
+	ERDescription sql.NullString `db:"er_description"`
+	// Actions as JSON
+	ActionsJSON sql.NullString `db:"actions"`
+}
+
+// nullPtr returns a pointer to the value if the sql.Null* type is valid, nil otherwise.
+// This generic replaces boolPtr, intPtr, and stringPtr helper functions.
+func nullPtr[T any](v T, valid bool) *T {
+	if valid {
+		return &v
+	}
+	return nil
+}
+
+// toModel converts the DB row to the domain model.
+// Returns an error if JSON parsing fails for actions or event rule definition.
+func (r *automationRow) toModel() (*models.AutomationWithActions, error) {
+	a := models.Automation{
+		ID:          r.ID.String,
+		Name:        r.Name.String,
+		DeviceID:    r.DeviceID.String,
+		UpdatedAt:   r.UpdatedAt.Time,
+		CreatedAt:   r.CreatedAt.Time,
+		Title:       nullPtr(r.Title.String, r.Title.Valid),
+		EventRuleID: nullPtr(r.EventRuleID.String, r.EventRuleID.Valid),
+	}
+
+	// Parse SpaceID as UUID
+	if r.SpaceID.Valid {
+		if uid, err := uuid.Parse(r.SpaceID.String); err == nil {
+			a.SpaceID = &uid
+		}
+	}
+
+	result := &models.AutomationWithActions{Automation: a}
+
+	// Parse EventRule
+	if r.EREventRuleID.Valid {
+		result.EventRule = &models.EventRule{
+			EventRuleID: r.EREventRuleID.String,
+			RuleKey:     r.ERRuleKey.String,
+			IsActive:    nullPtr(r.ERIsActive.Bool, r.ERIsActive.Valid),
+			RepeatAble:  nullPtr(r.ERRepeatAble.Bool, r.ERRepeatAble.Valid),
+			CooldownSec: nullPtr(int(r.ERCooldownSec.Int64), r.ERCooldownSec.Valid),
+			Description: nullPtr(r.ERDescription.String, r.ERDescription.Valid),
+		}
+		if r.ERDefinition.Valid && r.ERDefinition.String != "" {
+			// Validate that definition is valid JSON
+			if !json.Valid([]byte(r.ERDefinition.String)) {
+				return nil, fmt.Errorf("invalid event rule definition JSON for automation %s", r.ID.String)
+			}
+			result.EventRule.Definition = json.RawMessage(r.ERDefinition.String)
+		}
+	}
+
+	// Parse Actions JSON
+	if r.ActionsJSON.Valid && r.ActionsJSON.String != "" {
+		if err := json.Unmarshal([]byte(r.ActionsJSON.String), &result.Actions); err != nil {
+			return nil, fmt.Errorf("failed to parse actions JSON for automation %s: %w", r.ID.String, err)
+		}
+	}
+
+	return result, nil
+}
 
 // GetAutomations retrieves automations with pagination and optional filters
 func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID *string, statusList []bool, search string, limit, offset int) ([]models.AutomationWithActions, int, error) {
@@ -25,36 +110,28 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Build WHERE clause dynamically
-		argIndex := 1
-		whereClause := fmt.Sprintf(" WHERE a.space_id = $%d", argIndex)
-		args := []interface{}{spaceID}
-		argIndex++
+		// Build WHERE clause dynamically using QueryBuilder
+		qb := NewQueryBuilder(1)
+		qb.AddCondition("a.space_id = $1", spaceID)
 
 		if deviceID != nil {
-			whereClause += fmt.Sprintf(" AND a.device_id = $%d", argIndex)
-			args = append(args, *deviceID)
-			argIndex++
+			qb.AddCondition(fmt.Sprintf("a.device_id = $%d", qb.argIndex), *deviceID)
 		}
 
 		if len(statusList) > 0 {
-			whereClause += fmt.Sprintf(" AND er.is_active = ANY($%d)", argIndex)
-			args = append(args, pq.Array(statusList))
-			argIndex++
+			qb.AddCondition(fmt.Sprintf("er.is_active = ANY($%d::boolean[])", qb.argIndex), pq.Array(statusList))
 		}
 
 		// Add search filter if provided
 		if search != "" {
-			if whereClause == "" {
-				whereClause = " WHERE"
-			} else {
-				whereClause += " AND"
-			}
-			whereClause += fmt.Sprintf(" (a.name ILIKE $%d OR CAST(a.device_id AS VARCHAR) ILIKE $%d)", argIndex, argIndex+1)
 			searchPattern := "%" + search + "%"
-			args = append(args, searchPattern, searchPattern)
-			argIndex += 2
+			idx1 := qb.argIndex
+			idx2 := qb.argIndex + 1
+			qb.AddConditionMulti(fmt.Sprintf("(a.name ILIKE $%d OR CAST(a.device_id AS VARCHAR) ILIKE $%d)", idx1, idx2), searchPattern, searchPattern)
 		}
+
+		whereClause := qb.BuildWhere()
+		args := qb.Args()
 
 		// Count total
 		countQuery := "SELECT COUNT(*) FROM automations a LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id" + whereClause
@@ -87,8 +164,9 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		` + whereClause + `
 			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 			ORDER BY a.created_at DESC
-			LIMIT $` + fmt.Sprintf("%d", argIndex) + ` OFFSET $` + fmt.Sprintf("%d", argIndex+1)
-		args = append(args, limit, offset)
+			LIMIT $` + fmt.Sprint(qb.argIndex) + ` OFFSET $` + fmt.Sprint(qb.argIndex+1)
+		qb.AddLimitOffset(limit, offset)
+		args = qb.Args()
 
 		rows, err := tx.QueryContext(txCtx, query, args...)
 		if err != nil {
@@ -97,75 +175,22 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
-			var a models.Automation
-			var actionsJSON json.RawMessage
-			var titleStr sql.NullString
-			var eventRuleID, spaceID, erRuleKey, erDefinition, erEventRuleID, erDescription sql.NullString
-			var erIsActive, erRepeatAble sql.NullBool
-			var erCooldownSec sql.NullInt64
-
+			var row automationRow
 			if err := rows.Scan(
-				&a.ID, &a.Name, &titleStr, &a.DeviceID,
-				&eventRuleID, &spaceID, &a.UpdatedAt, &a.CreatedAt,
-				&erEventRuleID, &erRuleKey, &erDefinition, &erIsActive, &erRepeatAble, &erCooldownSec, &erDescription,
-				&actionsJSON,
+				&row.ID, &row.Name, &row.Title, &row.DeviceID,
+				&row.EventRuleID, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
+				&row.EREventRuleID, &row.ERRuleKey, &row.ERDefinition, &row.ERIsActive, &row.ERRepeatAble, &row.ERCooldownSec, &row.ERDescription,
+				&row.ActionsJSON,
 			); err != nil {
 				return err
 			}
-
-			if titleStr.Valid {
-				a.Title = &titleStr.String
+			model, err := row.toModel()
+			if err != nil {
+				// Log malformed row but continue processing other records
+				c.Logger.Warn("skipping automation with invalid data", zap.String("automation_id", row.ID.String), zap.Error(err))
+				continue
 			}
-
-			if eventRuleID.Valid {
-				a.EventRuleID = &eventRuleID.String
-			}
-			if spaceID.Valid {
-				parsed, err := uuid.Parse(spaceID.String)
-				if err == nil {
-					a.SpaceID = &parsed
-				}
-			}
-
-			// Build EventRule if we have data
-			if erEventRuleID.Valid {
-				var eventRule models.EventRule
-				eventRule.EventRuleID = erEventRuleID.String
-				if erRuleKey.Valid {
-					eventRule.RuleKey = erRuleKey.String
-				}
-				if erDefinition.Valid {
-					eventRule.Definition = json.RawMessage(erDefinition.String)
-				}
-				if erIsActive.Valid {
-					eventRule.IsActive = &erIsActive.Bool
-				}
-				if erRepeatAble.Valid {
-					eventRule.RepeatAble = &erRepeatAble.Bool
-				}
-				if erCooldownSec.Valid {
-					cooldown := int(erCooldownSec.Int64)
-					eventRule.CooldownSec = &cooldown
-				}
-				if erDescription.Valid {
-					eventRule.Description = &erDescription.String
-				}
-				a.EventRule = &eventRule
-			}
-
-			result := models.AutomationWithActions{
-				Automation: a,
-			}
-
-			// Parse actions from JSON
-			if len(actionsJSON) > 0 && string(actionsJSON) != "null" {
-				var actions []models.Action
-				if err := json.Unmarshal(actionsJSON, &actions); err == nil {
-					result.Actions = actions
-				}
-			}
-
-			results = append(results, result)
+			results = append(results, *model)
 		}
 
 		return rows.Err()
@@ -189,7 +214,7 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 		return nil, fmt.Errorf("organization not found in context")
 	}
 
-	var result models.AutomationWithActions
+	var result *models.AutomationWithActions
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
@@ -215,18 +240,13 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			WHERE a.id = $1
 			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 		`
-		var actionsJSON json.RawMessage
-		var titleStr sql.NullString
-		var eventRuleID, spaceID, erEventRuleID, erRuleKey, erDescription sql.NullString
-		var erDefinition []byte
-		var erIsActive, erRepeatAble sql.NullBool
-		var erCooldownSec sql.NullInt64
+		var row automationRow
 
 		err := tx.QueryRowContext(txCtx, query, automationID).Scan(
-			&result.ID, &result.Name, &titleStr, &result.DeviceID,
-			&eventRuleID, &spaceID, &result.UpdatedAt, &result.CreatedAt,
-			&erEventRuleID, &erRuleKey, &erDefinition, &erIsActive, &erRepeatAble, &erCooldownSec, &erDescription,
-			&actionsJSON,
+			&row.ID, &row.Name, &row.Title, &row.DeviceID,
+			&row.EventRuleID, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
+			&row.EREventRuleID, &row.ERRuleKey, &row.ERDefinition, &row.ERIsActive, &row.ERRepeatAble, &row.ERCooldownSec, &row.ERDescription,
+			&row.ActionsJSON,
 		)
 
 		if err != nil {
@@ -236,54 +256,10 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			return fmt.Errorf("failed to query automation: %w", err)
 		}
 
-		if titleStr.Valid {
-			result.Title = &titleStr.String
+		result, err = row.toModel()
+		if err != nil {
+			return fmt.Errorf("failed to parse automation data: %w", err)
 		}
-
-		if eventRuleID.Valid {
-			result.EventRuleID = &eventRuleID.String
-		}
-		if spaceID.Valid {
-			parsed, err := uuid.Parse(spaceID.String)
-			if err == nil {
-				result.SpaceID = &parsed
-			}
-		}
-
-		// Build EventRule if we have data
-		if erEventRuleID.Valid {
-			var eventRule models.EventRule
-			eventRule.EventRuleID = erEventRuleID.String
-			if erRuleKey.Valid {
-				eventRule.RuleKey = erRuleKey.String
-			}
-			if len(erDefinition) > 0 {
-				eventRule.Definition = json.RawMessage(erDefinition)
-			}
-			if erIsActive.Valid {
-				eventRule.IsActive = &erIsActive.Bool
-			}
-			if erRepeatAble.Valid {
-				eventRule.RepeatAble = &erRepeatAble.Bool
-			}
-			if erCooldownSec.Valid {
-				cooldown := int(erCooldownSec.Int64)
-				eventRule.CooldownSec = &cooldown
-			}
-			if erDescription.Valid {
-				eventRule.Description = &erDescription.String
-			}
-			result.EventRule = &eventRule
-		}
-
-		// Parse actions from JSON
-		if len(actionsJSON) > 0 && string(actionsJSON) != "null" {
-			var actions []models.Action
-			if err := json.Unmarshal(actionsJSON, &actions); err == nil {
-				result.Actions = actions
-			}
-		}
-
 		return nil
 	})
 
@@ -291,7 +267,7 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 		return nil, err
 	}
 
-	return &result, nil
+	return result, nil
 }
 
 // CreateAutomation creates a new automation with an associated event rule
@@ -681,14 +657,16 @@ func (c *Client) GetActions(ctx context.Context, search string, limit, offset in
 	}
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Build WHERE clause
-		whereClause := ""
-		args := []interface{}{}
+		// Build WHERE clause using QueryBuilder
+		qb := NewQueryBuilder(1)
 
 		if search != "" {
-			whereClause = " WHERE name ILIKE $1 OR key ILIKE $1"
-			args = append(args, "%"+search+"%")
+			searchPattern := "%" + search + "%"
+			qb.AddCondition("(name ILIKE $1 OR key ILIKE $1)", searchPattern)
 		}
+
+		whereClause := qb.BuildWhere()
+		args := qb.Args()
 
 		// Count total
 		countQuery := "SELECT COUNT(*) FROM actions" + whereClause
@@ -698,12 +676,12 @@ func (c *Client) GetActions(ctx context.Context, search string, limit, offset in
 		}
 
 		// Query actions
-		argIndex := len(args) + 1
 		query := `
 			SELECT id, name, key, data::text, created_at
 			FROM actions
-		` + whereClause + ` ORDER BY created_at DESC LIMIT $` + fmt.Sprintf("%d", argIndex) + ` OFFSET $` + fmt.Sprintf("%d", argIndex+1)
-		args = append(args, limit, offset)
+		` + whereClause + ` ORDER BY created_at DESC LIMIT $` + fmt.Sprint(qb.argIndex) + ` OFFSET $` + fmt.Sprint(qb.argIndex+1)
+		qb.AddLimitOffset(limit, offset)
+		args = qb.Args()
 
 		rows, err := tx.QueryContext(txCtx, query, args...)
 		if err != nil {
@@ -765,6 +743,10 @@ func (c *Client) CreateAction(ctx context.Context, name, key string, data map[st
 		)
 
 		if err != nil {
+			// Check for unique constraint violation on name or key
+			if errors.Is(err, dberrors.ErrUniqueConstraint) {
+				return fmt.Errorf("action with name '%s' or key '%s' already exists", name, key)
+			}
 			return fmt.Errorf("failed to insert action: %w", err)
 		}
 
