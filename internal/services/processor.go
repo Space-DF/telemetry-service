@@ -185,6 +185,31 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 	return nil
 }
 
+func (p *LocationProcessor) ProcessLNSAlertEvent(ctx context.Context, event *models.Event) error {
+	if event == nil || event.EventType == "" {
+		return nil
+	}
+
+	if event.DeviceID == "" || event.SpaceSlug == "" {
+		return fmt.Errorf("device_id and space_slug are required")
+	}
+
+	if event.TimeFiredTs == 0 {
+		event.TimeFiredTs = time.Now().UnixMilli()
+	}
+
+	if p.tsClient == nil {
+		return fmt.Errorf("timescaledb client is not initialized")
+	}
+
+	org := timescaledb.OrgFromContext(ctx)
+	if org == "" {
+		org = event.Organization
+	}
+
+	return p.tsClient.CreateLNSAlertEvent(ctx, org, event)
+}
+
 // GetStats returns processor statistics
 func (p *LocationProcessor) GetStats() map[string]interface{} {
 	return map[string]interface{}{

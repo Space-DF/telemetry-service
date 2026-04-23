@@ -69,6 +69,7 @@ type MultiTenantConsumer struct {
 type MessageProcessor interface {
 	ProcessTelemetryAndTriggerAutomations(context context.Context, msg *models.DeviceLocationMessage) error
 	ProcessTelemetry(context context.Context, payload *models.TelemetryPayload) error
+	ProcessLNSAlertEvent(ctx context.Context, event *models.Event) error
 	OnOrgCreated(ctx context.Context, orgSlug string) error
 	OnOrgDeleted(ctx context.Context, orgSlug string) error
 }
