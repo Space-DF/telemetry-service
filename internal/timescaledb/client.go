@@ -15,6 +15,10 @@ type EventPublisher interface {
 	PublishEventToDevice(ctx context.Context, event *models.Event, orgSlug string) error
 }
 
+type EventNotifier interface {
+	NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error
+}
+
 // Client represents a TimescaleDB client with basic lifecycle helpers.
 type Client struct {
 	DB            bob.DB      // Exported for subpackages
@@ -24,6 +28,7 @@ type Client struct {
 	connStr       string
 	// PublishEventFunc is an optional hook used to publish real-time events to AMQP.
 	publisher EventPublisher
+	notifier  EventNotifier
 
 	wg sync.WaitGroup
 
@@ -47,6 +52,13 @@ type Option func(*Client)
 func WithPublisher(publisher EventPublisher) Option {
 	return func(c *Client) {
 		c.publisher = publisher
+	}
+}
+
+// WithNotifier sets the notification sender for device events.
+func WithNotifier(notifier EventNotifier) Option {
+	return func(c *Client) {
+		c.notifier = notifier
 	}
 }
 
@@ -111,8 +123,21 @@ func (c *Client) PublishEventToDevice(ctx context.Context, event *models.Event, 
 	return c.publisher.PublishEventToDevice(ctx, event, orgSlug)
 }
 
+func (c *Client) NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error {
+	if c.notifier == nil {
+		return nil
+	}
+
+	return c.notifier.NotifyEvent(ctx, event, orgSlug)
+}
+
 // SetPublisher sets the event publisher for real-time events.
 // Required for rule actions to publish events. Must be called after consumer initialization.
 func (c *Client) SetPublisher(publisher EventPublisher) {
 	c.publisher = publisher
+}
+
+// SetNotifier sets the notification sender for device events.
+func (c *Client) SetNotifier(notifier EventNotifier) {
+	c.notifier = notifier
 }

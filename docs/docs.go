@@ -52,7 +52,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -94,7 +94,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.ActionRequest"
+                            "$ref": "#/definitions/models.ActionRequest"
                         }
                     }
                 ],
@@ -154,7 +154,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.ActionRequest"
+                            "$ref": "#/definitions/models.ActionRequest"
                         }
                     }
                 ],
@@ -333,7 +333,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -400,7 +400,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -442,7 +442,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.AutomationRequest"
+                            "$ref": "#/definitions/models.AutomationRequest"
                         }
                     }
                 ],
@@ -489,12 +489,6 @@ const docTemplate = `{
                 ],
                 "summary": "Get automation summary",
                 "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_models.AutomationSummary"
-                        }
-                    },
                     "400": {
                         "description": "Invalid request parameters",
                         "schema": {
@@ -601,7 +595,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_automations_models.AutomationRequest"
+                            "$ref": "#/definitions/models.AutomationRequest"
                         }
                     }
                 ],
@@ -816,7 +810,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -898,7 +892,7 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
@@ -959,19 +953,19 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -995,7 +989,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceRequest"
+                            "$ref": "#/definitions/models.CreateGeofenceRequest"
                         }
                     }
                 ],
@@ -1003,19 +997,19 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceResponse"
+                            "$ref": "#/definitions/models.CreateGeofenceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1047,25 +1041,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse"
+                            "$ref": "#/definitions/models.GeofenceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1096,7 +1090,7 @@ const docTemplate = `{
                         "in": "body",
                         "required": true,
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceRequest"
+                            "$ref": "#/definitions/models.UpdateGeofenceRequest"
                         }
                     }
                 ],
@@ -1104,25 +1098,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceResponse"
+                            "$ref": "#/definitions/models.UpdateGeofenceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1152,25 +1146,25 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.DeleteGeofenceResponse"
+                            "$ref": "#/definitions/models.DeleteGeofenceResponse"
                         }
                     },
                     "400": {
                         "description": "Bad Request",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "404": {
                         "description": "Not Found",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     },
                     "500": {
                         "description": "Internal Server Error",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse"
+                            "$ref": "#/definitions/models.ErrorResponse"
                         }
                     }
                 }
@@ -1234,11 +1228,177 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse"
+                            "$ref": "#/definitions/common.PaginatedResponse"
                         }
                     },
                     "400": {
                         "description": "Invalid request parameters",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/telemetry/v1/notifications/subscribe": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Retrieve all push notification subscriptions for the current user",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Get user's push subscriptions",
+                "responses": {
+                    "200": {
+                        "description": "List of subscriptions",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Subscribe a user/device to receive web push notifications",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Subscribe to push notifications",
+                "parameters": [
+                    {
+                        "description": "Subscription details from browser",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/models.PushSubscriptionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/telemetry/v1/notifications/subscribe/{subscription_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "Remove a push notification subscription",
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Unsubscribe from push notifications",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Subscription ID",
+                        "name": "subscription_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Subscription not found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -1342,7 +1502,22 @@ const docTemplate = `{
         }
     },
     "definitions": {
-        "github_com_Space-DF_telemetry-service_internal_api_automations_models.ActionRequest": {
+        "common.PaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "next": {
+                    "type": "string"
+                },
+                "previous": {
+                    "type": "string"
+                },
+                "results": {}
+            }
+        },
+        "models.ActionRequest": {
             "type": "object",
             "required": [
                 "key",
@@ -1365,86 +1540,10 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_automations_models.AutomationRequest": {
-            "type": "object",
-            "required": [
-                "action_ids",
-                "device_id",
-                "name"
-            ],
-            "properties": {
-                "action_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "device_id": {
-                    "type": "string"
-                },
-                "event_rule": {
-                    "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_events_models.EventRuleRequest"
-                },
-                "name": {
-                    "type": "string",
-                    "maxLength": 100,
-                    "minLength": 1
-                },
-                "space_id": {
-                    "type": "string"
-                },
-                "title": {
-                    "type": "string",
-                    "maxLength": 255,
-                    "minLength": 1
-                }
-            }
+        "models.AutomationRequest": {
+            "type": "object"
         },
-        "github_com_Space-DF_telemetry-service_internal_api_common.PaginatedResponse": {
-            "type": "object",
-            "properties": {
-                "count": {
-                    "type": "integer"
-                },
-                "next": {
-                    "type": "string"
-                },
-                "previous": {
-                    "type": "string"
-                },
-                "results": {}
-            }
-        },
-        "github_com_Space-DF_telemetry-service_internal_api_events_models.EventRuleRequest": {
-            "type": "object",
-            "required": [
-                "rule_key"
-            ],
-            "properties": {
-                "cooldown_sec": {
-                    "type": "integer"
-                },
-                "definition": {
-                    "type": "array",
-                    "items": {
-                        "type": "integer"
-                    }
-                },
-                "description": {
-                    "type": "string"
-                },
-                "is_active": {
-                    "type": "boolean"
-                },
-                "repeat_able": {
-                    "type": "boolean"
-                },
-                "rule_key": {
-                    "type": "string"
-                }
-            }
-        },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceRequest": {
+        "models.CreateGeofenceRequest": {
             "type": "object",
             "required": [
                 "color",
@@ -1489,18 +1588,18 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.CreateGeofenceResponse": {
+        "models.CreateGeofenceResponse": {
             "type": "object",
             "properties": {
                 "geofence": {
-                    "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse"
+                    "$ref": "#/definitions/models.GeofenceResponse"
                 },
                 "message": {
                     "type": "string"
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.DeleteGeofenceResponse": {
+        "models.DeleteGeofenceResponse": {
             "type": "object",
             "properties": {
                 "message": {
@@ -1508,7 +1607,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.ErrorResponse": {
+        "models.ErrorResponse": {
             "type": "object",
             "properties": {
                 "error": {
@@ -1519,7 +1618,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.EventRuleInfo": {
+        "models.EventRuleInfo": {
             "type": "object",
             "properties": {
                 "created_at": {
@@ -1539,7 +1638,7 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse": {
+        "models.GeofenceResponse": {
             "type": "object",
             "properties": {
                 "color": {
@@ -1549,7 +1648,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "event_rule": {
-                    "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.EventRuleInfo"
+                    "$ref": "#/definitions/models.EventRuleInfo"
                 },
                 "features": {
                     "type": "array",
@@ -1577,7 +1676,26 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceRequest": {
+        "models.PushSubscriptionRequest": {
+            "type": "object",
+            "required": [
+                "auth",
+                "endpoint",
+                "p256dh"
+            ],
+            "properties": {
+                "auth": {
+                    "type": "string"
+                },
+                "endpoint": {
+                    "type": "string"
+                },
+                "p256dh": {
+                    "type": "string"
+                }
+            }
+        },
+        "models.UpdateGeofenceRequest": {
             "type": "object",
             "required": [
                 "features"
@@ -1617,28 +1735,14 @@ const docTemplate = `{
                 }
             }
         },
-        "github_com_Space-DF_telemetry-service_internal_api_geofences_models.UpdateGeofenceResponse": {
+        "models.UpdateGeofenceResponse": {
             "type": "object",
             "properties": {
                 "geofence": {
-                    "$ref": "#/definitions/github_com_Space-DF_telemetry-service_internal_api_geofences_models.GeofenceResponse"
+                    "$ref": "#/definitions/models.GeofenceResponse"
                 },
                 "message": {
                     "type": "string"
-                }
-            }
-        },
-        "github_com_Space-DF_telemetry-service_internal_models.AutomationSummary": {
-            "type": "object",
-            "properties": {
-                "active": {
-                    "type": "integer"
-                },
-                "disabled": {
-                    "type": "integer"
-                },
-                "total": {
-                    "type": "integer"
                 }
             }
         }

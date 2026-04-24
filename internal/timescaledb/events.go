@@ -172,7 +172,9 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 		return fmt.Errorf("organization is required")
 	}
 
-	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	var createdEvent *models.Event
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Get event_type
 		var eventTypeID int
 		err := tx.QueryRowContext(txCtx, `
@@ -210,11 +212,9 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 			return fmt.Errorf("failed to create event: %w", err)
 		}
 
-		// Publish event to AMQP for real-time processing
-		// Use names from MatchedEvent (already fetched by the evaluator)
 		eventLevel := event.EventLevel
 
-		if err := c.PublishEventToDevice(ctx, &models.Event{
+		createdEvent = &models.Event{
 			EventID:        eventID,
 			EventTypeID:    eventTypeID,
 			EventType:      event.EventType,
@@ -230,12 +230,36 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 			TimeFiredTs:    event.Timestamp,
 			Title:          event.Title,
 			Location:       event.Location,
-		}, org); err != nil {
-			return fmt.Errorf("failed to publish event: %w", err)
 		}
 
 		return nil
 	})
+
+	if err != nil {
+		return err
+	}
+
+	// Publish AFTER commit
+	if createdEvent != nil {
+		if err := c.PublishEventToDevice(ctx, createdEvent, org); err != nil {
+			c.Logger.Warn("Publish event failed",
+				zap.String("org", org),
+				zap.Int64("event_id", createdEvent.EventID),
+				zap.Error(err))
+		}
+	}
+
+	// Notification (non-blocking)
+	if createdEvent != nil {
+		if err := c.NotifyEvent(ctx, createdEvent, org); err != nil {
+			c.Logger.Warn("Notification failed",
+				zap.String("org", org),
+				zap.Int64("event_id", createdEvent.EventID),
+				zap.Error(err))
+		}
+	}
+
+	return nil
 }
 
 // CreateLNSAlertEvent inserts an LNS alert into the events table and publishes it to AMQP.
