@@ -98,6 +98,7 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 
 	// Initialize rule registry
 	ruleRegistry := registry.NewRuleRegistry(tsClient, logger)
+	notificationService := services.NewNotificationService(tsClient, logger, appConfig.Notifications)
 
 	// Load default rules from YAML
 	if appConfig.Server.EventRulesDir != "" {
@@ -114,6 +115,7 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 
 	// Set the publisher for real-time events (used by rule actions)
 	tsClient.SetPublisher(consumer)
+	tsClient.SetNotifier(notificationService)
 
 	// Connect to RabbitMQ
 	if err := consumer.Connect(); err != nil {
