@@ -160,7 +160,7 @@ func (c *Client) ResolveIconURL(icon, baseURL string) string {
 
 	iconPath := icon
 	if !strings.HasPrefix(iconPath, "/") {
-		iconPath = path.Join("/static/images/icons", strings.TrimLeft(iconPath, "/"))
+		iconPath = path.Join("/static/images/entities", strings.TrimLeft(iconPath, "/"))
 	}
 
 	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL != "" {
