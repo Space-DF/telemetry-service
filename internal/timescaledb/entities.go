@@ -66,7 +66,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	}
 
 	// Select query
-	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.image_url, e.is_enabled, e.created_at, e.updated_at, s2.time_start, s2.time_end
+	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.icon, e.is_enabled, e.created_at, e.updated_at, s2.time_start, s2.time_end
 		FROM entities e
 		LEFT JOIN entity_types et ON e.entity_type_id = et.id
 		LEFT JOIN spaces s ON e.space_id = s.space_id
@@ -94,13 +94,13 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 			for rows.Next() {
 				var id, deviceIDCol, name, uniqueKey sql.NullString
 				var etID, etName, etUnique, etImage sql.NullString
-				var categoryCol, unit, imageURL sql.NullString
+				var categoryCol, unit, icon sql.NullString
 				var displayType pq.StringArray
 				var isEnabled bool
 				var createdAt, updatedAt sql.NullTime
 				var timeStart, timeEnd sql.NullTime
 
-				if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &imageURL, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
+				if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 					return err
 				}
 
@@ -119,7 +119,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 					"category":            categoryCol.String,
 					"unit_of_measurement": unit.String,
 					"display_type":        []string(displayType),
-					"image_url":           imageURL.String,
+					"icon":                c.ResolveIconURL(icon.String, ""),
 					"is_enabled":          isEnabled,
 					"created_at":          createdAt.Time,
 					"updated_at":          updatedAt.Time,
@@ -144,13 +144,13 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 		for rows.Next() {
 			var id, deviceIDCol, name, uniqueKey sql.NullString
 			var etID, etName, etUnique, etImage sql.NullString
-			var categoryCol, unit, imageURL sql.NullString
+			var categoryCol, unit, icon sql.NullString
 			var displayType pq.StringArray
 			var isEnabled bool
 			var createdAt, updatedAt sql.NullTime
 			var timeStart, timeEnd sql.NullTime
 
-			if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &imageURL, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
+			if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 				return nil, 0, err
 			}
 
@@ -169,7 +169,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 				"category":            categoryCol.String,
 				"unit_of_measurement": unit.String,
 				"display_type":        []string(displayType),
-				"image_url":           imageURL.String,
+				"icon":                c.ResolveIconURL(icon.String, ""),
 				"is_enabled":          isEnabled,
 				"created_at":          createdAt.Time,
 				"updated_at":          updatedAt.Time,

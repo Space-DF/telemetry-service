@@ -3,6 +3,10 @@ package timescaledb
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +27,7 @@ type EventNotifier interface {
 type Client struct {
 	DB            bob.DB      // Exported for subpackages
 	Logger        *zap.Logger // Exported for subpackages
+	publicBaseURL string
 	batchSize     int
 	flushInterval time.Duration
 	connStr       string
@@ -88,6 +93,7 @@ func NewClientWithPool(connStr string, batchSize int, flushInterval time.Duratio
 	client := &Client{
 		DB:            db,
 		Logger:        logger,
+		publicBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("HOST")), "/"),
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
 		connStr:       connStr,
@@ -140,4 +146,30 @@ func (c *Client) SetPublisher(publisher EventPublisher) {
 // SetNotifier sets the notification sender for device events.
 func (c *Client) SetNotifier(notifier EventNotifier) {
 	c.notifier = notifier
+}
+
+func (c *Client) ResolveIconURL(icon, baseURL string) string {
+	icon = strings.TrimSpace(icon)
+	if icon == "" {
+		return ""
+	}
+
+	if parsed, err := url.Parse(icon); err == nil && parsed.IsAbs() {
+		return icon
+	}
+
+	iconPath := icon
+	if !strings.HasPrefix(iconPath, "/") {
+		iconPath = path.Join("/static/images/icons", strings.TrimLeft(iconPath, "/"))
+	}
+
+	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL != "" {
+		return baseURL + iconPath
+	}
+
+	if c.publicBaseURL == "" {
+		return iconPath
+	}
+
+	return c.publicBaseURL + iconPath
 }
