@@ -56,13 +56,17 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 
 	var entityTypeID uuid.UUID
 	if err := tx.QueryRowContext(ctx, `
-		INSERT INTO entity_types (id, name, unique_key, created_at, updated_at)
-		VALUES ($1, $2, $3, now(), now())
-		ON CONFLICT (unique_key) DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+		INSERT INTO entity_types (id, name, unique_key, image_url, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, now(), now())
+		ON CONFLICT (unique_key) DO UPDATE SET
+			name = EXCLUDED.name,
+			image_url = COALESCE(EXCLUDED.image_url, entity_types.image_url),
+			updated_at = now()
 		RETURNING id`,
 		uuid.New(),
 		ent.EntityType,
 		entityTypeKey,
+		nil,
 	).Scan(&entityTypeID); err != nil {
 		return uuid.UUID{}, fmt.Errorf("upsert entity_type '%s': %w", entityTypeKey, err)
 	}
@@ -80,9 +84,9 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO entities (
 			id, space_id, device_id, unique_key, category, entity_type_id,
-			name, unit_of_measurement, display_type, is_enabled, created_at, updated_at
+			name, unit_of_measurement, display_type, icon, is_enabled, created_at, updated_at
 		)
-		VALUES ($1, (SELECT space_id FROM spaces WHERE space_slug = $2 LIMIT 1), $3, $4, $5, $6, $7, $8, $9, true, now(), now())
+		VALUES ($1, (SELECT space_id FROM spaces WHERE space_slug = $2 LIMIT 1), $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now())
 		ON CONFLICT (unique_key) DO UPDATE SET
 			space_id = EXCLUDED.space_id,
 			device_id = EXCLUDED.device_id,
@@ -91,6 +95,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			category = EXCLUDED.category,
 			entity_type_id = EXCLUDED.entity_type_id,
 			display_type = EXCLUDED.display_type,
+			icon = COALESCE(EXCLUDED.icon, entities.icon),
 			updated_at = now()
 		RETURNING id`,
 		uuid.New(),
@@ -102,6 +107,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 		ent.Name,
 		ent.UnitOfMeas,
 		pq.Array(displayType),
+		nullString(ent.Icon),
 	).Scan(&entityID); err != nil {
 		return uuid.UUID{}, fmt.Errorf("upsert entity '%s': %w", ent.UniqueID, err)
 	}
@@ -203,6 +209,13 @@ func parseRFC3339(ts string) time.Time {
 func nullUUID(id sql.NullString) any {
 	if id.Valid && id.String != "" {
 		return id.String
+	}
+	return nil
+}
+
+func nullString(value string) any {
+	if value != "" {
+		return value
 	}
 	return nil
 }
