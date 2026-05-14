@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/client"
@@ -36,6 +37,13 @@ func buildEntityRowMap(c *Client, id, deviceIDCol, name, uniqueKey sql.NullStrin
 		"time_start":          timeStart.Time,
 		"time_end":            timeEnd.Time,
 	}
+}
+
+type BulkUpdateEntitiesResult struct {
+	EntityIDs    []string  `json:"entity_ids"`
+	UpdatedCount int       `json:"updated_count"`
+	IsEnabled    bool      `json:"is_enabled"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // GetEntities returns entities for a given space with optional filters and pagination.
@@ -201,8 +209,7 @@ func (c *Client) GetSpaceIDsByDeviceID(ctx context.Context, deviceID string) ([]
 	return spaceIDs, nil
 }
 
-
-func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spaceSlug string, isEnabled *bool) (map[string]interface{}, error) {
+func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spaceSlug string, isEnabled *bool) (*BulkUpdateEntitiesResult, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
@@ -217,7 +224,7 @@ func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spac
 		return nil, fmt.Errorf("is_enabled is required")
 	}
 
-	var result map[string]interface{}
+	var result *BulkUpdateEntitiesResult
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		rows, err := tx.QueryContext(txCtx, `
 			UPDATE entities e
@@ -226,7 +233,7 @@ func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spac
 			WHERE e.id = ANY($1)
 			  AND e.space_id = s.space_id
 			  AND s.space_slug = $2
-			RETURNING e.id
+			RETURNING e.id, e.updated_at
 		`, pq.Array(entityIDs), spaceSlug, *isEnabled)
 		if err != nil {
 			return err
@@ -237,7 +244,7 @@ func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spac
 		var updatedAt sql.NullTime
 		for rows.Next() {
 			var updatedID uuid.UUID
-			if err := rows.Scan(&updatedID); err != nil {
+			if err := rows.Scan(&updatedID, &updatedAt); err != nil {
 				return err
 			}
 			updatedIDs = append(updatedIDs, updatedID.String())
@@ -245,17 +252,12 @@ func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spac
 		if err := rows.Err(); err != nil {
 			return err
 		}
-		if len(updatedIDs) > 0 {
-			if err := tx.QueryRowContext(txCtx, `SELECT NOW()`).Scan(&updatedAt); err != nil {
-				return err
-			}
-		}
 
-		result = map[string]interface{}{
-			"entity_ids":    updatedIDs,
-			"updated_count": len(updatedIDs),
-			"is_enabled":    *isEnabled,
-			"updated_at":    updatedAt.Time,
+		result = &BulkUpdateEntitiesResult{
+			EntityIDs:    updatedIDs,
+			UpdatedCount: len(updatedIDs),
+			IsEnabled:    *isEnabled,
+			UpdatedAt:    updatedAt.Time,
 		}
 		return nil
 	})

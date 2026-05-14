@@ -104,7 +104,7 @@ func parseDisplayTypes(param string) []string {
 // @Accept json
 // @Produce json
 // @Param request body models.UpdateEntityRequest true "Entity updates"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} timescaledb.BulkUpdateEntitiesResult
 // @Failure 400 {object} map[string]string "Invalid request"
 // @Failure 500 {object} map[string]string "Internal server error"
 // @Router /telemetry/v1/entities/bulk-update [put]
