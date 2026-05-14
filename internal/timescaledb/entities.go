@@ -13,6 +13,31 @@ import (
 	"github.com/stephenafamo/bob"
 )
 
+func buildEntityRowMap(c *Client, id, deviceIDCol, name, uniqueKey sql.NullString, etID, etName, etUnique, etImage sql.NullString, categoryCol, unit, icon sql.NullString, displayType pq.StringArray, isEnabled bool, createdAt, updatedAt, timeStart, timeEnd sql.NullTime) map[string]interface{} {
+	return map[string]interface{}{
+		"id":          id.String,
+		"device_id":   deviceIDCol.String,
+		"device_name": name.String,
+		"unique_key":  uniqueKey.String,
+		"entity_type": map[string]interface{}{
+			"id":         etID.String,
+			"name":       etName.String,
+			"unique_key": etUnique.String,
+			"image_url":  etImage.String,
+		},
+		"name":                name.String,
+		"category":            categoryCol.String,
+		"unit_of_measurement": unit.String,
+		"display_type":        []string(displayType),
+		"icon":                c.ResolveIconURL(icon.String, ""),
+		"is_enabled":          isEnabled,
+		"created_at":          createdAt.Time,
+		"updated_at":          updatedAt.Time,
+		"time_start":          timeStart.Time,
+		"time_end":            timeEnd.Time,
+	}
+}
+
 // GetEntities returns entities for a given space with optional filters and pagination.
 func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
@@ -106,28 +131,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 					return err
 				}
 
-				rowMap := map[string]interface{}{
-					"id":          id.String,
-					"device_id":   deviceIDCol.String,
-					"device_name": name.String,
-					"unique_key":  uniqueKey.String,
-					"entity_type": map[string]interface{}{
-						"id":         etID.String,
-						"name":       etName.String,
-						"unique_key": etUnique.String,
-						"image_url":  etImage.String,
-					},
-					"name":                name.String,
-					"category":            categoryCol.String,
-					"unit_of_measurement": unit.String,
-					"display_type":        []string(displayType),
-					"icon":                c.ResolveIconURL(icon.String, ""),
-					"is_enabled":          isEnabled,
-					"created_at":          createdAt.Time,
-					"updated_at":          updatedAt.Time,
-					"time_start":          timeStart.Time,
-					"time_end":            timeEnd.Time,
-				}
+				rowMap := buildEntityRowMap(c, id, deviceIDCol, name, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
 				results = append(results, rowMap)
 			}
 			return nil
@@ -156,28 +160,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 				return nil, 0, err
 			}
 
-			rowMap := map[string]interface{}{
-				"id":          id.String,
-				"device_id":   deviceIDCol.String,
-				"device_name": name.String,
-				"unique_key":  uniqueKey.String,
-				"entity_type": map[string]interface{}{
-					"id":         etID.String,
-					"name":       etName.String,
-					"unique_key": etUnique.String,
-					"image_url":  etImage.String,
-				},
-				"name":                name.String,
-				"category":            categoryCol.String,
-				"unit_of_measurement": unit.String,
-				"display_type":        []string(displayType),
-				"icon":                c.ResolveIconURL(icon.String, ""),
-				"is_enabled":          isEnabled,
-				"created_at":          createdAt.Time,
-				"updated_at":          updatedAt.Time,
-				"time_start":          timeStart.Time,
-				"time_end":            timeEnd.Time,
-			}
+			rowMap := buildEntityRowMap(c, id, deviceIDCol, name, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
 			results = append(results, rowMap)
 		}
 	}
@@ -216,6 +199,71 @@ func (c *Client) GetSpaceIDsByDeviceID(ctx context.Context, deviceID string) ([]
 		return nil, err
 	}
 	return spaceIDs, nil
+}
+
+
+func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spaceSlug string, isEnabled *bool) (map[string]interface{}, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+	if len(entityIDs) == 0 {
+		return nil, fmt.Errorf("entity_ids are required")
+	}
+	if strings.TrimSpace(spaceSlug) == "" {
+		return nil, fmt.Errorf("space_slug is required")
+	}
+	if isEnabled == nil {
+		return nil, fmt.Errorf("is_enabled is required")
+	}
+
+	var result map[string]interface{}
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		rows, err := tx.QueryContext(txCtx, `
+			UPDATE entities e
+			SET is_enabled = $3, updated_at = NOW()
+			FROM spaces s
+			WHERE e.id = ANY($1)
+			  AND e.space_id = s.space_id
+			  AND s.space_slug = $2
+			RETURNING e.id
+		`, pq.Array(entityIDs), spaceSlug, *isEnabled)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+
+		updatedIDs := make([]string, 0, len(entityIDs))
+		var updatedAt sql.NullTime
+		for rows.Next() {
+			var updatedID uuid.UUID
+			if err := rows.Scan(&updatedID); err != nil {
+				return err
+			}
+			updatedIDs = append(updatedIDs, updatedID.String())
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(updatedIDs) > 0 {
+			if err := tx.QueryRowContext(txCtx, `SELECT NOW()`).Scan(&updatedAt); err != nil {
+				return err
+			}
+		}
+
+		result = map[string]interface{}{
+			"entity_ids":    updatedIDs,
+			"updated_count": len(updatedIDs),
+			"is_enabled":    *isEnabled,
+			"updated_at":    updatedAt.Time,
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, deviceModel, devEUI string, templates []client.DeviceEntityTemplate) (int64, error) {

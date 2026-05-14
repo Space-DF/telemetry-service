@@ -7,6 +7,7 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/api/entities/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -94,4 +95,65 @@ func parseDisplayTypes(param string) []string {
 		return nil
 	}
 	return parts[:j]
+}
+
+// UpdateEntities godoc
+// @Summary Bulk update entities
+// @Description Bulk update entities in the current space. Supports `is_enabled`. Organization is resolved from X-Organization header or hostname and space is resolved from X-Space.
+// @Tags entities
+// @Accept json
+// @Produce json
+// @Param request body models.UpdateEntityRequest true "Entity updates"
+// @Success 200 {object} map[string]interface{}
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /telemetry/v1/entities/bulk-update [put]
+func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		orgToUse := common.ResolveOrgFromRequest(c)
+		if orgToUse == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Could not determine organization from hostname or X-Organization header",
+			})
+		}
+
+		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+		if err != nil {
+			return err
+		}
+
+		var req models.UpdateEntityRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Invalid request body",
+			})
+		}
+
+		if len(req.EntityIDs) == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "entity_ids must be provided",
+			})
+		}
+
+		entityIDs := make([]uuid.UUID, 0, len(req.EntityIDs))
+		for _, rawID := range req.EntityIDs {
+			entityID, err := uuid.Parse(strings.TrimSpace(rawID))
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "Invalid entity_id format",
+				})
+			}
+			entityIDs = append(entityIDs, entityID)
+		}
+
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
+		result, err := tsClient.UpdateEntities(ctx, entityIDs, spaceSlug, req.IsEnabled)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to update entities",
+			})
+		}
+
+		return c.JSON(http.StatusOK, result)
+	}
 }

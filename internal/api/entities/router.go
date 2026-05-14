@@ -9,4 +9,5 @@ import (
 func RegisterRoutes(e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
 	group := e.Group("/entities")
 	group.GET("", getEntities(logger, tsClient))
+	group.PUT("/bulk-update", updateEntities(logger, tsClient))
 }
