@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/client"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/google/uuid"
@@ -16,30 +17,34 @@ import (
 
 const (
 	// Exchange names as defined in common/celery/routing.py
-	UpdateSpaceExchange  = "update_space"
-	DeleteSpaceExchange  = "delete_space"
-	DeleteDeviceExchange = "delete_device"
+	UpdateSpaceExchange          = "update_space"
+	DeleteSpaceExchange          = "delete_space"
+	DeleteDeviceExchange         = "delete_device"
+	CreateDeviceEntitiesExchange = "create_device_entities"
 
 	// Task names for message identification
-	UpdateSpaceTaskName  = "spacedf.tasks.update_space"
-	DeleteSpaceTaskName  = "spacedf.tasks.delete_space"
-	DeleteDeviceTaskName = "spacedf.tasks.delete_device"
+	UpdateSpaceTaskName          = "spacedf.tasks.update_space"
+	DeleteSpaceTaskName          = "spacedf.tasks.delete_space"
+	DeleteDeviceTaskName         = "spacedf.tasks.delete_device"
+	CreateDeviceEntitiesTaskName = "spacedf.tasks.create_device_entities"
 )
 
 // TaskConsumer consumes Celery tasks from RabbitMQ
 type TaskConsumer struct {
-	amqpURL  string
-	dbClient *timescaledb.Client
-	logger   *zap.Logger
-	conn     *amqp.Connection
-	channel  *amqp.Channel
-	done     chan bool
-	wg       sync.WaitGroup
-	stopOnce sync.Once
+	amqpURL           string
+	dbClient          *timescaledb.Client
+	logger            *zap.Logger
+	transformerClient *client.TransformerServiceClient
+	conn              *amqp.Connection
+	channel           *amqp.Channel
+	done              chan bool
+	wg                sync.WaitGroup
+	stopOnce          sync.Once
 
-	updateQueueName string
-	deleteQueueName string
-	deviceQueueName string
+	updateQueueName         string
+	deleteQueueName         string
+	deviceQueueName         string
+	createEntitiesQueueName string
 }
 
 // SchemaInitializer handles database schema initialization
@@ -50,13 +55,15 @@ type SchemaInitializer interface {
 // NewTaskConsumer creates a new Celery task consumer
 func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.Logger) *TaskConsumer {
 	return &TaskConsumer{
-		amqpURL:         amqpURL,
-		dbClient:        dbClient,
-		logger:          logger,
-		done:            make(chan bool, 1),
-		updateQueueName: "telemetry_update_space",
-		deleteQueueName: "telemetry_delete_space",
-		deviceQueueName: "telemetry_delete_device",
+		amqpURL:                 amqpURL,
+		dbClient:                dbClient,
+		logger:                  logger,
+		transformerClient:       client.NewTransformerServiceClient(logger),
+		done:                    make(chan bool, 1),
+		updateQueueName:         "telemetry_update_space",
+		deleteQueueName:         "telemetry_delete_space",
+		deviceQueueName:         "telemetry_delete_device",
+		createEntitiesQueueName: "telemetry_create_device_entities",
 	}
 }
 
@@ -141,6 +148,23 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to declare delete_device exchange: %w", err)
 	}
 
+	err = c.channel.ExchangeDeclare(
+		CreateDeviceEntitiesExchange,
+		"fanout",
+		true,
+		false,
+		false,
+		true,
+		nil,
+	)
+	if err != nil {
+		defer func() {
+			_ = c.channel.Close()
+			_ = c.conn.Close()
+		}()
+		return fmt.Errorf("failed to declare create_device_entities exchange: %w", err)
+	}
+
 	// Declare update queue
 	_, err = c.channel.QueueDeclare(
 		c.updateQueueName,
@@ -198,6 +222,24 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to declare device queue: %w", err)
 	}
 
+	_, err = c.channel.QueueDeclare(
+		c.createEntitiesQueueName,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{
+			"x-single-active-consumer": true,
+		},
+	)
+	if err != nil {
+		defer func() {
+			_ = c.channel.Close()
+			_ = c.conn.Close()
+		}()
+		return fmt.Errorf("failed to declare create entities queue: %w", err)
+	}
+
 	// Bind update queue to update_space exchange
 	if err := c.channel.QueueBind(
 		c.updateQueueName,
@@ -237,10 +279,23 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to bind device queue: %w", err)
 	}
 
+	if err := c.channel.QueueBind(
+		c.createEntitiesQueueName,
+		CreateDeviceEntitiesExchange,
+		CreateDeviceEntitiesExchange,
+		false,
+		nil,
+	); err != nil {
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to bind create entities queue: %w", err)
+	}
+
 	c.logger.Info("Celery task consumer connected",
 		zap.String("update_queue", c.updateQueueName),
 		zap.String("delete_queue", c.deleteQueueName),
-		zap.String("device_queue", c.deviceQueueName))
+		zap.String("device_queue", c.deviceQueueName),
+		zap.String("create_entities_queue", c.createEntitiesQueueName))
 
 	return nil
 }
@@ -335,13 +390,27 @@ func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
 		return fmt.Errorf("failed to start consuming device queue: %w", err)
 	}
 
+	createEntitiesMessages, err := c.channel.Consume(
+		c.createEntitiesQueueName,
+		"telemetry_create_entities_consumer",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start consuming create entities queue: %w", err)
+	}
+
 	c.logger.Info("Celery task consumer started",
 		zap.String("update_queue", c.updateQueueName),
 		zap.String("delete_queue", c.deleteQueueName),
-		zap.String("device_queue", c.deviceQueueName))
+		zap.String("device_queue", c.deviceQueueName),
+		zap.String("create_entities_queue", c.createEntitiesQueueName))
 
 	// Start goroutines for each queue
-	c.wg.Add(3)
+	c.wg.Add(4)
 	go func() {
 		defer c.wg.Done()
 		c.processMessages(ctx, updateMessages, UpdateSpaceTaskName)
@@ -353,6 +422,10 @@ func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
 	go func() {
 		defer c.wg.Done()
 		c.processMessages(ctx, deviceMessages, DeleteDeviceTaskName)
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.processMessages(ctx, createEntitiesMessages, CreateDeviceEntitiesTaskName)
 	}()
 
 	// Wait for all goroutines to finish (they exit when channel closes)
@@ -422,6 +495,9 @@ func (c *TaskConsumer) handleTask(ctx context.Context, taskName string, body []b
 
 	case DeleteDeviceTaskName, "delete_device":
 		return c.handleDeleteDevice(ctx, body)
+
+	case CreateDeviceEntitiesTaskName, "create_device_entities":
+		return c.handleCreateDeviceEntities(ctx, body)
 
 	default:
 		c.logger.Debug("Unknown task name, ignoring", zap.String("task", taskName))
@@ -521,6 +597,56 @@ func (c *TaskConsumer) handleDeleteDevice(ctx context.Context, body []byte) erro
 	if err := c.dbClient.DeleteDeviceFromSpace(ctx, task.OrganizationSlugName, deviceID); err != nil {
 		return fmt.Errorf("failed to delete device telemetry data: %w", err)
 	}
+
+	return nil
+}
+
+func (c *TaskConsumer) handleCreateDeviceEntities(ctx context.Context, body []byte) error {
+	var celeryMsg models.CeleryMessage
+	if err := json.Unmarshal(body, &celeryMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal celery message: %w", err)
+	}
+
+	var task models.CreateDeviceEntitiesTask
+	if err := json.Unmarshal(celeryMsg.Kwargs, &task); err != nil {
+		return fmt.Errorf("failed to unmarshal create_device_entities task kwargs: %w", err)
+	}
+
+	c.logger.Info("Processing create_device_entities task",
+		zap.String("org", task.OrganizationSlugName),
+		zap.String("space_slug", task.SpaceSlug),
+		zap.String("device_id", task.DeviceID),
+		zap.String("device_model", task.DeviceModel),
+		zap.String("dev_eui", task.DevEUI),
+	)
+
+	taskCtx := timescaledb.ContextWithOrg(ctx, task.OrganizationSlugName)
+
+	templates, err := c.transformerClient.GetDeviceEntityTemplates(
+		taskCtx,
+		task.DeviceModel,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to fetch entity templates from transformer-service: %w", err)
+	}
+
+	createdCount, err := c.dbClient.CreateDeviceEntities(
+		taskCtx,
+		task.DeviceID,
+		task.SpaceSlug,
+		task.DeviceModel,
+		task.DevEUI,
+		templates,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create device entities: %w", err)
+	}
+
+	c.logger.Info("Created device entities successfully",
+		zap.String("org", task.OrganizationSlugName),
+		zap.String("device_id", task.DeviceID),
+		zap.Int64("created_count", createdCount),
+	)
 
 	return nil
 }

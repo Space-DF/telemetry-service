@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	"github.com/Space-DF/telemetry-service/internal/client"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
@@ -214,4 +216,113 @@ func (c *Client) GetSpaceIDsByDeviceID(ctx context.Context, deviceID string) ([]
 		return nil, err
 	}
 	return spaceIDs, nil
+}
+
+func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, deviceModel, devEUI string, templates []client.DeviceEntityTemplate) (int64, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return 0, fmt.Errorf("organization not found in context")
+	}
+	if deviceID == "" || spaceSlug == "" || deviceModel == "" || devEUI == "" {
+		return 0, fmt.Errorf("device_id, space_slug, device_model, and dev_eui are required")
+	}
+	if len(templates) == 0 {
+		return 0, nil
+	}
+
+	deviceUUID, err := uuid.Parse(deviceID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid device_id '%s': %w", deviceID, err)
+	}
+
+	var createdCount int64
+	err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		var spaceID uuid.UUID
+		if err := tx.QueryRowContext(txCtx, `
+			SELECT space_id FROM spaces WHERE space_slug = $1 LIMIT 1
+		`, spaceSlug).Scan(&spaceID); err != nil {
+			return fmt.Errorf("failed to resolve space '%s': %w", spaceSlug, err)
+		}
+
+		for _, tpl := range templates {
+			displayType := tpl.DisplayType
+			if len(displayType) == 0 {
+				displayType = []string{"unknown"}
+			}
+
+			modelKey := strings.TrimSpace(tpl.ModelKey)
+			if modelKey == "" {
+				modelKey = deviceModel
+			}
+			if modelKey == "" {
+				return fmt.Errorf("template missing model key for device_model '%s'", deviceModel)
+			}
+
+			templateKey := strings.TrimSpace(tpl.Key)
+			if templateKey == "" {
+				return fmt.Errorf("template missing key for device_model '%s' and model_key '%s'", deviceModel, modelKey)
+			}
+
+			entityTypeKey := strings.TrimSpace(tpl.EntityType)
+			if entityTypeKey == "" {
+				return fmt.Errorf("template missing entity_type for device_model '%s', model_key '%s', and key '%s'", deviceModel, modelKey, templateKey)
+			}
+
+			entityUniqueKey := fmt.Sprintf("%s_%s_%s", modelKey, devEUI, templateKey)
+
+			var entityTypeID uuid.UUID
+			if err := tx.QueryRowContext(txCtx, `
+				INSERT INTO entity_types (id, name, unique_key, image_url, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, now(), now())
+				ON CONFLICT (unique_key) DO UPDATE SET
+					name = EXCLUDED.name,
+					image_url = COALESCE(EXCLUDED.image_url, entity_types.image_url),
+					updated_at = now()
+				RETURNING id
+			`,
+				uuid.New(),
+				tpl.Name,
+				entityTypeKey,
+				nullString(tpl.Icon),
+			).Scan(&entityTypeID); err != nil {
+				return fmt.Errorf("upsert entity type '%s': %w", entityTypeKey, err)
+			}
+
+			result, err := tx.ExecContext(txCtx, `
+				INSERT INTO entities (
+					id, space_id, device_id, unique_key, category, entity_type_id,
+					name, unit_of_measurement, display_type, icon, is_enabled, created_at, updated_at
+				)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now())
+				ON CONFLICT (unique_key) DO NOTHING
+			`,
+				uuid.New(),
+				spaceID,
+				deviceUUID,
+				entityUniqueKey,
+				tpl.Category,
+				entityTypeID,
+				tpl.Name,
+				nullString(tpl.UnitOfMeas),
+				pq.Array(displayType),
+				nullString(tpl.Icon),
+			)
+			if err != nil {
+				return fmt.Errorf("insert entity '%s': %w", entityUniqueKey, err)
+			}
+
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("entity rows affected for '%s': %w", entityUniqueKey, err)
+			}
+			createdCount += rowsAffected
+		}
+
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return createdCount, nil
 }

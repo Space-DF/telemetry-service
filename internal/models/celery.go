@@ -143,3 +143,12 @@ type DeleteDeviceTask struct {
 	OrganizationSlugName string `json:"organization_slug_name"`
 	DeviceID             string `json:"device_id"`
 }
+
+// CreateDeviceEntitiesTask represents the Celery task kwargs for create_device_entities
+type CreateDeviceEntitiesTask struct {
+	OrganizationSlugName string `json:"organization_slug_name"`
+	SpaceSlug            string `json:"space_slug"`
+	DeviceID             string `json:"device_id"`
+	DeviceModel          string `json:"device_model"`
+	DevEUI               string `json:"dev_eui"`
+}
