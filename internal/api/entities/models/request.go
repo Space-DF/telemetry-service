@@ -12,6 +12,6 @@ type EntitiesRequest struct {
 
 // UpdateEntityRequest represents partial updates for an entity.
 type UpdateEntityRequest struct {
-	EntityIDs []string `json:"entity_ids"`
-	IsEnabled *bool    `json:"is_enabled"`
+	VisibleEntityIDs []any `json:"visible_entity_ids"`
+	HiddenEntityIDs  []any `json:"hidden_entity_ids"`
 }

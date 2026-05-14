@@ -40,14 +40,23 @@ func buildEntityRowMap(c *Client, id, deviceIDCol, name, uniqueKey sql.NullStrin
 }
 
 type BulkUpdateEntitiesResult struct {
-	EntityIDs    []string  `json:"entity_ids"`
-	UpdatedCount int       `json:"updated_count"`
-	IsEnabled    bool      `json:"is_enabled"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	Entities     []BulkUpdateEntityResult `json:"entities"`
+	UpdatedCount int                      `json:"updated_count"`
+}
+
+type BulkUpdateEntityResult struct {
+	EntityID  string    `json:"entity_id"`
+	IsEnabled bool      `json:"is_enabled"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type EntityEnabledUpdate struct {
+	EntityID  uuid.UUID
+	IsEnabled bool
 }
 
 // GetEntities returns entities for a given space with optional filters and pagination.
-func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
+func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID, devEUI string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
 
 	if limit <= 0 {
@@ -69,6 +78,11 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID 
 	if deviceID != "" {
 		where += fmt.Sprintf(" AND e.device_id = $%d", idx)
 		args = append(args, deviceID)
+		idx++
+	}
+	if devEUI != "" {
+		where += fmt.Sprintf(" AND e.unique_key LIKE $%d", idx)
+		args = append(args, "%_"+devEUI+"_%")
 		idx++
 	}
 	if len(displayTypes) > 0 {
@@ -209,55 +223,63 @@ func (c *Client) GetSpaceIDsByDeviceID(ctx context.Context, deviceID string) ([]
 	return spaceIDs, nil
 }
 
-func (c *Client) UpdateEntities(ctx context.Context, entityIDs []uuid.UUID, spaceSlug string, isEnabled *bool) (*BulkUpdateEntitiesResult, error) {
+func (c *Client) UpdateEntities(ctx context.Context, updates []EntityEnabledUpdate, spaceSlug string) (*BulkUpdateEntitiesResult, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
 	}
-	if len(entityIDs) == 0 {
-		return nil, fmt.Errorf("entity_ids are required")
+	if len(updates) == 0 {
+		return nil, fmt.Errorf("updates are required")
 	}
 	if strings.TrimSpace(spaceSlug) == "" {
 		return nil, fmt.Errorf("space_slug is required")
 	}
-	if isEnabled == nil {
-		return nil, fmt.Errorf("is_enabled is required")
-	}
 
 	var result *BulkUpdateEntitiesResult
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		entityIDs := make([]uuid.UUID, 0, len(updates))
+		enabledStates := make([]bool, 0, len(updates))
+		for _, update := range updates {
+			entityIDs = append(entityIDs, update.EntityID)
+			enabledStates = append(enabledStates, update.IsEnabled)
+		}
+
 		rows, err := tx.QueryContext(txCtx, `
 			UPDATE entities e
-			SET is_enabled = $3, updated_at = NOW()
-			FROM spaces s
-			WHERE e.id = ANY($1)
+			SET is_enabled = u.is_enabled, updated_at = NOW()
+			FROM spaces s,
+			     unnest($1::uuid[], $2::boolean[]) AS u(id, is_enabled)
+			WHERE e.id = u.id
 			  AND e.space_id = s.space_id
-			  AND s.space_slug = $2
-			RETURNING e.id, e.updated_at
-		`, pq.Array(entityIDs), spaceSlug, *isEnabled)
+			  AND s.space_slug = $3
+			RETURNING e.id, e.is_enabled, e.updated_at
+		`, pq.Array(entityIDs), pq.Array(enabledStates), spaceSlug)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = rows.Close() }()
 
-		updatedIDs := make([]string, 0, len(entityIDs))
-		var updatedAt sql.NullTime
+		updatedEntities := make([]BulkUpdateEntityResult, 0, len(updates))
 		for rows.Next() {
 			var updatedID uuid.UUID
-			if err := rows.Scan(&updatedID, &updatedAt); err != nil {
+			var isEnabled bool
+			var updatedAt sql.NullTime
+			if err := rows.Scan(&updatedID, &isEnabled, &updatedAt); err != nil {
 				return err
 			}
-			updatedIDs = append(updatedIDs, updatedID.String())
+			updatedEntities = append(updatedEntities, BulkUpdateEntityResult{
+				EntityID:  updatedID.String(),
+				IsEnabled: isEnabled,
+				UpdatedAt: updatedAt.Time,
+			})
 		}
 		if err := rows.Err(); err != nil {
 			return err
 		}
 
 		result = &BulkUpdateEntitiesResult{
-			EntityIDs:    updatedIDs,
-			UpdatedCount: len(updatedIDs),
-			IsEnabled:    *isEnabled,
-			UpdatedAt:    updatedAt.Time,
+			Entities:     updatedEntities,
+			UpdatedCount: len(updatedEntities),
 		}
 		return nil
 	})
