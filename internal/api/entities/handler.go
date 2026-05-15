@@ -1,7 +1,9 @@
 package entities
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
@@ -20,6 +22,7 @@ import (
 // @Produce json
 // @Param category query string false "Filter by entity category"
 // @Param device_id query string false "Filter by device ID"
+// @Param dev_eui query string false "Filter by device EUI"
 // @Param display_type query string false "Filter by display type (comma-separated)"
 // @Param search query string false "Search term for filtering"
 // @Param limit query int false "Number of results per page (default 20)"
@@ -34,6 +37,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		req := &models.EntitiesRequest{
 			Category:     c.QueryParam("category"),
 			DeviceID:     c.QueryParam("device_id"),
+			DevEUI:       strings.TrimSpace(c.QueryParam("dev_eui")),
 			DisplayTypes: parseDisplayTypes(c.QueryParam("display_type")),
 			Search:       strings.TrimSpace(c.QueryParam("search")),
 		}
@@ -60,7 +64,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 
 		p := common.ParsePagination(c)
 
-		entities, total, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DisplayTypes, req.Search, p.Limit, p.Offset)
+		entities, total, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DevEUI, req.DisplayTypes, req.Search, p.Limit, p.Offset)
 		if err != nil {
 			logger.Error("failed to query entities", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query entities"})
@@ -99,7 +103,7 @@ func parseDisplayTypes(param string) []string {
 
 // UpdateEntities godoc
 // @Summary Bulk update entities
-// @Description Bulk update entities in the current space. Supports `is_enabled`. Organization is resolved from X-Organization header or hostname and space is resolved from X-Space.
+// @Description Bulk update entities in the current space. Supports per-entity `is_enabled` values. Organization is resolved from X-Organization header or hostname and space is resolved from X-Space.
 // @Tags entities
 // @Accept json
 // @Produce json
@@ -129,25 +133,52 @@ func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
-		if len(req.EntityIDs) == 0 {
+		if len(req.VisibleEntityIDs) == 0 && len(req.HiddenEntityIDs) == 0 {
 			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "entity_ids must be provided",
+				"error": "visible_entity_ids or hidden_entity_ids must be provided",
 			})
 		}
 
-		entityIDs := make([]uuid.UUID, 0, len(req.EntityIDs))
-		for _, rawID := range req.EntityIDs {
-			entityID, err := uuid.Parse(strings.TrimSpace(rawID))
+		entityUpdates := make([]timescaledb.EntityEnabledUpdate, 0, len(req.VisibleEntityIDs)+len(req.HiddenEntityIDs))
+		for _, rawID := range req.VisibleEntityIDs {
+			entityIDValue, err := normalizeEntityID(rawID)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "Invalid visible_entity_ids format",
+				})
+			}
+			entityID, err := uuid.Parse(entityIDValue)
 			if err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{
 					"error": "Invalid entity_id format",
 				})
 			}
-			entityIDs = append(entityIDs, entityID)
+			entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
+				EntityID:  entityID,
+				IsEnabled: true,
+			})
+		}
+		for _, rawID := range req.HiddenEntityIDs {
+			entityIDValue, err := normalizeEntityID(rawID)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "Invalid hidden_entity_ids format",
+				})
+			}
+			entityID, err := uuid.Parse(entityIDValue)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "Invalid entity_id format",
+				})
+			}
+			entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
+				EntityID:  entityID,
+				IsEnabled: false,
+			})
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		result, err := tsClient.UpdateEntities(ctx, entityIDs, spaceSlug, req.IsEnabled)
+		result, err := tsClient.UpdateEntities(ctx, entityUpdates, spaceSlug)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "Failed to update entities",
@@ -155,5 +186,24 @@ func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		return c.JSON(http.StatusOK, result)
+	}
+}
+
+func normalizeEntityID(value any) (string, error) {
+	switch v := value.(type) {
+	case string:
+		id := strings.TrimSpace(v)
+		if id == "" {
+			return "", fmt.Errorf("empty entity id")
+		}
+		return id, nil
+	case float64:
+		return strconv.FormatInt(int64(v), 10), nil
+	case int:
+		return strconv.Itoa(v), nil
+	case int64:
+		return strconv.FormatInt(v, 10), nil
+	default:
+		return "", fmt.Errorf("unsupported entity id type %T", value)
 	}
 }
