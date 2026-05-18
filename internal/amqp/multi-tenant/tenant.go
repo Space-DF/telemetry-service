@@ -67,9 +67,10 @@ type MultiTenantConsumer struct {
 
 // MessageProcessor processes device telemetry messages and triggers automations
 type MessageProcessor interface {
-	ProcessTelemetryAndTriggerAutomations(context context.Context, msg *models.DeviceLocationMessage) error
+	ProcessDeviceLocation(context context.Context, msg *models.DeviceLocationMessage) error
 	ProcessTelemetry(context context.Context, payload *models.TelemetryPayload) error
 	ProcessLNSAlertEvent(ctx context.Context, event *models.Event) error
+	ProcessActivityLog(ctx context.Context, orgSlug string, log *models.DeviceActivityLog) error
 	OnOrgCreated(ctx context.Context, orgSlug string) error
 	OnOrgDeleted(ctx context.Context, orgSlug string) error
 }
@@ -189,18 +190,29 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 		return fmt.Errorf("failed to declare queue '%s' in vhost '%s': %w", queueName, vhost, err)
 	}
 
-	// Bind queue to exchange with the routing key pattern
-	routingKey := fmt.Sprintf("tenant.%s.transformed.telemetry.device.location", orgSlug)
-	if err := channel.QueueBind(
-		queue.Name,
-		routingKey,
-		exchange,
-		false,
-		nil,
-	); err != nil {
-		_ = channel.Close()
-		c.releaseVhostConnection(vhost)
-		return fmt.Errorf("failed to bind queue '%s' to exchange '%s': %w", queue.Name, exchange, err)
+	// Bind queue to exchange for each routing key pattern
+	bindings := []struct {
+		key   string
+		label string
+	}{
+		{fmt.Sprintf("tenant.%s.device.raw_data_log", orgSlug), "raw data log"},
+		{fmt.Sprintf("tenant.%s.transformed.device.location", orgSlug), "device location"},
+		{fmt.Sprintf("tenant.%s.transformed.telemetry", orgSlug), "telemetry"},
+		{fmt.Sprintf("tenant.%s.transformed.device.event", orgSlug), "device event"},
+	}
+
+	for _, b := range bindings {
+		if err := channel.QueueBind(
+			queue.Name,
+			b.key,
+			exchange,
+			false,
+			nil,
+		); err != nil {
+			_ = channel.Close()
+			c.releaseVhostConnection(vhost)
+			return fmt.Errorf("failed to bind queue '%s' to '%s' (%s): %w", queue.Name, b.key, b.label, err)
+		}
 	}
 
 	consumerTag := c.makeConsumerTag(orgSlug, vhost)
@@ -241,8 +253,7 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 	c.logger.Info("Started consuming from organization",
 		zap.String("org", orgSlug),
 		zap.String("vhost", vhost),
-		zap.String("queue", queueName),
-		zap.String("routing_key", routingKey))
+		zap.String("queue", queueName))
 	return nil
 }
 

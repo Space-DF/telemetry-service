@@ -2,10 +2,7 @@ package amqp
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 
-	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
@@ -41,6 +38,7 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 			if tenant.Channel == nil || tenant.Channel.IsClosed() {
 				c.logger.Warn("Tenant channel closed, skipping message processing",
 					zap.String("org", tenant.OrgSlug))
+
 				go c.resubscribeTenant(tenant.ParentCtx, tenant)
 				return
 			}
@@ -49,63 +47,11 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				zap.String("org", tenant.OrgSlug),
 				zap.String("routing_key", msg.RoutingKey))
 
+			// Add org context to the message processing context
 			orgCtx := timescaledb.ContextWithOrg(ctx, tenant.OrgSlug)
 
-			// First try telemetry payload (entities).
-			var telemetry models.TelemetryPayload
-			if err := json.Unmarshal(msg.Body, &telemetry); err == nil && len(telemetry.Entities) > 0 {
-				// Fill org if missing.
-				if telemetry.Organization == "" {
-					telemetry.Organization = tenant.OrgSlug
-				}
-				if telemetry.SpaceSlug == "" {
-					telemetry.SpaceSlug = tenant.OrgSlug
-				}
-
-				if err := c.processor.ProcessTelemetry(orgCtx, &telemetry); err != nil {
-					c.logger.Error("Failed to process telemetry payload",
-						zap.Error(err),
-						zap.String("org", tenant.OrgSlug))
-					if nackErr := msg.Nack(false, true); nackErr != nil {
-						c.logger.Error("Failed to nack message", zap.Error(nackErr))
-					}
-					continue
-				}
-
-				if ackErr := msg.Ack(false); ackErr != nil {
-					c.logger.Error("Failed to ack message", zap.Error(ackErr))
-				}
-				continue
-			}
-
-			// Fallback to legacy device location message.
-			var deviceMsg models.DeviceLocationMessage
-			if err := json.Unmarshal(msg.Body, &deviceMsg); err != nil {
-				c.logger.Error("Failed to unmarshal message",
-					zap.Error(err),
-					zap.String("org", tenant.OrgSlug))
-				if nackErr := msg.Nack(false, false); nackErr != nil {
-					c.logger.Error("Failed to nack bad message", zap.Error(nackErr))
-				}
-				continue
-			}
-
-			if err := c.processor.ProcessTelemetryAndTriggerAutomations(orgCtx, &deviceMsg); err != nil {
-				c.logger.Error("Failed to process message",
-					zap.Error(err),
-					zap.String("org", tenant.OrgSlug))
-				if errors.Is(err, timescaledb.ErrLocationDroppedTimeout) {
-					c.logger.Warn("Location dropped due to timeout",
-						zap.String("org", tenant.OrgSlug))
-					if nackErr := msg.Nack(false, true); nackErr != nil {
-						c.logger.Error("Failed to nack timeout message", zap.Error(nackErr))
-					}
-				}
-			} else {
-				if ackErr := msg.Ack(false); ackErr != nil {
-					c.logger.Error("Failed to ack message", zap.Error(ackErr))
-				}
-			}
+			// Route the message to its own processor
+			c.routeMessage(orgCtx, tenant, msg)
 		}
 	}
 }
