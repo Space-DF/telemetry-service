@@ -307,6 +307,8 @@ func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, 
 		return 0, fmt.Errorf("invalid device_id '%s': %w", deviceID, err)
 	}
 
+	normalizedDevEUI := strings.ToUpper(strings.TrimSpace(devEUI))
+
 	var createdCount int64
 	err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		var spaceID uuid.UUID
@@ -340,7 +342,7 @@ func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, 
 				return fmt.Errorf("template missing entity_type for device_model '%s', model_key '%s', and key '%s'", deviceModel, modelKey, templateKey)
 			}
 
-			entityUniqueKey := fmt.Sprintf("%s_%s_%s", modelKey, devEUI, templateKey)
+			entityUniqueKey := fmt.Sprintf("%s_%s_%s", modelKey, normalizedDevEUI, templateKey)
 
 			var entityTypeID uuid.UUID
 			if err := tx.QueryRowContext(txCtx, `
