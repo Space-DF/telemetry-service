@@ -290,6 +290,62 @@ func (c *Client) UpdateEntities(ctx context.Context, updates []EntityEnabledUpda
 	return result, nil
 }
 
+func (c *Client) UpdateEntitiesBySelection(ctx context.Context, selectedIDs []uuid.UUID, spaceSlug string, isEnabled bool) (*BulkUpdateEntitiesResult, error) {
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+	if strings.TrimSpace(spaceSlug) == "" {
+		return nil, fmt.Errorf("space_slug is required")
+	}
+
+	var result *BulkUpdateEntitiesResult
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		rows, err := tx.QueryContext(txCtx, `
+			UPDATE entities e
+			SET is_enabled = CASE WHEN e.id = ANY($1::uuid[]) THEN NOT $3 ELSE $3 END,
+			    updated_at = NOW()
+			FROM spaces s
+			WHERE e.space_id = s.space_id
+			  AND s.space_slug = $2
+			RETURNING e.id, e.is_enabled, e.updated_at
+		`, pq.Array(selectedIDs), spaceSlug, isEnabled)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+
+		updatedEntities := make([]BulkUpdateEntityResult, 0)
+		for rows.Next() {
+			var updatedID uuid.UUID
+			var isEnabled bool
+			var updatedAt sql.NullTime
+			if err := rows.Scan(&updatedID, &isEnabled, &updatedAt); err != nil {
+				return err
+			}
+			updatedEntities = append(updatedEntities, BulkUpdateEntityResult{
+				EntityID:  updatedID.String(),
+				IsEnabled: isEnabled,
+				UpdatedAt: updatedAt.Time,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+
+		result = &BulkUpdateEntitiesResult{
+			Entities:     updatedEntities,
+			UpdatedCount: len(updatedEntities),
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, deviceModel, devEUI string, templates []client.DeviceEntityTemplate) (int64, error) {
 	org := orgFromContext(ctx)
 	if org == "" {

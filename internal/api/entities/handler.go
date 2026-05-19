@@ -103,7 +103,7 @@ func parseDisplayTypes(param string) []string {
 
 // UpdateEntities godoc
 // @Summary Bulk update entities
-// @Description Bulk update entities in the current space. Supports per-entity `is_enabled` values. Organization is resolved from X-Organization header or hostname and space is resolved from X-Space.
+// @Description Bulk update entities in the current space. When `all=true`, the request applies `is_enabled` to every entity in the space and `excluded_entity_ids` receive the opposite value. When `all=false`, only the provided `visible_entity_ids` and `hidden_entity_ids` are updated. Organization is resolved from X-Organization header or hostname and space is resolved from X-Space.
 // @Tags entities
 // @Accept json
 // @Produce json
@@ -133,52 +133,77 @@ func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
-		if len(req.VisibleEntityIDs) == 0 && len(req.HiddenEntityIDs) == 0 {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "visible_entity_ids or hidden_entity_ids must be provided",
-			})
-		}
-
-		entityUpdates := make([]timescaledb.EntityEnabledUpdate, 0, len(req.VisibleEntityIDs)+len(req.HiddenEntityIDs))
-		for _, rawID := range req.VisibleEntityIDs {
-			entityIDValue, err := normalizeEntityID(rawID)
+		all := false
+		if req.All != nil {
+			var err error
+			all, err = normalizeBoolFlag("all", req.All)
 			if err != nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Invalid visible_entity_ids format",
+					"error": "Invalid all format. Use true/false ",
 				})
 			}
-			entityID, err := uuid.Parse(entityIDValue)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Invalid entity_id format",
-				})
-			}
-			entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
-				EntityID:  entityID,
-				IsEnabled: true,
-			})
-		}
-		for _, rawID := range req.HiddenEntityIDs {
-			entityIDValue, err := normalizeEntityID(rawID)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Invalid hidden_entity_ids format",
-				})
-			}
-			entityID, err := uuid.Parse(entityIDValue)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Invalid entity_id format",
-				})
-			}
-			entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
-				EntityID:  entityID,
-				IsEnabled: false,
-			})
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		result, err := tsClient.UpdateEntities(ctx, entityUpdates, spaceSlug)
+		var result *timescaledb.BulkUpdateEntitiesResult
+		if all {
+			isEnabled, err := normalizeBoolFlag("is_enabled", req.IsEnabled)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "Invalid is_enabled format. Use true/false or \"true\"/\"false\"",
+				})
+			}
+			if len(req.VisibleEntityIDs) > 0 || len(req.HiddenEntityIDs) > 0 {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "When all is true, use excluded_entity_ids instead of visible_entity_ids or hidden_entity_ids",
+				})
+			}
+			excludedIDs, err := parseEntityIDs(req.ExcludedEntityIDs, "excluded_entity_ids")
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": err.Error(),
+				})
+			}
+			result, err = tsClient.UpdateEntitiesBySelection(ctx, excludedIDs, spaceSlug, isEnabled)
+		} else {
+			if len(req.VisibleEntityIDs) == 0 && len(req.HiddenEntityIDs) == 0 {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "visible_entity_ids or hidden_entity_ids must be provided",
+				})
+			}
+			if len(req.ExcludedEntityIDs) > 0 {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": "excluded_entity_ids is only supported when all is true",
+				})
+			}
+			visibleIDs, err := parseEntityIDs(req.VisibleEntityIDs, "visible_entity_ids")
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": err.Error(),
+				})
+			}
+			hiddenIDs, err := parseEntityIDs(req.HiddenEntityIDs, "hidden_entity_ids")
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{
+					"error": err.Error(),
+				})
+			}
+
+			entityUpdates := make([]timescaledb.EntityEnabledUpdate, 0, len(visibleIDs)+len(hiddenIDs))
+			for _, entityID := range visibleIDs {
+				entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
+					EntityID:  entityID,
+					IsEnabled: true,
+				})
+			}
+			for _, entityID := range hiddenIDs {
+				entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
+					EntityID:  entityID,
+					IsEnabled: false,
+				})
+			}
+			result, err = tsClient.UpdateEntities(ctx, entityUpdates, spaceSlug)
+		}
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "Failed to update entities",
@@ -186,6 +211,27 @@ func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 		}
 
 		return c.JSON(http.StatusOK, result)
+	}
+}
+
+func normalizeBoolFlag(fieldName string, value any) (bool, error) {
+	switch v := value.(type) {
+	case bool:
+		return v, nil
+	case string:
+		normalized := strings.ToLower(strings.TrimSpace(v))
+		switch normalized {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		default:
+			return false, fmt.Errorf("unsupported %s value %q", fieldName, normalized)
+		}
+	case nil:
+		return false, fmt.Errorf("missing %s", fieldName)
+	default:
+		return false, fmt.Errorf("unsupported %s type %T", fieldName, v)
 	}
 }
 
@@ -206,4 +252,20 @@ func normalizeEntityID(value any) (string, error) {
 	default:
 		return "", fmt.Errorf("unsupported entity id type %T", value)
 	}
+}
+
+func parseEntityIDs(rawIDs []any, fieldName string) ([]uuid.UUID, error) {
+	entityIDs := make([]uuid.UUID, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		entityIDValue, err := normalizeEntityID(rawID)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid %s format", fieldName)
+		}
+		entityID, err := uuid.Parse(entityIDValue)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid entity_id format")
+		}
+		entityIDs = append(entityIDs, entityID)
+	}
+	return entityIDs, nil
 }
