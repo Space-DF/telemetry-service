@@ -1,15 +1,12 @@
 package entities
 
 import (
-	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/api/entities/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
@@ -133,77 +130,55 @@ func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 			})
 		}
 
-		all := false
-		if req.All != nil {
-			var err error
-			all, err = normalizeBoolFlag("all", req.All)
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Invalid all format. Use true/false ",
-				})
-			}
-		}
+		all := req.All != nil && *req.All
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		var result *timescaledb.BulkUpdateEntitiesResult
 		if all {
-			isEnabled, err := normalizeBoolFlag("is_enabled", req.IsEnabled)
-			if err != nil {
+			if req.IsEnabled == nil {
 				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "Invalid is_enabled format. Use true/false or \"true\"/\"false\"",
+					"error": "is_enabled must be provided when all is true",
 				})
 			}
+			isEnabled := *req.IsEnabled
 			if len(req.VisibleEntityIDs) > 0 || len(req.HiddenEntityIDs) > 0 {
 				return c.JSON(http.StatusBadRequest, map[string]string{
 					"error": "When all is true, use excluded_entity_ids instead of visible_entity_ids or hidden_entity_ids",
 				})
 			}
-			excludedIDs, err := parseEntityIDs(req.ExcludedEntityIDs, "excluded_entity_ids")
+			result, err := tsClient.UpdateEntitiesBySelection(ctx, req.ExcludedEntityIDs, spaceSlug, isEnabled)
 			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": err.Error(),
-				})
-			}
-			result, err = tsClient.UpdateEntitiesBySelection(ctx, excludedIDs, spaceSlug, isEnabled)
-		} else {
-			if len(req.VisibleEntityIDs) == 0 && len(req.HiddenEntityIDs) == 0 {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "visible_entity_ids or hidden_entity_ids must be provided",
-				})
-			}
-			if len(req.ExcludedEntityIDs) > 0 {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": "excluded_entity_ids is only supported when all is true",
-				})
-			}
-			visibleIDs, err := parseEntityIDs(req.VisibleEntityIDs, "visible_entity_ids")
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": err.Error(),
-				})
-			}
-			hiddenIDs, err := parseEntityIDs(req.HiddenEntityIDs, "hidden_entity_ids")
-			if err != nil {
-				return c.JSON(http.StatusBadRequest, map[string]string{
-					"error": err.Error(),
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": "Failed to update entities",
 				})
 			}
 
-			entityUpdates := make([]timescaledb.EntityEnabledUpdate, 0, len(visibleIDs)+len(hiddenIDs))
-			for _, entityID := range visibleIDs {
-				entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
-					EntityID:  entityID,
-					IsEnabled: true,
-				})
-			}
-			for _, entityID := range hiddenIDs {
-				entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
-					EntityID:  entityID,
-					IsEnabled: false,
-				})
-			}
-			result, err = tsClient.UpdateEntities(ctx, entityUpdates, spaceSlug)
+			return c.JSON(http.StatusOK, result)
 		}
+
+		if len(req.VisibleEntityIDs) == 0 && len(req.HiddenEntityIDs) == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "visible_entity_ids or hidden_entity_ids must be provided",
+			})
+		}
+		if len(req.ExcludedEntityIDs) > 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "excluded_entity_ids is only supported when all is true",
+			})
+		}
+		entityUpdates := make([]timescaledb.EntityEnabledUpdate, 0, len(req.VisibleEntityIDs)+len(req.HiddenEntityIDs))
+		for _, entityID := range req.VisibleEntityIDs {
+			entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
+				EntityID:  entityID,
+				IsEnabled: true,
+			})
+		}
+		for _, entityID := range req.HiddenEntityIDs {
+			entityUpdates = append(entityUpdates, timescaledb.EntityEnabledUpdate{
+				EntityID:  entityID,
+				IsEnabled: false,
+			})
+		}
+		result, err := tsClient.UpdateEntities(ctx, entityUpdates, spaceSlug)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "Failed to update entities",
@@ -212,60 +187,4 @@ func updateEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.Handl
 
 		return c.JSON(http.StatusOK, result)
 	}
-}
-
-func normalizeBoolFlag(fieldName string, value any) (bool, error) {
-	switch v := value.(type) {
-	case bool:
-		return v, nil
-	case string:
-		normalized := strings.ToLower(strings.TrimSpace(v))
-		switch normalized {
-		case "true":
-			return true, nil
-		case "false":
-			return false, nil
-		default:
-			return false, fmt.Errorf("unsupported %s value %q", fieldName, normalized)
-		}
-	case nil:
-		return false, fmt.Errorf("missing %s", fieldName)
-	default:
-		return false, fmt.Errorf("unsupported %s type %T", fieldName, v)
-	}
-}
-
-func normalizeEntityID(value any) (string, error) {
-	switch v := value.(type) {
-	case string:
-		id := strings.TrimSpace(v)
-		if id == "" {
-			return "", fmt.Errorf("empty entity id")
-		}
-		return id, nil
-	case float64:
-		return strconv.FormatInt(int64(v), 10), nil
-	case int:
-		return strconv.Itoa(v), nil
-	case int64:
-		return strconv.FormatInt(v, 10), nil
-	default:
-		return "", fmt.Errorf("unsupported entity id type %T", value)
-	}
-}
-
-func parseEntityIDs(rawIDs []any, fieldName string) ([]uuid.UUID, error) {
-	entityIDs := make([]uuid.UUID, 0, len(rawIDs))
-	for _, rawID := range rawIDs {
-		entityIDValue, err := normalizeEntityID(rawID)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid %s format", fieldName)
-		}
-		entityID, err := uuid.Parse(entityIDValue)
-		if err != nil {
-			return nil, fmt.Errorf("Invalid entity_id format")
-		}
-		entityIDs = append(entityIDs, entityID)
-	}
-	return entityIDs, nil
 }
