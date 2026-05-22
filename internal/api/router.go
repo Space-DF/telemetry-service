@@ -8,6 +8,7 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/api/events"
 	"github.com/Space-DF/telemetry-service/internal/api/geofences"
 	"github.com/Space-DF/telemetry-service/internal/api/location"
+	"github.com/Space-DF/telemetry-service/internal/api/notifications"
 	"github.com/Space-DF/telemetry-service/internal/api/widget"
 	"github.com/Space-DF/telemetry-service/internal/config"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -25,4 +26,5 @@ func Setup(cfg *config.Config, e *echo.Group, logger *zap.Logger, tsClient *time
 	events.RegisterRoutes(group, cfg, logger, tsClient)
 	geofences.RegisterRoutes(group, cfg, logger, tsClient)
 	automations.RegisterRoutes(group, logger, tsClient)
+	notifications.RegisterRoutes(group, logger, tsClient, cfg.Notifications.VAPIDPublicKey)
 }

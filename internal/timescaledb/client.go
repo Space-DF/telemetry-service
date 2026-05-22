@@ -3,6 +3,10 @@ package timescaledb
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"os"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,15 +19,21 @@ type EventPublisher interface {
 	PublishEventToDevice(ctx context.Context, event *models.Event, orgSlug string) error
 }
 
+type EventNotifier interface {
+	NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error
+}
+
 // Client represents a TimescaleDB client with basic lifecycle helpers.
 type Client struct {
 	DB            bob.DB      // Exported for subpackages
 	Logger        *zap.Logger // Exported for subpackages
+	publicBaseURL string
 	batchSize     int
 	flushInterval time.Duration
 	connStr       string
 	// PublishEventFunc is an optional hook used to publish real-time events to AMQP.
 	publisher EventPublisher
+	notifier  EventNotifier
 
 	wg sync.WaitGroup
 
@@ -47,6 +57,13 @@ type Option func(*Client)
 func WithPublisher(publisher EventPublisher) Option {
 	return func(c *Client) {
 		c.publisher = publisher
+	}
+}
+
+// WithNotifier sets the notification sender for device events.
+func WithNotifier(notifier EventNotifier) Option {
+	return func(c *Client) {
+		c.notifier = notifier
 	}
 }
 
@@ -76,6 +93,7 @@ func NewClientWithPool(connStr string, batchSize int, flushInterval time.Duratio
 	client := &Client{
 		DB:            db,
 		Logger:        logger,
+		publicBaseURL: strings.TrimRight(strings.TrimSpace(os.Getenv("HOST")), "/"),
 		batchSize:     batchSize,
 		flushInterval: flushInterval,
 		connStr:       connStr,
@@ -111,8 +129,47 @@ func (c *Client) PublishEventToDevice(ctx context.Context, event *models.Event, 
 	return c.publisher.PublishEventToDevice(ctx, event, orgSlug)
 }
 
+func (c *Client) NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error {
+	if c.notifier == nil {
+		return nil
+	}
+
+	return c.notifier.NotifyEvent(ctx, event, orgSlug)
+}
+
 // SetPublisher sets the event publisher for real-time events.
 // Required for rule actions to publish events. Must be called after consumer initialization.
 func (c *Client) SetPublisher(publisher EventPublisher) {
 	c.publisher = publisher
+}
+
+// SetNotifier sets the notification sender for device events.
+func (c *Client) SetNotifier(notifier EventNotifier) {
+	c.notifier = notifier
+}
+
+func (c *Client) ResolveIconURL(icon, baseURL string) string {
+	icon = strings.TrimSpace(icon)
+	if icon == "" {
+		return ""
+	}
+
+	if parsed, err := url.Parse(icon); err == nil && parsed.IsAbs() {
+		return icon
+	}
+
+	iconPath := icon
+	if !strings.HasPrefix(iconPath, "/") {
+		iconPath = path.Join("/static/images/entities", strings.TrimLeft(iconPath, "/"))
+	}
+
+	if baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/"); baseURL != "" {
+		return baseURL + iconPath
+	}
+
+	if c.publicBaseURL == "" {
+		return iconPath
+	}
+
+	return c.publicBaseURL + iconPath
 }

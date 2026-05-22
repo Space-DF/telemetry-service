@@ -32,5 +32,11 @@ db:
   max_connections: 25 # Maximum number of open database connections
   max_idle_conns: 5 # Maximum number of idle connections in the pool
 
+notifications:
+  vapid_public_key: ""
+  vapid_private_key: ""
+  vapid_subject: ""
+  ttl_seconds: 60
+
 psql:
   dsn: "postgres://postgres:postgres@localhost:5437/spacedf_telemetry?sslmode=disable"

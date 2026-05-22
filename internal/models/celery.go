@@ -47,9 +47,8 @@ type SpaceData struct {
 	IsActive     bool      `json:"is_active"`
 	IsDefault    bool      `json:"is_default"`
 	TotalDevices int       `json:"total_devices"`
-	Description   *string   `json:"description,omitempty"`
-	BuildArtifact *string   `json:"build_artifact,omitempty"`
-	CreatedBy     uuid.UUID `json:"-"`
+	Description  *string   `json:"description,omitempty"`
+	CreatedBy    uuid.UUID `json:"-"`
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling for SpaceData
@@ -143,4 +142,13 @@ type DeleteSpaceTask struct {
 type DeleteDeviceTask struct {
 	OrganizationSlugName string `json:"organization_slug_name"`
 	DeviceID             string `json:"device_id"`
+}
+
+// CreateDeviceEntitiesTask represents the Celery task kwargs for create_device_entities
+type CreateDeviceEntitiesTask struct {
+	OrganizationSlugName string `json:"organization_slug_name"`
+	SpaceSlug            string `json:"space_slug"`
+	DeviceID             string `json:"device_id"`
+	DeviceModel          string `json:"device_model"`
+	DevEUI               string `json:"dev_eui"`
 }

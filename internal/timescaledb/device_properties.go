@@ -24,6 +24,7 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 			"timestamp": location.Time,
 			"latitude":  location.Latitude,
 			"longitude": location.Longitude,
+			"bearing":   location.Bearing,
 		}
 	}
 

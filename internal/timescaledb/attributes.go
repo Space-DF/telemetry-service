@@ -18,6 +18,7 @@ type Location struct {
 	SpaceSlug  string
 	Latitude   float64
 	Longitude  float64
+	Bearing    *float64
 	Attributes map[string]interface{}
 }
 
@@ -203,13 +204,16 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 					attrs = m
 				}
 			}
-			var lat, lon float64
+			var lat, lon, bearing float64
 			if attrs != nil {
 				if l, ok := attrs["latitude"].(float64); ok {
 					lat = l
 				}
 				if l, ok := attrs["longitude"].(float64); ok {
 					lon = l
+				}
+				if l, ok := attrs["bearing"].(float64); ok {
+					bearing = l
 				}
 			}
 			location = &Location{
@@ -218,6 +222,7 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 				SpaceSlug:  sslug.String,
 				Latitude:   lat,
 				Longitude:  lon,
+				Bearing:    &bearing,
 				Attributes: attrs,
 			}
 			return nil
@@ -241,13 +246,16 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 				attrs = m
 			}
 		}
-		var lat, lon float64
+		var lat, lon, bearing float64
 		if attrs != nil {
 			if l, ok := attrs["latitude"].(float64); ok {
 				lat = l
 			}
 			if l, ok := attrs["longitude"].(float64); ok {
 				lon = l
+			}
+			if l, ok := attrs["bearing"].(float64); ok {
+				bearing = l
 			}
 		}
 		location = &Location{
@@ -256,6 +264,7 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 			SpaceSlug:  sslug.String,
 			Latitude:   lat,
 			Longitude:  lon,
+			Bearing:    &bearing,
 			Attributes: attrs,
 		}
 	}
@@ -317,12 +326,15 @@ func (c *Client) GetLastLocationsBySpaceID(ctx context.Context, spaceID string) 
 				}
 			}
 
-			var lat, lon float64
+			var lat, lon, bearing float64
 			if l, ok := attrs["latitude"].(float64); ok {
 				lat = l
 			}
 			if l, ok := attrs["longitude"].(float64); ok {
 				lon = l
+			}
+			if l, ok := attrs["bearing"].(float64); ok {
+				bearing = l
 			}
 
 			locations = append(locations, &Location{
@@ -331,6 +343,7 @@ func (c *Client) GetLastLocationsBySpaceID(ctx context.Context, spaceID string) 
 				SpaceSlug:  sslug.String,
 				Latitude:   lat,
 				Longitude:  lon,
+				Bearing:    &bearing,
 				Attributes: attrs,
 			})
 		}

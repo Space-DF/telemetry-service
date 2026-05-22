@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/stephenafamo/bob"
+	"go.uber.org/zap"
 )
 
 // GetEventsByDevice retrieves events for a specific device with pagination.
@@ -170,7 +172,9 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 		return fmt.Errorf("organization is required")
 	}
 
-	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+	var createdEvent *models.Event
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		// Get event_type
 		var eventTypeID int
 		err := tx.QueryRowContext(txCtx, `
@@ -208,11 +212,9 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 			return fmt.Errorf("failed to create event: %w", err)
 		}
 
-		// Publish event to AMQP for real-time processing
-		// Use names from MatchedEvent (already fetched by the evaluator)
 		eventLevel := event.EventLevel
 
-		if err := c.PublishEventToDevice(ctx, &models.Event{
+		createdEvent = &models.Event{
 			EventID:        eventID,
 			EventTypeID:    eventTypeID,
 			EventType:      event.EventType,
@@ -228,10 +230,97 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 			TimeFiredTs:    event.Timestamp,
 			Title:          event.Title,
 			Location:       event.Location,
-		}, org); err != nil {
-			return fmt.Errorf("failed to publish event: %w", err)
 		}
 
+		return nil
+	})
+
+	if err != nil {
+		return err
+	}
+
+	// Publish AFTER commit
+	if createdEvent != nil {
+		if err := c.PublishEventToDevice(ctx, createdEvent, org); err != nil {
+			c.Logger.Warn("Publish event failed",
+				zap.String("org", org),
+				zap.Int64("event_id", createdEvent.EventID),
+				zap.Error(err))
+		}
+	}
+
+	// Notification (non-blocking)
+	if createdEvent != nil {
+		if err := c.NotifyEvent(ctx, createdEvent, org); err != nil {
+			c.Logger.Warn("Notification failed",
+				zap.String("org", org),
+				zap.Int64("event_id", createdEvent.EventID),
+				zap.Error(err))
+		}
+	}
+
+	return nil
+}
+
+// CreateLNSAlertEvent inserts an LNS alert into the events table and publishes it to AMQP.
+func (c *Client) CreateLNSAlertEvent(ctx context.Context, org string, event *models.Event) error {
+	if event == nil {
+		return fmt.Errorf("nil event")
+	}
+	if org == "" {
+		return fmt.Errorf("organization is required")
+	}
+
+	return c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		var eventTypeID int
+		err := tx.QueryRowContext(txCtx, `
+			SELECT event_type_id FROM event_types WHERE event_type = 'device_event'
+		`).Scan(&eventTypeID)
+
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("event type 'device_event' does not exist")
+			}
+			return fmt.Errorf("failed to get event_type: %w", err)
+		}
+
+		eventLevel := "system"
+
+		var title string
+		if event.Title != "" {
+			title = event.Title
+		} else if event.LNSAlert != nil {
+			title = fmt.Sprintf("%s: %s", event.LNSAlert.Code, event.LNSAlert.Message)
+		}
+
+		var eventID int64
+		err = tx.QueryRowContext(txCtx, `
+			INSERT INTO events (
+				event_type_id, event_level, space_id, device_id,
+				time_fired_ts, title
+			) VALUES (
+				$1, $2,
+				(SELECT space_id FROM spaces WHERE space_slug = $3 LIMIT 1),
+				$4::uuid, $5, $6
+			)
+			RETURNING event_id
+		`, eventTypeID, eventLevel, event.SpaceSlug, event.DeviceID, event.TimeFiredTs, title).Scan(&eventID)
+
+		if err != nil {
+			return fmt.Errorf("failed to create LNS alert event: %w", err)
+		}
+
+		event.EventID = eventID
+		if err := c.PublishEventToDevice(ctx, event, org); err != nil {
+			return fmt.Errorf("failed to publish LNS alert event: %w", err)
+		}
+
+		zap.L().Info("Stored and published LNS alert event",
+			zap.Int64("event_id", eventID),
+			zap.String("device_id", event.DeviceID),
+			zap.String("organization", org),
+			zap.String("title", title),
+		)
 		return nil
 	})
 }

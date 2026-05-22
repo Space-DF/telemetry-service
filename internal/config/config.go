@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"strings"
 	"time"
@@ -13,10 +14,11 @@ import (
 
 // Config represents the service configuration
 type Config struct {
-	Server    Server    `mapstructure:"server"`
-	AMQP      AMQP      `mapstructure:"amqp"`
-	OrgEvents OrgEvents `mapstructure:"org_events"`
-	Db        Db        `mapstructure:"db"`
+	Server        Server        `mapstructure:"server"`
+	AMQP          AMQP          `mapstructure:"amqp"`
+	OrgEvents     OrgEvents     `mapstructure:"org_events"`
+	Db            Db            `mapstructure:"db"`
+	Notifications Notifications `mapstructure:"notifications"`
 }
 
 // OrgEvents contains organization events configuration
@@ -35,6 +37,14 @@ type Server struct {
 	EventRulesDir       string `mapstructure:"event_rules_dir"`
 }
 
+// Notifications contains web push notification configuration
+type Notifications struct {
+	VAPIDPublicKey  string `mapstructure:"vapid_public_key"`
+	VAPIDPrivateKey string `mapstructure:"vapid_private_key"`
+	VAPIDSubject    string `mapstructure:"vapid_subject"`
+	TTLSeconds      int    `mapstructure:"ttl_seconds"`
+}
+
 // AMQP contains RabbitMQ configuration
 type AMQP struct {
 	BrokerURL      string        `mapstructure:"broker_url"`
@@ -46,17 +56,17 @@ type AMQP struct {
 
 // Db contains Db configuration
 type Db struct {
-	Name               string        `mapstructure:"name"`
-	Username           string        `mapstructure:"username"`
-	Password           string        `mapstructure:"password"`
-	Host               string        `mapstructure:"host"`
-	Port               int           `mapstructure:"port"`
-	BatchSize          int           `mapstructure:"batch_size"`
-	FlushInterval      time.Duration `mapstructure:"flush_interval"`
-	MaxConnections     int           `mapstructure:"max_connections"`
-	MaxIdleConns       int           `mapstructure:"max_idle_conns"`
-	ConnMaxLifetime    time.Duration `mapstructure:"conn_max_lifetime"`
-	ShutdownTimeout    time.Duration `mapstructure:"shutdown_timeout"`
+	Name            string        `mapstructure:"name"`
+	Username        string        `mapstructure:"username"`
+	Password        string        `mapstructure:"password"`
+	Host            string        `mapstructure:"host"`
+	Port            int           `mapstructure:"port"`
+	BatchSize       int           `mapstructure:"batch_size"`
+	FlushInterval   time.Duration `mapstructure:"flush_interval"`
+	MaxConnections  int           `mapstructure:"max_connections"`
+	MaxIdleConns    int           `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `mapstructure:"conn_max_lifetime"`
+	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
 }
 
 // DefaultDb returns default database configuration
@@ -86,6 +96,32 @@ func LoadConfig() (*Config, error) {
 
 	vp.AutomaticEnv()
 	vp.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	bindEnv := func(key string, envs ...string) error {
+		args := append([]string{key}, envs...)
+		if err := vp.BindEnv(args...); err != nil {
+			return fmt.Errorf("bind env %s: %w", key, err)
+		}
+		return nil
+	}
+	for _, binding := range []struct {
+		key  string
+		envs []string
+	}{
+		{key: "amqp.broker_url", envs: []string{"AMQP_BROKER_URL"}},
+		{key: "db.name", envs: []string{"DB_NAME"}},
+		{key: "db.username", envs: []string{"DB_USERNAME", "DB_USER"}},
+		{key: "db.password", envs: []string{"DB_PASSWORD"}},
+		{key: "db.host", envs: []string{"DB_HOST"}},
+		{key: "db.port", envs: []string{"DB_PORT"}},
+		{key: "notifications.vapid_public_key", envs: []string{"NOTIFICATIONS_VAPID_PUBLIC_KEY"}},
+		{key: "notifications.vapid_private_key", envs: []string{"NOTIFICATIONS_VAPID_PRIVATE_KEY"}},
+		{key: "notifications.vapid_subject", envs: []string{"NOTIFICATIONS_VAPID_SUBJECT"}},
+		{key: "notifications.ttl_seconds", envs: []string{"NOTIFICATIONS_TTL_SECONDS"}},
+	} {
+		if err := bindEnv(binding.key, binding.envs...); err != nil {
+			return nil, err
+		}
+	}
 
 	if err := vp.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal error: %w", err)
@@ -145,6 +181,25 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.Db.ShutdownTimeout < 0 {
 		return fmt.Errorf("shutdown timeout must be non-negative: %v", cfg.Db.ShutdownTimeout)
+	}
+
+	if cfg.Notifications.TTLSeconds <= 0 {
+		cfg.Notifications.TTLSeconds = 60
+	}
+
+	hasNotificationConfig := cfg.Notifications.VAPIDPublicKey != "" ||
+		cfg.Notifications.VAPIDPrivateKey != "" ||
+		cfg.Notifications.VAPIDSubject != ""
+	if hasNotificationConfig &&
+		(cfg.Notifications.VAPIDPublicKey == "" ||
+			cfg.Notifications.VAPIDPrivateKey == "" ||
+			cfg.Notifications.VAPIDSubject == "") {
+		// Treat partial notification config as disabled so the service can still boot
+		// when web push is not in use.
+		log.Printf("warning: incomplete notification VAPID configuration detected; disabling push notifications until vapid_public_key, vapid_private_key, and vapid_subject are all set")
+		cfg.Notifications.VAPIDPublicKey = ""
+		cfg.Notifications.VAPIDPrivateKey = ""
+		cfg.Notifications.VAPIDSubject = ""
 	}
 
 	// Validate prefetch count
