@@ -6,6 +6,7 @@ type DeviceLocationMessage struct {
 	Location     LocationCoordinates `json:"location"`
 	Timestamp    string              `json:"timestamp"`
 	Space        string              `json:"space_slug"`
+	IsPublished  bool                `json:"is_published"`
 	Organization string              `json:"organization"`
 	Source       string              `json:"source"`
 	Metadata     map[string]any      `json:"metadata"`
