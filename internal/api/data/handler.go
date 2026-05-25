@@ -33,9 +33,9 @@ func getDeviceProperties(logger *zap.Logger, tsClient *timescaledb.Client) echo.
 			})
 		}
 
-		if r.DeviceID == "" || r.SpaceSlug == "" {
+		if r.DeviceID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "device_id and space_slug are required",
+				"error": "device_id is required",
 			})
 		}
 
@@ -45,7 +45,6 @@ func getDeviceProperties(logger *zap.Logger, tsClient *timescaledb.Client) echo.
 		// Log which org will be used for DB scoping
 		logger.Info("Fetching device properties",
 			zap.String("org_used", orgToUse),
-			zap.String("space_slug", r.SpaceSlug),
 			zap.String("device_id", r.DeviceID),
 		)
 
@@ -53,12 +52,11 @@ func getDeviceProperties(logger *zap.Logger, tsClient *timescaledb.Client) echo.
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
 		// Query all device properties
-		props, err := tsClient.GetDeviceProperties(ctx, r.DeviceID, r.SpaceSlug)
+		props, err := tsClient.GetDeviceProperties(ctx, r.DeviceID)
 		if err != nil {
 			logger.Error("Failed to query device properties",
 				zap.Error(err),
 				zap.String("device_id", r.DeviceID),
-				zap.String("space_slug", r.SpaceSlug),
 			)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to retrieve device properties",

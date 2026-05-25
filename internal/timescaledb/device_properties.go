@@ -9,34 +9,38 @@ import (
 )
 
 // GetDeviceProperties retrieves all latest properties for a device
-func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug string) (map[string]interface{}, error) {
+func (c *Client) GetDeviceProperties(ctx context.Context, deviceID string) (map[string]interface{}, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
 	}
 
 	props := make(map[string]interface{})
+	var err error
 
 	// Get last location
-	location, err := c.GetLastLocation(ctx, deviceID, spaceSlug)
-	if err == nil && location != nil {
-		props["latest_checkpoint"] = map[string]interface{}{
-			"timestamp": location.Time,
-			"latitude":  location.Latitude,
-			"longitude": location.Longitude,
-			"bearing":   location.Bearing,
+		location, err := c.GetLastLocation(ctx, deviceID)
+		if err == nil && location != nil {
+			props["latest_checkpoint"] = map[string]interface{}{
+				"timestamp": location.Time,
+				"latitude":  location.Latitude,
+				"longitude": location.Longitude,
+				"bearing":   location.Bearing,
+			}
 		}
-	}
 
 	// Get latest values for all entity categories associated with this device
 	err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		rows, err := tx.QueryContext(txCtx, `
+		query := `
 			SELECT DISTINCT e.category
 			FROM entities e
 			LEFT JOIN spaces s ON e.space_id = s.space_id
-			WHERE e.device_id::text = $1 AND s.space_slug = $2 AND e.category != 'location'
-			ORDER BY e.category
-		`, deviceID, spaceSlug)
+			WHERE e.device_id::text = $1 AND e.category != 'location'
+		`
+		args := []interface{}{deviceID}
+		query += ` ORDER BY e.category`
+
+		rows, err := tx.QueryContext(txCtx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -56,15 +60,20 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 
 		// Then get latest value for each category
 		for _, category := range entityCategories {
-			row := tx.QueryRowContext(txCtx, `
+			query := `
 				SELECT COALESCE(es.state::float8, 0)
 				FROM entity_states es
 				JOIN entities e ON es.entity_id = e.id
 				LEFT JOIN spaces s ON e.space_id = s.space_id
-				WHERE e.device_id::text = $1 AND s.space_slug = $2 AND e.category = $3
+				WHERE e.device_id::text = $1 AND e.category = $2
+			`
+			args := []interface{}{deviceID, category}
+			query += `
 				ORDER BY es.reported_at DESC
 				LIMIT 1
-			`, deviceID, spaceSlug, category)
+			`
+
+			row := tx.QueryRowContext(txCtx, query, args...)
 
 			var value float64
 			if err := row.Scan(&value); err != nil {

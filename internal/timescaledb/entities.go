@@ -56,7 +56,7 @@ type EntityEnabledUpdate struct {
 }
 
 // GetEntities returns entities for a given space with optional filters and pagination.
-func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID, devEUI string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
+func (c *Client) GetEntities(ctx context.Context, category, deviceID, devEUI string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
 
 	if limit <= 0 {
@@ -67,35 +67,39 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 	}
 
 	// Build WHERE clauses
-	args := []interface{}{spaceSlug}
-	where := "s.space_slug = $1"
-	idx := 2
+	args := make([]interface{}, 0)
+	whereParts := make([]string, 0)
+	idx := 1
 	if category != "" {
-		where += fmt.Sprintf(" AND e.category = $%d", idx)
+		whereParts = append(whereParts, fmt.Sprintf("e.category = $%d", idx))
 		args = append(args, category)
 		idx++
 	}
 	if deviceID != "" {
-		where += fmt.Sprintf(" AND e.device_id = $%d", idx)
+		whereParts = append(whereParts, fmt.Sprintf("e.device_id = $%d", idx))
 		args = append(args, deviceID)
 		idx++
 	}
 	if devEUI != "" {
-		where += fmt.Sprintf(" AND e.unique_key LIKE $%d", idx)
+		whereParts = append(whereParts, fmt.Sprintf("e.unique_key LIKE $%d", idx))
 		args = append(args, "%_"+devEUI+"_%")
 		idx++
 	}
 	if len(displayTypes) > 0 {
-		where += fmt.Sprintf(" AND e.display_type::text[] && $%d::text[]", idx)
+		whereParts = append(whereParts, fmt.Sprintf("e.display_type::text[] && $%d::text[]", idx))
 		args = append(args, pq.Array(displayTypes))
 		idx++
 	}
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		where += fmt.Sprintf(" AND (e.name ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx)
+		whereParts = append(whereParts, fmt.Sprintf("(e.name ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx))
 		args = append(args, searchPattern)
 		idx++
 	}
+	if len(whereParts) == 0 {
+		return nil, 0, fmt.Errorf("device_id is required")
+	}
+	where := strings.Join(whereParts, " AND ")
 
 	// Count query
 	countQuery := fmt.Sprintf("SELECT COUNT(1) FROM entities e LEFT JOIN entity_types et ON e.entity_type_id = et.id LEFT JOIN spaces s ON e.space_id = s.space_id WHERE %s", where)

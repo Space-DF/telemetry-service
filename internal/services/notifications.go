@@ -211,8 +211,6 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 				zap.String("subscription_id", sub.ID),
 				zap.Int("status_code", resp.StatusCode),
 			)
-
-			s.tryDeleteSubscription(ctx, orgSlug, sub.UserID, sub.ID, "stale")
 			continue
 		}
 
@@ -221,8 +219,6 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 				zap.String("subscription_id", sub.ID),
 				zap.Int("status_code", resp.StatusCode),
 			)
-
-			s.tryDeleteSubscription(ctx, orgSlug, sub.UserID, sub.ID, fmt.Sprintf("status_%d", resp.StatusCode))
 
 			sendErrs = append(sendErrs,
 				fmt.Sprintf("subscription %s returned status %d",

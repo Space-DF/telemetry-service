@@ -58,6 +58,9 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				if telemetry.Organization == "" {
 					telemetry.Organization = tenant.OrgSlug
 				}
+				if telemetry.SpaceSlug == "" {
+					telemetry.SpaceSlug = tenant.OrgSlug
+				}
 
 				if err := c.processor.ProcessTelemetry(orgCtx, &telemetry); err != nil {
 					c.logger.Error("Failed to process telemetry payload",

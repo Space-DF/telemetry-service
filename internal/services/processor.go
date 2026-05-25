@@ -104,8 +104,8 @@ func (p *LocationProcessor) ProcessTelemetryAndTriggerAutomations(ctx context.Co
 
 // validateMessage validates a device location message
 func (p *LocationProcessor) validateMessage(msg *models.DeviceLocationMessage) error {
-	// Legacy location messages require a space unless the device is public.
-	if msg.Space == "" && !msg.IsPublished {
+	// Check required fields
+	if msg.Space == "" {
 		return fmt.Errorf("missing space")
 	}
 
