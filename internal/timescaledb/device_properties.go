@@ -8,8 +8,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// GetDeviceProperties retrieves all latest properties for a device
-func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug string) (map[string]interface{}, error) {
+// GetDeviceProperties retrieves all latest properties for a device.
+func (c *Client) GetDeviceProperties(ctx context.Context, deviceID string) (map[string]interface{}, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
@@ -18,7 +18,7 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 	props := make(map[string]interface{})
 
 	// Get last location
-	location, err := c.GetLastLocation(ctx, deviceID, spaceSlug)
+	location, err := c.GetLastLocation(ctx, deviceID)
 	if err == nil && location != nil {
 		props["latest_checkpoint"] = map[string]interface{}{
 			"timestamp": location.Time,
@@ -30,13 +30,14 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 
 	// Get latest values for all entity categories associated with this device
 	err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		rows, err := tx.QueryContext(txCtx, `
+		query := `
 			SELECT DISTINCT e.category
 			FROM entities e
-			LEFT JOIN spaces s ON e.space_id = s.space_id
-			WHERE e.device_id::text = $1 AND s.space_slug = $2 AND e.category != 'location'
+			WHERE e.device_id::text = $1 AND e.category != 'location'
 			ORDER BY e.category
-		`, deviceID, spaceSlug)
+		`
+
+		rows, err := tx.QueryContext(txCtx, query, deviceID)
 		if err != nil {
 			return err
 		}
@@ -56,15 +57,17 @@ func (c *Client) GetDeviceProperties(ctx context.Context, deviceID, spaceSlug st
 
 		// Then get latest value for each category
 		for _, category := range entityCategories {
-			row := tx.QueryRowContext(txCtx, `
+			query := `
 				SELECT COALESCE(es.state::float8, 0)
 				FROM entity_states es
 				JOIN entities e ON es.entity_id = e.id
-				LEFT JOIN spaces s ON e.space_id = s.space_id
-				WHERE e.device_id::text = $1 AND s.space_slug = $2 AND e.category = $3
+				WHERE e.device_id::text = $1
+				  AND e.category = $2
 				ORDER BY es.reported_at DESC
 				LIMIT 1
-			`, deviceID, spaceSlug, category)
+			`
+
+			row := tx.QueryRowContext(txCtx, query, deviceID, category)
 
 			var value float64
 			if err := row.Scan(&value); err != nil {

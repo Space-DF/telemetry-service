@@ -4,7 +4,6 @@ import "github.com/google/uuid"
 
 // EntitiesRequest represents query parameters for entities list
 type EntitiesRequest struct {
-	SpaceSlug    string   `query:"space_slug" validate:"required"`
 	Category     string   `query:"category"`
 	DeviceID     string   `query:"device_id"`
 	DevEUI       string   `query:"dev_eui"`
