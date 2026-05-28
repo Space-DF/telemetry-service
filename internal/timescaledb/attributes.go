@@ -157,25 +157,24 @@ func (c *Client) GetLocationHistory(ctx context.Context, deviceID, spaceSlug str
 	return locations, nil
 }
 
-// GetLastLocation retrieves the most recent location for a device
-func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string) (*Location, error) {
+// GetLastLocation retrieves the most recent location for a device.
+func (c *Client) GetLastLocation(ctx context.Context, deviceID string) (*Location, error) {
 	org := orgFromContext(ctx)
 
 	if c.Logger != nil {
 		c.Logger.Info("GetLastLocation called",
 			zap.String("org_from_ctx", org),
-			zap.String("space_slug_param", spaceSlug),
 			zap.String("device_id", deviceID),
 		)
 	}
-	log.Printf("GetLastLocation called - org='%s' space_slug='%s' device_id='%s'", org, spaceSlug, deviceID)
+	log.Printf("GetLastLocation called - org='%s' device_id='%s'", org, deviceID)
 
 	query := `SELECT s.reported_at, e.device_id::text, sp.space_slug, a.shared_attrs
 		FROM entity_states s
 		JOIN entities e ON s.entity_id = e.id
 		LEFT JOIN spaces sp ON e.space_id = sp.space_id
 		LEFT JOIN entity_state_attributes a ON s.attributes_id = a.id
-		WHERE e.device_id::text = $1 AND sp.space_slug = $2
+		WHERE e.device_id::text = $1
 			AND e.category = 'location'
 			AND a.shared_attrs IS NOT NULL
 			AND a.shared_attrs ? 'latitude' AND a.shared_attrs ? 'longitude'
@@ -186,7 +185,7 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 	var err error
 	if org != "" {
 		err = c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-			row := tx.QueryRowContext(txCtx, query, deviceID, spaceSlug)
+			row := tx.QueryRowContext(txCtx, query, deviceID)
 			var t sql.NullTime
 			var did sql.NullString
 			var sslug sql.NullString
@@ -228,7 +227,7 @@ func (c *Client) GetLastLocation(ctx context.Context, deviceID, spaceSlug string
 			return nil
 		})
 	} else {
-		row := c.DB.QueryRowContext(ctx, query, deviceID, spaceSlug)
+		row := c.DB.QueryRowContext(ctx, query, deviceID)
 		var t sql.NullTime
 		var did sql.NullString
 		var sslug sql.NullString

@@ -12,12 +12,11 @@ import (
 
 // GetDeviceProperties godoc
 // @Summary Get device properties
-// @Description Retrieve the latest properties/attributes for a specific device in a space. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Description Retrieve the latest properties/attributes for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
 // @Tags data
 // @Accept json
 // @Produce json
 // @Param device_id query string true "Device ID"
-// @Param space_slug query string true "Space slug"
 // @Success 200 {object} map[string]interface{} "Device properties as key-value pairs"
 // @Failure 400 {object} map[string]string "Invalid request parameters"
 // @Failure 500 {object} map[string]string "Internal server error"
@@ -33,32 +32,28 @@ func getDeviceProperties(logger *zap.Logger, tsClient *timescaledb.Client) echo.
 			})
 		}
 
-		if r.DeviceID == "" || r.SpaceSlug == "" {
+		if r.DeviceID == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "device_id and space_slug are required",
+				"error": "device_id is required",
 			})
 		}
 
 		// Resolve organization from hostname or X-Organization header
 		orgToUse := common.ResolveOrgFromRequest(c)
+		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
 		// Log which org will be used for DB scoping
 		logger.Info("Fetching device properties",
 			zap.String("org_used", orgToUse),
-			zap.String("space_slug", r.SpaceSlug),
 			zap.String("device_id", r.DeviceID),
 		)
 
-		// Build context with org for DB search_path
-		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-
 		// Query all device properties
-		props, err := tsClient.GetDeviceProperties(ctx, r.DeviceID, r.SpaceSlug)
+		props, err := tsClient.GetDeviceProperties(ctx, r.DeviceID)
 		if err != nil {
 			logger.Error("Failed to query device properties",
 				zap.Error(err),
 				zap.String("device_id", r.DeviceID),
-				zap.String("space_slug", r.SpaceSlug),
 			)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to retrieve device properties",
