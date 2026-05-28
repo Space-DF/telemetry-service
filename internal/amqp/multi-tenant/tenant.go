@@ -174,51 +174,22 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 		return fmt.Errorf("failed to set QoS for vhost %s: %w", vhost, err)
 	}
 
-	// Declare the queue - will be idempotent if it already exists with same params
-	// The queue is shared across all telemetry instances for load balancing
-	queue, err := channel.QueueDeclare(
+	if err := channel.QueueBind(
 		queueName,
-		true,  // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
-	)
-	if err != nil {
+		fmt.Sprintf("tenant.%s.#", orgSlug),
+		exchange,
+		false,
+		nil,
+	); err != nil {
 		_ = channel.Close()
 		c.releaseVhostConnection(vhost)
-		return fmt.Errorf("failed to declare queue '%s' in vhost '%s': %w", queueName, vhost, err)
-	}
-
-	// Bind queue to exchange for each routing key pattern
-	bindings := []struct {
-		key   string
-		label string
-	}{
-		{fmt.Sprintf("tenant.%s.device.raw_data_log", orgSlug), "raw data log"},
-		{fmt.Sprintf("tenant.%s.transformed.device.location", orgSlug), "device location"},
-		{fmt.Sprintf("tenant.%s.transformed.telemetry", orgSlug), "telemetry"},
-		{fmt.Sprintf("tenant.%s.transformed.device.event", orgSlug), "device event"},
-	}
-
-	for _, b := range bindings {
-		if err := channel.QueueBind(
-			queue.Name,
-			b.key,
-			exchange,
-			false,
-			nil,
-		); err != nil {
-			_ = channel.Close()
-			c.releaseVhostConnection(vhost)
-			return fmt.Errorf("failed to bind queue '%s' to '%s' (%s): %w", queue.Name, b.key, b.label, err)
-		}
+		return fmt.Errorf("failed to bind queue '%s' to exchange '%s': %w", queueName, exchange, err)
 	}
 
 	consumerTag := c.makeConsumerTag(orgSlug, vhost)
 
 	messages, err := channel.Consume(
-		queue.Name,
+		queueName,
 		consumerTag,
 		false,
 		false,
@@ -391,4 +362,28 @@ func (c *MultiTenantConsumer) resubscribeTenant(_ context.Context, oldTenant *Te
 
 	c.logger.Warn("Failed to resubscribe tenant after all attempts, removed from map for main reconnection",
 		zap.String("org", oldTenant.OrgSlug))
+}
+
+func messageKindFromRoutingKey(routingKey string) string {
+	if strings.HasSuffix(routingKey, ".device.data") {
+		return "skip"
+	}
+	switch {
+	case strings.HasSuffix(routingKey, ".telemetry"):
+		return "entity_telemetry"
+	case strings.HasSuffix(routingKey, ".event"):
+		return "event"
+	case strings.HasSuffix(routingKey, ".location"):
+		return "location_update"
+	default:
+		return "skip"
+	}
+}
+
+func extractOrgFromRoutingKey(routingKey string) string {
+	parts := strings.Split(routingKey, ".")
+	if len(parts) >= 2 && parts[0] == "tenant" {
+		return parts[1]
+	}
+	return ""
 }
