@@ -45,64 +45,156 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				return
 			}
 
-			c.logger.Debug("Received message from organization",
-				zap.String("org", tenant.OrgSlug),
-				zap.String("routing_key", msg.RoutingKey))
-
-			orgCtx := timescaledb.ContextWithOrg(ctx, tenant.OrgSlug)
-
-			// First try telemetry payload (entities).
-			var telemetry models.TelemetryPayload
-			if err := json.Unmarshal(msg.Body, &telemetry); err == nil && len(telemetry.Entities) > 0 {
-				// Fill org if missing.
-				if telemetry.Organization == "" {
-					telemetry.Organization = tenant.OrgSlug
-				}
-				
-				if err := c.processor.ProcessTelemetry(orgCtx, &telemetry); err != nil {
-					c.logger.Error("Failed to process telemetry payload",
-						zap.Error(err),
-						zap.String("org", tenant.OrgSlug))
-					if nackErr := msg.Nack(false, true); nackErr != nil {
-						c.logger.Error("Failed to nack message", zap.Error(nackErr))
-					}
-					continue
-				}
-
+			kind := messageKindFromRoutingKey(msg.RoutingKey)
+			if kind == "skip" {
 				if ackErr := msg.Ack(false); ackErr != nil {
-					c.logger.Error("Failed to ack message", zap.Error(ackErr))
+					c.logger.Error("Failed to ack skipped message", zap.Error(ackErr))
 				}
 				continue
 			}
 
-			// Fallback to legacy device location message.
-			var deviceMsg models.DeviceLocationMessage
-			if err := json.Unmarshal(msg.Body, &deviceMsg); err != nil {
-				c.logger.Error("Failed to unmarshal message",
-					zap.Error(err),
-					zap.String("org", tenant.OrgSlug))
-				if nackErr := msg.Nack(false, false); nackErr != nil {
-					c.logger.Error("Failed to nack bad message", zap.Error(nackErr))
-				}
-				continue
+			orgSlug := extractOrgFromRoutingKey(msg.RoutingKey)
+			if orgSlug == "" {
+				orgSlug = tenant.OrgSlug
 			}
+			orgCtx := timescaledb.ContextWithOrg(ctx, orgSlug)
 
-			if err := c.processor.ProcessTelemetryAndTriggerAutomations(orgCtx, &deviceMsg); err != nil {
-				c.logger.Error("Failed to process message",
-					zap.Error(err),
-					zap.String("org", tenant.OrgSlug))
-				if errors.Is(err, timescaledb.ErrLocationDroppedTimeout) {
-					c.logger.Warn("Location dropped due to timeout",
-						zap.String("org", tenant.OrgSlug))
-					if nackErr := msg.Nack(false, true); nackErr != nil {
-						c.logger.Error("Failed to nack timeout message", zap.Error(nackErr))
-					}
-				}
-			} else {
+			c.logger.Debug("Received message",
+				zap.String("org", orgSlug),
+				zap.String("routing_key", msg.RoutingKey),
+				zap.String("kind", kind))
+
+			switch kind {
+			case "entity_telemetry":
+				c.handleEntityTelemetry(orgCtx, orgSlug, msg)
+			case "event":
+				c.handleEvent(orgCtx, orgSlug, msg)
+			case "location_update":
+				c.handleLocationMessage(orgCtx, orgSlug, msg)
+			default:
 				if ackErr := msg.Ack(false); ackErr != nil {
-					c.logger.Error("Failed to ack message", zap.Error(ackErr))
+					c.logger.Error("Failed to ack unknown message", zap.Error(ackErr))
 				}
 			}
+		}
+	}
+}
+
+func (c *MultiTenantConsumer) handleEntityTelemetry(ctx context.Context, orgSlug string, msg amqp.Delivery) {
+	var entityPayload models.EntityTelemetryPayload
+	if err := json.Unmarshal(msg.Body, &entityPayload); err != nil {
+		c.logger.Error("Failed to unmarshal entity telemetry",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		_ = msg.Nack(false, false)
+		return
+	}
+
+	telemetry := &models.TelemetryPayload{
+		Organization: entityPayload.Organization,
+		DeviceEUI:    entityPayload.DeviceEUI,
+		DeviceID:     entityPayload.DeviceID,
+		SpaceSlug:    entityPayload.SpaceSlug,
+		Entities:     []models.TelemetryEntity{entityPayload.Entity},
+		Timestamp:    entityPayload.Timestamp,
+		Source:       entityPayload.Source,
+		Metadata:     entityPayload.Metadata,
+	}
+	if telemetry.Organization == "" {
+		telemetry.Organization = orgSlug
+	}
+
+	if err := c.processor.ProcessTelemetry(ctx, telemetry); err != nil {
+		c.logger.Error("Failed to process entity telemetry",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		_ = msg.Nack(false, true)
+		return
+	}
+
+	if ackErr := msg.Ack(false); ackErr != nil {
+		c.logger.Error("Failed to ack entity telemetry", zap.Error(ackErr))
+	}
+}
+
+func (c *MultiTenantConsumer) handleEvent(ctx context.Context, orgSlug string, msg amqp.Delivery) {
+	var event models.Event
+	if err := json.Unmarshal(msg.Body, &event); err != nil {
+		c.logger.Error("Failed to unmarshal event",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		_ = msg.Nack(false, false)
+		return
+	}
+
+	if event.Organization == "" {
+		event.Organization = orgSlug
+	}
+
+	if err := c.processor.ProcessLNSAlertEvent(ctx, &event); err != nil {
+		c.logger.Error("Failed to process event",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		_ = msg.Nack(false, true)
+		return
+	}
+
+	if ackErr := msg.Ack(false); ackErr != nil {
+		c.logger.Error("Failed to ack event", zap.Error(ackErr))
+	}
+}
+
+func (c *MultiTenantConsumer) handleLocationMessage(ctx context.Context, orgSlug string, msg amqp.Delivery) {
+	var telemetry models.TelemetryPayload
+	if err := json.Unmarshal(msg.Body, &telemetry); err == nil && len(telemetry.Entities) > 0 {
+		if telemetry.Organization == "" {
+			telemetry.Organization = orgSlug
+		}
+		if telemetry.SpaceSlug == "" {
+			telemetry.SpaceSlug = orgSlug
+		}
+
+		if err := c.processor.ProcessTelemetry(ctx, &telemetry); err != nil {
+			c.logger.Error("Failed to process telemetry payload",
+				zap.Error(err),
+				zap.String("org", orgSlug))
+			if nackErr := msg.Nack(false, true); nackErr != nil {
+				c.logger.Error("Failed to nack message", zap.Error(nackErr))
+			}
+			return
+		}
+
+		if ackErr := msg.Ack(false); ackErr != nil {
+			c.logger.Error("Failed to ack message", zap.Error(ackErr))
+		}
+		return
+	}
+
+	var deviceMsg models.DeviceLocationMessage
+	if err := json.Unmarshal(msg.Body, &deviceMsg); err != nil {
+		c.logger.Error("Failed to unmarshal message",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		if nackErr := msg.Nack(false, false); nackErr != nil {
+			c.logger.Error("Failed to nack bad message", zap.Error(nackErr))
+		}
+		return
+	}
+
+	if err := c.processor.ProcessTelemetryAndTriggerAutomations(ctx, &deviceMsg); err != nil {
+		c.logger.Error("Failed to process message",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		if errors.Is(err, timescaledb.ErrLocationDroppedTimeout) {
+			c.logger.Warn("Location dropped due to timeout",
+				zap.String("org", orgSlug))
+			if nackErr := msg.Nack(false, true); nackErr != nil {
+				c.logger.Error("Failed to nack timeout message", zap.Error(nackErr))
+			}
+		}
+	} else {
+		if ackErr := msg.Ack(false); ackErr != nil {
+			c.logger.Error("Failed to ack message", zap.Error(ackErr))
 		}
 	}
 }

@@ -219,7 +219,11 @@ func (c *MultiTenantConsumer) handleOrgEvent(ctx context.Context, msg amqp.Deliv
 				zap.String("org", orgSlug))
 			return nil
 		}
-		if err := c.subscribeToOrganization(ctx, orgSlug, vhost, "", ""); err != nil {
+		queueName := event.Payload.TelemetryQueue
+		if queueName == "" && orgSlug != "" {
+			queueName = fmt.Sprintf("%s.telemetry.queue", orgSlug)
+		}
+		if err := c.subscribeToOrganization(ctx, orgSlug, vhost, queueName, ""); err != nil {
 			return err
 		}
 
