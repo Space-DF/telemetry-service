@@ -10,5 +10,4 @@ func RegisterRoutes(group *echo.Group, logger *zap.Logger, tsClient *timescaledb
 	handler := NewHandler(logger, tsClient)
 
 	group.GET("/activity-logs", handler.GetActivityLogs)
-	group.POST("/activity-logs", handler.InsertActivityLog)
 }

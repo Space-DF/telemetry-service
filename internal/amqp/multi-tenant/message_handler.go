@@ -7,6 +7,7 @@ import (
 
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
+	"github.com/google/uuid"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
@@ -47,12 +48,6 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 			}
 
 			kind := messageKindFromRoutingKey(msg.RoutingKey)
-			if kind == "skip" {
-				if ackErr := msg.Ack(false); ackErr != nil {
-					c.logger.Error("Failed to ack skipped message", zap.Error(ackErr))
-				}
-				continue
-			}
 
 			orgSlug := extractOrgFromRoutingKey(msg.RoutingKey)
 			if orgSlug == "" {
@@ -72,6 +67,8 @@ func (c *MultiTenantConsumer) processTenantMessages(ctx context.Context, tenant 
 				c.handleEvent(orgCtx, orgSlug, msg)
 			case "location_update":
 				c.handleLocationMessage(orgCtx, orgSlug, msg)
+			case "activity_log":
+				c.handleActivityLog(orgCtx, orgSlug, msg)
 			default:
 				if ackErr := msg.Ack(false); ackErr != nil {
 					c.logger.Error("Failed to ack unknown message", zap.Error(ackErr))
@@ -142,6 +139,41 @@ func (c *MultiTenantConsumer) handleEvent(ctx context.Context, orgSlug string, m
 
 	if ackErr := msg.Ack(false); ackErr != nil {
 		c.logger.Error("Failed to ack event", zap.Error(ackErr))
+	}
+}
+
+func (c *MultiTenantConsumer) handleActivityLog(ctx context.Context, orgSlug string, msg amqp.Delivery) {
+	var activityLog models.DeviceActivityLog
+	if err := json.Unmarshal(msg.Body, &activityLog); err != nil {
+		c.logger.Error("Failed to unmarshal activity log",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		_ = msg.Nack(false, false)
+		return
+	}
+
+	if activityLog.Payload == nil {
+		activityLog.Payload = json.RawMessage("{}")
+	}
+
+	// Validate UUID format
+	if _, err := uuid.Parse(activityLog.ID); err != nil {
+		c.logger.Error("Invalid UUID in activity log id",
+			zap.String("id", activityLog.ID), zap.Error(err))
+		_ = msg.Nack(false, false) // discard, don't requeue
+		return
+	}
+
+	if err := c.processor.ProcessActivityLog(ctx, orgSlug, &activityLog); err != nil {
+		c.logger.Error("Failed to process activity log",
+			zap.Error(err),
+			zap.String("org", orgSlug))
+		_ = msg.Nack(false, false)
+		return
+	}
+
+	if ackErr := msg.Ack(false); ackErr != nil {
+		c.logger.Error("Failed to ack activity log", zap.Error(ackErr))
 	}
 }
 

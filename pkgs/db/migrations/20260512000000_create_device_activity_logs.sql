@@ -1,8 +1,8 @@
 -- migrate:up
 CREATE TABLE IF NOT EXISTS device_activity_logs (
-    id         VARCHAR(36) NOT NULL,
+    id         UUID DEFAULT gen_random_uuid(),
     time       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    device_eui VARCHAR(255) NOT NULL DEFAULT '',
+    device_eui VARCHAR(255) NOT NULL,
     payload    JSONB NOT NULL DEFAULT '{}',
     CONSTRAINT device_activity_logs_pk PRIMARY KEY (time, id)
 );
@@ -18,7 +18,8 @@ SELECT create_hypertable('device_activity_logs', 'time',
 
 ALTER TABLE device_activity_logs SET (
     timescaledb.compress = true,
-    timescaledb.compress_segmentby = 'device_eui'
+    timescaledb.compress_segmentby = 'device_eui',
+    timescaledb.compress_orderby = 'time DESC'
 );
 
 SELECT add_compression_policy('device_activity_logs', INTERVAL '7 days');

@@ -6,6 +6,7 @@ import (
 
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/stephenafamo/bob"
+	"go.uber.org/zap"
 )
 
 // GetActivityLogs retrieves activity logs for a device within a time range.
@@ -30,11 +31,15 @@ func (c *Client) GetActivityLogs(ctx context.Context, orgSlug, deviceEUI string,
 		if err != nil {
 			return fmt.Errorf("failed to query activity logs: %w", err)
 		}
-		defer rows.Close()
+		defer func() {
+			if err := rows.Close(); err != nil {
+				c.Logger.Error("Failed to close rows", zap.Error(err))
+			}
+		}()
 
 		for rows.Next() {
 			var log models.DeviceActivityLog
-			if err := rows.Scan(&log.Time, &log.ID, &log.DeviceEUI, &log.Payload); err != nil {
+			if err := rows.Scan(&log.Timestamp, &log.ID, &log.DeviceEUI, &log.Payload); err != nil {
 				return fmt.Errorf("failed to scan activity log: %w", err)
 			}
 			logs = append(logs, log)
@@ -53,10 +58,20 @@ func (c *Client) GetActivityLogs(ctx context.Context, orgSlug, deviceEUI string,
 // InsertActivityLog inserts a new activity log into the database.
 func (c *Client) InsertActivityLog(ctx context.Context, orgSlug string, log models.DeviceActivityLog) error {
 	return c.WithOrgTx(ctx, orgSlug, func(txCtx context.Context, tx bob.Tx) error {
-		_, err := tx.ExecContext(txCtx,
-			`INSERT INTO device_activity_logs (id, time, device_eui, payload) VALUES ($1, $2, $3, $4)`,
-			log.ID, log.Time, log.DeviceEUI, log.Payload,
+		result, err := tx.ExecContext(txCtx,
+			`INSERT INTO device_activity_logs (id, time, device_eui, payload) VALUES ($1, $2, $3, COALESCE($4, '{}'::jsonb)) ON CONFLICT (time, id) DO NOTHING`,
+			log.ID, log.Timestamp, log.DeviceEUI, log.Payload,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected == 0 {
+			c.Logger.Debug("Activity log already exists, skipping insert", zap.String("id", log.ID))
+		}
+		return nil
 	})
 }

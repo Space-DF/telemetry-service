@@ -7,7 +7,7 @@ import (
 
 type DeviceActivityLog struct {
 	ID        string          `json:"id" db:"id"`
-	Time      time.Time       `json:"time" db:"time"`
+	Timestamp time.Time       `json:"timestamp" db:"timestamp"`
 	DeviceEUI string          `json:"device_eui" db:"device_eui"`
-	Payload   json.RawMessage `json:"payload" db:"payload"`
+	Payload   json.RawMessage `json:"original_payload" db:"payload"`
 }

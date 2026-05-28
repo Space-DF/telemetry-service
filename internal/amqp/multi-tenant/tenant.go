@@ -176,7 +176,7 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 
 	if err := channel.QueueBind(
 		queueName,
-		fmt.Sprintf("tenant.%s.#", orgSlug),
+		fmt.Sprintf("tenant.%s.telemetry.#", orgSlug),
 		exchange,
 		false,
 		nil,
@@ -375,6 +375,8 @@ func messageKindFromRoutingKey(routingKey string) string {
 		return "event"
 	case strings.HasSuffix(routingKey, ".location"):
 		return "location_update"
+	case strings.HasSuffix(routingKey, ".activity_log"):
+		return "activity_log"
 	default:
 		return "skip"
 	}
