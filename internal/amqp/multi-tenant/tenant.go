@@ -67,9 +67,10 @@ type MultiTenantConsumer struct {
 
 // MessageProcessor processes device telemetry messages and triggers automations
 type MessageProcessor interface {
-	ProcessTelemetryAndTriggerAutomations(context context.Context, msg *models.DeviceLocationMessage) error
+	ProcessDeviceLocation(context context.Context, msg *models.DeviceLocationMessage) error
 	ProcessTelemetry(context context.Context, payload *models.TelemetryPayload) error
 	ProcessLNSAlertEvent(ctx context.Context, event *models.Event) error
+	ProcessActivityLog(ctx context.Context, orgSlug string, log *models.DeviceActivityLog) error
 	OnOrgCreated(ctx context.Context, orgSlug string) error
 	OnOrgDeleted(ctx context.Context, orgSlug string) error
 }
@@ -175,7 +176,7 @@ func (c *MultiTenantConsumer) subscribeToOrganization(parentCtx context.Context,
 
 	if err := channel.QueueBind(
 		queueName,
-		fmt.Sprintf("tenant.%s.#", orgSlug),
+		fmt.Sprintf("tenant.%s.telemetry.#", orgSlug),
 		exchange,
 		false,
 		nil,
@@ -374,6 +375,8 @@ func messageKindFromRoutingKey(routingKey string) string {
 		return "event"
 	case strings.HasSuffix(routingKey, ".location"):
 		return "location_update"
+	case strings.HasSuffix(routingKey, ".activity_log"):
+		return "activity_log"
 	default:
 		return "skip"
 	}
