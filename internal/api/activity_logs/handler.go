@@ -23,11 +23,11 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 
 // GetActivityLogs returns activity logs with pagination, search, and filters
 // @Summary Get activity logs
-// @Description Retrieve activity logs with optional filtering by device_eui. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Description Retrieve activity logs filtered by device_eui. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
 // @Tags activity_logs
 // @Accept json
 // @Produce json
-// @Param device_eui query string false "Filter by device EUI"
+// @Param device_eui query string true "Filter by device EUI"
 // @Param limit query int false "Number of results per page (default 20)"
 // @Param offset query int false "Number of results to skip (default 0)"
 // @Success 200 {object} common.PaginatedResponse
