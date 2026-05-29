@@ -21,6 +21,19 @@ func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 	}
 }
 
+// GetActivityLogs returns activity logs with pagination, search, and filters
+// @Summary Get activity logs
+// @Description Retrieve activity logs with optional filtering by device_eui. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Tags activity_logs
+// @Accept json
+// @Produce json
+// @Param device_eui query string false "Filter by device EUI"
+// @Param limit query int false "Number of results per page (default 20)"
+// @Param offset query int false "Number of results to skip (default 0)"
+// @Success 200 {object} common.PaginatedResponse
+// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Failure 500 {object} map[string]string "Internal server error"
+// @Router /telemetry/v1/activity-logs [get]
 func (h *Handler) GetActivityLogs(c echo.Context) error {
 	// Resolve organization from hostname or X-Organization header
 	orgSlug := common.ResolveOrgFromRequest(c)
