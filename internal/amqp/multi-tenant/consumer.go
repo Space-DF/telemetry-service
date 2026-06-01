@@ -4,37 +4,96 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/config"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"go.uber.org/zap"
 )
 
-// Start begins consuming messages with multi-tenant support
+type MultiTenantConsumer struct {
+	connManager *ConnectionManager
+	vhostPool   *VhostConnectionPool
+	registry    *TenantRegistry
+	router      *MessageRouter
+	orgListener *OrgEventListener
+	logger      *zap.Logger
+	instanceID  string
+	done        chan bool
+	stopOnce    sync.Once
+}
+
+func NewMultiTenantConsumer(cfg config.AMQP, orgEventsCfg config.OrgEvents, processor MessageProcessor, schemaInit SchemaInitializer, logger *zap.Logger) *MultiTenantConsumer {
+	instanceID := generateInstanceID()
+
+	logger.Info("Creating multi-tenant consumer with unique instance ID",
+		zap.String("instance_id", instanceID))
+
+	connManager := NewConnectionManager(cfg, logger)
+
+	vhostPool := NewVhostConnectionPool(cfg.BrokerURL, cfg.AllowedVHosts)
+
+	router := NewMessageRouter(processor, logger)
+
+	registry := NewTenantRegistry(vhostPool, router, instanceID, cfg.PrefetchCount, logger)
+
+	orgListener := NewOrgEventListener(connManager, registry, processor, orgEventsCfg, instanceID, logger)
+
+	// Wire reconnection callbacks
+	connManager.OnConnectionLost = func() {
+		vhostPool.InvalidateAll()
+	}
+
+	connManager.OnReconnected = func(ctx context.Context) {
+		registry.ReestablishAll(ctx)
+		orgListener.Restart(ctx)
+		go func() {
+			time.Sleep(2 * time.Second)
+			if connManager.IsConnected() {
+				orgListener.SendDiscoveryRequest(ctx)
+			}
+		}()
+	}
+
+	return &MultiTenantConsumer{
+		connManager: connManager,
+		vhostPool:   vhostPool,
+		registry:    registry,
+		router:      router,
+		orgListener: orgListener,
+		logger:      logger,
+		instanceID:  instanceID,
+		done:        make(chan bool, 1),
+	}
+}
+
+func (c *MultiTenantConsumer) Connect() error {
+	if err := c.connManager.Connect(); err != nil {
+		return err
+	}
+
+	c.connManager.SetupMonitoring()
+	c.connManager.StartReconnectLoop()
+
+	c.logger.Info("Successfully connected to AMQP broker")
+	return nil
+}
+
 func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 	c.logger.Info("Starting telemetry service with multi-tenant architecture",
-		zap.String("instance_id", c.instanceID),
-		zap.String("org_events_queue", c.getOrgEventsQueueName()))
+		zap.String("instance_id", c.instanceID))
 	c.logger.Info("Waiting for organization events to discover active tenants")
 
-	// Start reconnection monitor goroutine
-	go c.reconnectionMonitor(ctx)
+	c.connManager.serviceCtx = ctx
 
-	// Start listening to organization events
-	orgEventsCtx, orgEventsCancel := context.WithCancel(ctx) //#nosec G118
-	c.orgEventsCancel = orgEventsCancel
-	go func() {
-		if err := c.listenToOrgEvents(orgEventsCtx); err != nil {
-			c.logger.Error("Org events listener error", zap.Error(err))
-		}
-	}()
+	c.orgListener.Start(ctx)
 
-	// Send bootstrap discovery request after a small delay
 	go func() {
 		time.Sleep(2 * time.Second)
-		if err := c.sendDiscoveryRequest(ctx); err != nil {
-			c.logger.Error("Failed to send discovery request", zap.Error(err))
+		if c.connManager.IsConnected() {
+			c.orgListener.SendDiscoveryRequest(ctx)
 		}
 	}()
 
@@ -42,10 +101,8 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		c.logger.Info("Context cancelled, stopping multi-tenant consumer")
-		c.stopAllConsumers()
 	case <-c.done:
 		c.logger.Info("Multi-tenant consumer stopped")
-		c.stopAllConsumers()
 	}
 
 	return nil
@@ -55,42 +112,26 @@ func (c *MultiTenantConsumer) Start(ctx context.Context) error {
 func (c *MultiTenantConsumer) Stop() error {
 	c.stopOnce.Do(func() {
 		close(c.done)
-
-		// Cancel monitor goroutine
-		if c.monitorCancel != nil {
-			c.monitorCancel()
-		}
-		c.monitorWg.Wait()
-
-		c.stopAllConsumers()
-
-		if c.orgEventsChannel != nil {
-			_ = c.orgEventsChannel.Close()
-		}
-
-		if c.orgEventsConn != nil {
-			_ = c.orgEventsConn.Close()
-		}
+		c.orgListener.Stop()
+		c.registry.StopAll()
+		c.connManager.Close()
 	})
 	return nil
 }
 
 // IsHealthy checks if the consumer is healthy
 func (c *MultiTenantConsumer) IsHealthy() bool {
-	return c.orgEventsConn != nil && !c.orgEventsConn.IsClosed()
+	return c.connManager.IsConnected()
 }
 
 // PublishEventToDevice publishes an event to the tenant's device queue
 func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *models.Event, orgSlug string) error {
-	c.tenantMu.RLock()
-	consumer, exists := c.tenantConsumers[orgSlug]
-	c.tenantMu.RUnlock()
-
+	tenant, exists := c.registry.Get(orgSlug)
 	if !exists {
 		return fmt.Errorf("tenant %s not found", orgSlug)
 	}
 
-	if consumer.Channel == nil || consumer.Channel.IsClosed() {
+	if tenant.Channel == nil || tenant.Channel.IsClosed() {
 		return fmt.Errorf("channel closed for tenant %s", orgSlug)
 	}
 
@@ -101,9 +142,9 @@ func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *m
 
 	routingKey := fmt.Sprintf("tenant.%s.space.%s.device.%s.event", orgSlug, event.SpaceSlug, event.DeviceID)
 
-	err = consumer.Channel.PublishWithContext(
+	err = tenant.Channel.PublishWithContext(
 		ctx,
-		consumer.Exchange,
+		tenant.Exchange,
 		routingKey,
 		false,
 		false,
