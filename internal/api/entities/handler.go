@@ -40,10 +40,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 		}
 
 		// Resolve space slug from X-Space header (required)
-		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
-		if err != nil {
-			return err
-		}
+		spaceSlug := strings.TrimSpace(c.Request().Header.Get("X-Space"))
 
 		// Resolve organization from hostname or X-Organization header
 		orgToUse := common.ResolveOrgFromRequest(c)
