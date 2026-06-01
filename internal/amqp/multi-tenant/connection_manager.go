@@ -118,7 +118,7 @@ func (m *ConnectionManager) SetupMonitoring() {
 	m.channel.NotifyClose(m.channelCloseCh)
 
 	m.monitorWg.Add(1)
-	go m.monitorConnection()
+	go m.monitorConnection(m.connCloseCh, m.channelCloseCh)
 }
 
 func (m *ConnectionManager) StartReconnectLoop() {
@@ -137,19 +137,24 @@ func (m *ConnectionManager) TriggerReconnect() {
 	}
 }
 
-func (m *ConnectionManager) monitorConnection() {
+func (m *ConnectionManager) monitorConnection(connCloseCh <-chan *amqp.Error, channelCloseCh <-chan *amqp.Error) {
 	defer m.monitorWg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error("monitorConnection panicked", zap.Any("panic", r))
+		}
+	}()
 
 	for {
 		select {
 		case <-m.done:
 			return
-		case err, ok := <-m.connCloseCh:
+		case err, ok := <-connCloseCh:
 			if !ok {
 				return
 			}
 			m.onConnClosed(err)
-		case err, ok := <-m.channelCloseCh:
+		case err, ok := <-channelCloseCh:
 			if !ok {
 				return
 			}
@@ -198,56 +203,99 @@ func (m *ConnectionManager) onChClosed(err *amqp.Error) {
 
 func (m *ConnectionManager) reconnectLoop() {
 	defer m.monitorWg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			m.logger.Error("reconnectLoop panicked", zap.Any("panic", r))
+		}
+	}()
+
+	m.logger.Info("Reconnect loop started")
+
+	backoff := 1 * time.Second
+	const maxBackoff = 30 * time.Second
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-m.done:
 			return
+		case <-ticker.C:
+			if !m.IsConnected() && !m.reconnecting.Load() {
+				m.logger.Debug("Ticker detected disconnected state, triggering reconnect")
+				select {
+				case m.reconnectChan <- struct{}{}:
+				default:
+				}
+			}
 		case <-m.reconnectChan:
-			if m.reconnecting.Load() {
-				m.logger.Debug("Already reconnecting, skipping duplicate request")
+			if m.reconnecting.Load() || m.IsConnected() {
+				m.logger.Debug("Skipping reconnect signal",
+					zap.Bool("already_reconnecting", m.reconnecting.Load()),
+					zap.Bool("already_connected", m.IsConnected()))
 				continue
 			}
 
 			m.reconnecting.Store(true)
-
 			m.logger.Warn("Reconnection triggered, attempting to reconnect...")
-			if err := m.doReconnect(); err != nil {
-				m.reconnecting.Store(false)
-				m.logger.Error("Failed to reconnect", zap.Error(err))
-				go func() {
-					select {
-					case <-time.After(10 * time.Second):
-						select {
-						case m.reconnectChan <- struct{}{}:
-						default:
-						}
-					case <-m.done:
+
+			go func(b time.Duration) {
+				defer func() {
+					if r := recover(); r != nil {
+						m.logger.Error("reconnect attempt panicked", zap.Any("panic", r))
 					}
 				}()
-			} else {
-				m.reconnecting.Store(false)
-				for {
-					select {
-					case _, ok := <-m.reconnectChan:
-						if !ok {
-							goto drainedDone
-						}
-					default:
-						goto drainedDone
-					}
-				}
-			drainedDone:
-				m.logger.Info("Successfully reconnected")
 
-				if m.OnReconnected != nil {
-					ctx := m.serviceCtx
-					if ctx == nil {
-						ctx = context.Background()
+				currentBackoff := b
+
+				for {
+					if m.circuitBreaker.State() == circuitbreaker.StateOpen {
+						timeout := m.circuitBreaker.ResetTimeout()
+						m.logger.Warn("Circuit breaker is open, waiting",
+							zap.Duration("reset_timeout", timeout))
+						select {
+						case <-m.done:
+							m.reconnecting.Store(false)
+							return
+						case <-time.After(timeout):
+						}
 					}
-					m.OnReconnected(ctx)
+
+					if err := m.doReconnect(); err != nil {
+						m.logger.Warn("Reconnection attempt failed",
+							zap.Duration("backoff", currentBackoff),
+							zap.Error(err))
+						m.circuitBreaker.RecordFailure()
+
+						select {
+						case <-m.done:
+							m.reconnecting.Store(false)
+							return
+						case <-time.After(currentBackoff):
+						}
+
+						currentBackoff *= 2
+						if currentBackoff > maxBackoff {
+							currentBackoff = maxBackoff
+						}
+					} else {
+						m.circuitBreaker.Reset()
+						m.reconnecting.Store(false)
+						m.logger.Info("Successfully reconnected")
+
+						if m.OnReconnected != nil {
+							ctx := m.serviceCtx
+							if ctx == nil {
+								ctx = context.Background()
+							}
+							m.OnReconnected(ctx)
+						}
+						return
+					}
 				}
-			}
+			}(backoff)
+
+			backoff = 1 * time.Second
 		}
 	}
 }
@@ -255,88 +303,36 @@ func (m *ConnectionManager) reconnectLoop() {
 func (m *ConnectionManager) doReconnect() error {
 	m.logger.Info("Attempting to reconnect to AMQP broker")
 
-	backoff := 1 * time.Second
-	maxBackoff := 30 * time.Second
-	maxAttempts := 30
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if m.circuitBreaker.State() == circuitbreaker.StateOpen {
-			cbTimeout := m.circuitBreaker.ResetTimeout()
-			m.logger.Warn("Circuit breaker is open, waiting",
-				zap.Duration("reset_timeout", cbTimeout))
-			select {
-			case <-m.done:
-				return fmt.Errorf("shutdown during circuit breaker wait")
-			case <-time.After(cbTimeout):
-			}
-		}
-
-		m.connMu.RLock()
-		oldConn := m.conn
-		m.connMu.RUnlock()
-		if oldConn != nil && !oldConn.IsClosed() {
-			_ = oldConn.Close()
-		}
-
-		err := func() error {
-			conn, err := amqp.Dial(m.config.BrokerURL)
-			if err != nil {
-				return err
-			}
-
-			ch, err := conn.Channel()
-			if err != nil {
-				defer func() {
-					if closeErr := conn.Close(); closeErr != nil {
-						m.logger.Error("Failed to close AMQP connection", zap.Error(closeErr))
-					}
-				}()
-				return err
-			}
-
-			m.connMu.Lock()
-			m.conn = conn
-			m.channel = ch
-
-			m.connCloseCh = make(chan *amqp.Error, 1)
-			m.channelCloseCh = make(chan *amqp.Error, 1)
-			m.conn.NotifyClose(m.connCloseCh)
-			m.channel.NotifyClose(m.channelCloseCh)
-			m.connMu.Unlock()
-
-			return nil
-		}()
-
-		if err == nil {
-			m.logger.Info("Successfully reconnected to AMQP broker",
-				zap.Int("attempt", attempt))
-
-			m.circuitBreaker.Reset()
-
-			m.monitorWg.Add(1)
-			go m.monitorConnection()
-
-			return nil
-		}
-
-		m.logger.Warn("Reconnection attempt failed",
-			zap.Int("attempt", attempt),
-			zap.Duration("backoff", backoff),
-			zap.Error(err))
-
-		m.circuitBreaker.RecordFailure()
-
-		select {
-		case <-m.done:
-			return fmt.Errorf("shutdown during reconnection")
-		case <-time.After(backoff):
-		}
-
-		backoff *= 2
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
+	m.connMu.RLock()
+	oldConn := m.conn
+	m.connMu.RUnlock()
+	if oldConn != nil && !oldConn.IsClosed() {
+		_ = oldConn.Close()
 	}
 
-	return fmt.Errorf("failed to reconnect after %d attempts", maxAttempts)
+	conn, err := amqp.Dial(m.config.BrokerURL)
+	if err != nil {
+		return fmt.Errorf("dial failed: %w", err)
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("open channel failed: %w", err)
+	}
+
+	m.connMu.Lock()
+	m.conn = conn
+	m.channel = ch
+
+	m.connCloseCh = make(chan *amqp.Error, 1)
+	m.channelCloseCh = make(chan *amqp.Error, 1)
+	conn.NotifyClose(m.connCloseCh)
+	ch.NotifyClose(m.channelCloseCh)
+	m.connMu.Unlock()
+
+	m.monitorWg.Add(1)
+	go m.monitorConnection(m.connCloseCh, m.channelCloseCh)
+
+	return nil
 }

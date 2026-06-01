@@ -245,6 +245,12 @@ func (r *TenantRegistry) Resubscribe(parentCtx context.Context, oldTenant *Tenan
 		}
 
 		r.mu.Lock()
+		current, exists := r.tenants[oldTenant.OrgSlug]
+		if exists && current != oldTenant {
+			r.mu.Unlock()
+			return
+		}
+
 		delete(r.tenants, oldTenant.OrgSlug)
 		r.mu.Unlock()
 
@@ -292,6 +298,11 @@ func (r *TenantRegistry) processTenantMessages(ctx context.Context, tenant *Tena
 
 		case msg, ok := <-messages:
 			if !ok {
+				if ctx.Err() != nil {
+					r.logger.Info("Context cancelled, stopping message processing",
+						zap.String("org", tenant.OrgSlug))
+					return
+				}
 				r.logger.Warn("Message channel closed for organization, triggering resubscription",
 					zap.String("org", tenant.OrgSlug))
 

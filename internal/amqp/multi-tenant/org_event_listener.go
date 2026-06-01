@@ -80,11 +80,12 @@ func (l *OrgEventListener) listen(parentCtx context.Context, myCtx context.Conte
 	)
 
 	for {
-		if err = l.ensureTopology(); err == nil {
+		channel := l.connManager.Channel()
+		if err = l.ensureTopology(channel); err == nil {
 			queueName := l.queueName()
 			consumerTag := fmt.Sprintf("%s-%s", l.config.ConsumerTag, l.instanceID)
 
-			messages, err = l.connManager.Channel().Consume(
+			messages, err = channel.Consume(
 				queueName,
 				consumerTag,
 				false,
@@ -143,8 +144,7 @@ func (l *OrgEventListener) listen(parentCtx context.Context, myCtx context.Conte
 	}
 }
 
-func (l *OrgEventListener) ensureTopology() error {
-	channel := l.connManager.Channel()
+func (l *OrgEventListener) ensureTopology(channel *amqp.Channel) error {
 	if channel == nil || channel.IsClosed() {
 		return fmt.Errorf("org events channel is nil or closed")
 	}

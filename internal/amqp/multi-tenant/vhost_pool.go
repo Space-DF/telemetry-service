@@ -42,15 +42,15 @@ func (p *VhostConnectionPool) ShouldHandle(vhost string) bool {
 
 func (p *VhostConnectionPool) Get(vhost string) (*amqp.Connection, error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if pooled, exists := p.connections[vhost]; exists {
 		if pooled.conn != nil && !pooled.conn.IsClosed() {
 			pooled.refCount++
+			p.mu.Unlock()
 			return pooled.conn, nil
 		}
 		delete(p.connections, vhost)
 	}
+	p.mu.Unlock()
 
 	vhostURL, err := p.buildURL(vhost)
 	if err != nil {
@@ -62,6 +62,8 @@ func (p *VhostConnectionPool) Get(vhost string) (*amqp.Connection, error) {
 		return nil, fmt.Errorf("failed to connect to vhost %s: %w", vhost, err)
 	}
 
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.connections[vhost] = &pooledConnection{
 		conn:     conn,
 		refCount: 1,
@@ -89,12 +91,6 @@ func (p *VhostConnectionPool) Release(vhost string) {
 func (p *VhostConnectionPool) InvalidateAll() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	for _, pooled := range p.connections {
-		if pooled.conn != nil {
-			_ = pooled.conn.Close()
-		}
-	}
 	p.connections = make(map[string]*pooledConnection)
 }
 
