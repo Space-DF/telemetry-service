@@ -14,11 +14,12 @@ import (
 	"github.com/stephenafamo/bob"
 )
 
-func buildEntityRowMap(c *Client, id, deviceIDCol, name, uniqueKey sql.NullString, etID, etName, etUnique, etImage sql.NullString, categoryCol, unit, icon sql.NullString, displayType pq.StringArray, isEnabled bool, createdAt, updatedAt, timeStart, timeEnd sql.NullTime) map[string]interface{} {
+func buildEntityRowMap(c *Client, id, deviceIDCol, name, manufacturer, uniqueKey sql.NullString, etID, etName, etUnique, etImage sql.NullString, categoryCol, unit, icon sql.NullString, displayType pq.StringArray, isEnabled bool, createdAt, updatedAt, timeStart, timeEnd sql.NullTime) map[string]interface{} {
 	return map[string]interface{}{
 		"id":          id.String,
 		"device_id":   deviceIDCol.String,
 		"device_name": name.String,
+		"manufacturer": manufacturer.String,
 		"unique_key":  uniqueKey.String,
 		"entity_type": map[string]interface{}{
 			"id":         etID.String,
@@ -102,7 +103,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 		searchPattern := "%" + search + "%"
 		conditions = append(
 			conditions,
-			fmt.Sprintf("(e.name ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx),
+			fmt.Sprintf("(e.name ILIKE $%[1]d OR e.manufacturer ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx),
 		)
 		args = append(args, searchPattern)
 		idx++
@@ -130,7 +131,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 	}
 
 	// Select query
-	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.icon, e.is_enabled, e.created_at, e.updated_at, s2.time_start, s2.time_end
+	selectQuery := fmt.Sprintf(`SELECT e.id, e.device_id, e.name, e.manufacturer, e.unique_key, et.id AS entity_type_id, et.name AS entity_type_name, et.unique_key AS entity_type_unique_key, et.image_url AS entity_type_image_url, e.category, e.unit_of_measurement, e.display_type, e.icon, e.is_enabled, e.created_at, e.updated_at, s2.time_start, s2.time_end
 		FROM entities e
 		LEFT JOIN entity_types et ON e.entity_type_id = et.id
 		LEFT JOIN spaces s ON e.space_id = s.space_id
@@ -155,26 +156,26 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 				_ = rows.Close()
 			}()
 
-			for rows.Next() {
-				var id, deviceIDCol, name, uniqueKey sql.NullString
-				var etID, etName, etUnique, etImage sql.NullString
-				var categoryCol, unit, icon sql.NullString
-				var displayType pq.StringArray
-				var isEnabled bool
-				var createdAt, updatedAt sql.NullTime
-				var timeStart, timeEnd sql.NullTime
+		for rows.Next() {
+			var id, deviceIDCol, name, manufacturer, uniqueKey sql.NullString
+			var etID, etName, etUnique, etImage sql.NullString
+			var categoryCol, unit, icon sql.NullString
+			var displayType pq.StringArray
+			var isEnabled bool
+			var createdAt, updatedAt sql.NullTime
+			var timeStart, timeEnd sql.NullTime
 
-				if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
-					return err
-				}
-
-				rowMap := buildEntityRowMap(c, id, deviceIDCol, name, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
-				results = append(results, rowMap)
+			if err := rows.Scan(&id, &deviceIDCol, &name, &manufacturer, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
+				return err
 			}
-			return nil
-		}); err != nil {
-			return nil, 0, err
+
+			rowMap := buildEntityRowMap(c, id, deviceIDCol, name, manufacturer, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
+			results = append(results, rowMap)
 		}
+		return nil
+	}); err != nil {
+		return nil, 0, err
+	}
 	} else {
 		rows, err := c.DB.QueryContext(ctx, selectQuery, args...)
 		if err != nil {
@@ -185,7 +186,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 		}()
 
 		for rows.Next() {
-			var id, deviceIDCol, name, uniqueKey sql.NullString
+			var id, deviceIDCol, name, manufacturer, uniqueKey sql.NullString
 			var etID, etName, etUnique, etImage sql.NullString
 			var categoryCol, unit, icon sql.NullString
 			var displayType pq.StringArray
@@ -193,11 +194,11 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 			var createdAt, updatedAt sql.NullTime
 			var timeStart, timeEnd sql.NullTime
 
-			if err := rows.Scan(&id, &deviceIDCol, &name, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
+			if err := rows.Scan(&id, &deviceIDCol, &name, &manufacturer, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
 				return nil, 0, err
 			}
 
-			rowMap := buildEntityRowMap(c, id, deviceIDCol, name, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
+			rowMap := buildEntityRowMap(c, id, deviceIDCol, name, manufacturer, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
 			results = append(results, rowMap)
 		}
 	}
@@ -433,25 +434,26 @@ func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, 
 				return fmt.Errorf("upsert entity type '%s': %w", entityTypeKey, err)
 			}
 
-			result, err := tx.ExecContext(txCtx, `
-				INSERT INTO entities (
-					id, space_id, device_id, unique_key, category, entity_type_id,
-					name, unit_of_measurement, display_type, icon, is_enabled, created_at, updated_at
-				)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true, now(), now())
-				ON CONFLICT (unique_key) DO NOTHING
-			`,
-				uuid.New(),
-				spaceID,
-				deviceUUID,
-				entityUniqueKey,
-				tpl.Category,
-				entityTypeID,
-				tpl.Name,
-				nullString(tpl.UnitOfMeas),
-				pq.Array(displayType),
-				nullString(tpl.Icon),
+		result, err := tx.ExecContext(txCtx, `
+			INSERT INTO entities (
+				id, space_id, device_id, unique_key, category, entity_type_id,
+				name, manufacturer, unit_of_measurement, display_type, icon, is_enabled, created_at, updated_at
 			)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, now(), now())
+			ON CONFLICT (unique_key) DO NOTHING
+		`,
+			uuid.New(),
+			spaceID,
+			deviceUUID,
+			entityUniqueKey,
+			tpl.Category,
+			entityTypeID,
+			tpl.Name,
+			tpl.Manufacturer,
+			nullString(tpl.UnitOfMeas),
+			pq.Array(displayType),
+			nullString(tpl.Icon),
+		)
 			if err != nil {
 				return fmt.Errorf("insert entity '%s': %w", entityUniqueKey, err)
 			}
