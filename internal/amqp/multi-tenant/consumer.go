@@ -140,7 +140,7 @@ func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *m
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	routingKey := fmt.Sprintf("tenant.%s.space.%s.device.%s.event", orgSlug, event.SpaceSlug, event.DeviceID)
+	routingKey := fmt.Sprintf("tenant.%s.broker.space.%s.device.%s.event", orgSlug, event.SpaceSlug, event.DeviceID)
 
 	err = tenant.Channel.PublishWithContext(
 		ctx,
