@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -52,12 +51,7 @@ func computeMigrationHash(migrationPath string) (string, error) {
 
 	h := sha256.New()
 	for _, f := range files {
-		data, err := os.ReadFile(f) // #nosec G304
-		if err != nil {
-			return "", fmt.Errorf("failed to read migration file %s: %w", f, err)
-		}
 		h.Write([]byte(filepath.Base(f)))
-		h.Write(data)
 	}
 	hash = hex.EncodeToString(h.Sum(nil))[:16]
 	migrationHashes[migrationPath] = hash
