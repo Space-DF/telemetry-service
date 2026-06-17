@@ -765,9 +765,9 @@ const docTemplate = `{
                 }
             }
         },
-        "/telemetry/v1/data/latest": {
+        "/telemetry/v1/data/entity-properties": {
             "get": {
-                "description": "Retrieve the latest properties/attributes for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
+                "description": "Retrieve device entities with each entity's latest value in a single response. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)",
                 "consumes": [
                     "application/json"
                 ],
@@ -777,7 +777,7 @@ const docTemplate = `{
                 "tags": [
                     "data"
                 ],
-                "summary": "Get device properties",
+                "summary": "Get device entity properties",
                 "parameters": [
                     {
                         "type": "string",
@@ -789,10 +789,13 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "Device properties as key-value pairs",
+                        "description": "Device entities with latest values",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": true
+                            }
                         }
                     },
                     "400": {
