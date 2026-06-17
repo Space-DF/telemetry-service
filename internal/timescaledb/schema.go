@@ -17,33 +17,51 @@ import (
 )
 
 var (
-	migrationHashOnce sync.Once
-	migrationHash     string
+	migrationHashesMu sync.RWMutex
+	migrationHashes   = make(map[string]string)
+
+	fingerprintTableCreated bool
+	fingerprintTableMu      sync.Mutex
 )
 
 // computeMigrationHash returns a SHA-256 hash of all migration SQL files.
-// Computed once per process lifetime — cached for subsequent calls.
-func computeMigrationHash(migrationPath string) string {
-	migrationHashOnce.Do(func() {
-		files, err := filepath.Glob(filepath.Join(migrationPath, "*.sql"))
-		if err != nil || len(files) == 0 {
-			migrationHash = "none"
-			return
-		}
-		sort.Strings(files)
+// Computed once per path — cached for subsequent calls.
+func computeMigrationHash(migrationPath string) (string, error) {
+	migrationHashesMu.RLock()
+	hash, exists := migrationHashes[migrationPath]
+	migrationHashesMu.RUnlock()
+	if exists {
+		return hash, nil
+	}
 
-		h := sha256.New()
-		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				continue
-			}
-			h.Write([]byte(filepath.Base(f)))
-			h.Write(data)
+	migrationHashesMu.Lock()
+	defer migrationHashesMu.Unlock()
+	if hash, exists = migrationHashes[migrationPath]; exists {
+		return hash, nil
+	}
+
+	files, err := filepath.Glob(filepath.Join(migrationPath, "*.sql"))
+	if err != nil {
+		return "", fmt.Errorf("failed to glob migration files: %w", err)
+	}
+	if len(files) == 0 {
+		migrationHashes[migrationPath] = "none"
+		return "none", nil
+	}
+	sort.Strings(files)
+
+	h := sha256.New()
+	for _, f := range files {
+		data, err := os.ReadFile(f) // #nosec G304
+		if err != nil {
+			return "", fmt.Errorf("failed to read migration file %s: %w", f, err)
 		}
-		migrationHash = hex.EncodeToString(h.Sum(nil))[:16]
-	})
-	return migrationHash
+		h.Write([]byte(filepath.Base(f)))
+		h.Write(data)
+	}
+	hash = hex.EncodeToString(h.Sum(nil))[:16]
+	migrationHashes[migrationPath] = hash
+	return hash, nil
 }
 
 // CreateSchema creates a PostgreSQL schema for the given organization if it doesn't exist.
@@ -76,8 +94,10 @@ func (c *Client) CreateSchemaAndTables(ctx context.Context, orgSlug string) erro
 	}
 
 	migrationPath := "pkgs/db/migrations"
-	currentHash := computeMigrationHash(migrationPath)
-
+	currentHash, err := computeMigrationHash(migrationPath)
+	if err != nil {
+		return fmt.Errorf("failed to compute migration hash: %w", err)
+	}
 	storedHash, err := c.getSchemaMigrationFingerprint(ctx, orgSlug)
 	if err == nil && storedHash == currentHash {
 		c.Logger.Debug("Migrations unchanged, skipping",
@@ -129,21 +149,26 @@ func (c *Client) getSchemaMigrationFingerprint(ctx context.Context, orgSlug stri
 }
 
 func (c *Client) setSchemaMigrationFingerprint(ctx context.Context, orgSlug, hash string) error {
-	if _, err := c.DB.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS public._schema_migration_fingerprint (
-			schema_name TEXT PRIMARY KEY,
-			value TEXT NOT NULL,
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-		)
-	`); err != nil {
+	var err error
+	fingerprintTableMu.Lock()
+	if !fingerprintTableCreated {
+		_, err = c.DB.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS public._schema_migration_fingerprint (\n"+
+			"	schema_name TEXT PRIMARY KEY,\n"+
+			"	value TEXT NOT NULL,\n"+
+			"	updated_at TIMESTAMPTZ NOT NULL DEFAULT now()\n"+
+			")")
+		if err == nil {
+			fingerprintTableCreated = true
+		}
+	}
+	fingerprintTableMu.Unlock()
+	if err != nil {
 		return err
 	}
 
-	_, err := c.DB.ExecContext(ctx, `
-		INSERT INTO public._schema_migration_fingerprint (schema_name, value)
-		VALUES ($1, $2)
-		ON CONFLICT (schema_name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
-	`, orgSlug, hash)
+	_, err = c.DB.ExecContext(ctx, "INSERT INTO public._schema_migration_fingerprint (schema_name, value)\n"+
+		"VALUES ($1, $2)\n"+
+		"ON CONFLICT (schema_name) DO UPDATE SET value = EXCLUDED.value, updated_at = now()", orgSlug, hash)
 	return err
 }
 
