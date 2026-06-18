@@ -20,7 +20,7 @@ func buildEntityRowMap(c *Client, id, deviceIDCol, name, manufacturer, uniqueKey
 		"device_id":   deviceIDCol.String,
 		"device_name": name.String,
 		"manufacturer": manufacturer.String,
-		"unique_key":  uniqueKey.String,
+		"unique_key":   uniqueKey.String,
 		"entity_type": map[string]interface{}{
 			"id":         etID.String,
 			"name":       etName.String,

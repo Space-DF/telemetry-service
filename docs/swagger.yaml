@@ -769,12 +769,13 @@ paths:
       summary: Get automation summary
       tags:
       - automations
-  /telemetry/v1/data/latest:
+  /telemetry/v1/data/entity-properties:
     get:
       consumes:
       - application/json
-      description: Retrieve the latest properties/attributes for a specific device.
-        Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+      description: Retrieve device entities with each entity's latest value in a
+        single response. Organization is resolved from X-Organization header or
+        hostname (e.g., {org}.localhost)
       parameters:
       - description: Device ID
         in: query
@@ -785,10 +786,12 @@ paths:
       - application/json
       responses:
         "200":
-          description: Device properties as key-value pairs
+          description: Device entities with latest values
           schema:
-            additionalProperties: true
-            type: object
+            type: array
+            items:
+              additionalProperties: true
+              type: object
         "400":
           description: Invalid request parameters
           schema:
@@ -801,7 +804,7 @@ paths:
             additionalProperties:
               type: string
             type: object
-      summary: Get device properties
+      summary: Get device entity properties
       tags:
       - data
   /telemetry/v1/entities:
