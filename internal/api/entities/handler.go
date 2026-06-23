@@ -39,12 +39,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 			Search:       strings.TrimSpace(c.QueryParam("search")),
 		}
 
-		// Resolve space slug from X-Space header (required)
-		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
-		if err != nil {
-			return err
-		}
-		req.SpaceSlug = spaceSlug
+		spaceSlug := strings.TrimSpace(c.Request().Header.Get("X-Space"))
 
 		// Resolve organization from hostname or X-Organization header
 		orgToUse := common.ResolveOrgFromRequest(c)
@@ -61,7 +56,7 @@ func getEntities(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerF
 
 		p := common.ParsePagination(c)
 
-		entities, total, err := tsClient.GetEntities(ctx, req.SpaceSlug, req.Category, req.DeviceID, req.DevEUI, req.DisplayTypes, req.Search, p.Limit, p.Offset)
+		entities, total, err := tsClient.GetEntities(ctx, spaceSlug, req.Category, req.DeviceID, req.DevEUI, req.DisplayTypes, req.Search, p.Limit, p.Offset)
 		if err != nil {
 			logger.Error("failed to query entities", zap.Error(err))
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "failed to query entities"})
