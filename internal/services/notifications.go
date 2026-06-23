@@ -212,7 +212,6 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 				zap.Int("status_code", resp.StatusCode),
 			)
 
-			s.tryDeleteSubscription(ctx, orgSlug, sub.UserID, sub.ID, "stale")
 			continue
 		}
 
