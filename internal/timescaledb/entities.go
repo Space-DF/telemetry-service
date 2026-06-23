@@ -55,7 +55,7 @@ type EntityEnabledUpdate struct {
 	IsEnabled bool
 }
 
-// GetEntities returns entities for a given space with optional filters and pagination.
+// GetEntities returns entities with optional filters and pagination.
 func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID, devEUI string, displayTypes []string, search string, limit, offset int) ([]map[string]interface{}, int, error) {
 	org := orgFromContext(ctx)
 
@@ -67,34 +67,49 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 	}
 
 	// Build WHERE clauses
-	args := []interface{}{spaceSlug}
-	where := "s.space_slug = $1"
-	idx := 2
+	args := []interface{}{}
+	conditions := make([]string, 0, 6)
+	idx := 1
+	if spaceSlug != "" {
+		conditions = append(conditions, fmt.Sprintf("s.space_slug = $%d", idx))
+		args = append(args, spaceSlug)
+		idx++
+	}
 	if category != "" {
-		where += fmt.Sprintf(" AND e.category = $%d", idx)
+		conditions = append(conditions, fmt.Sprintf("e.category = $%d", idx))
 		args = append(args, category)
 		idx++
 	}
 	if deviceID != "" {
-		where += fmt.Sprintf(" AND e.device_id = $%d", idx)
+		conditions = append(conditions, fmt.Sprintf("e.device_id = $%d", idx))
 		args = append(args, deviceID)
 		idx++
 	}
 	if devEUI != "" {
-		where += fmt.Sprintf(" AND e.unique_key LIKE $%d", idx)
+		conditions = append(conditions, fmt.Sprintf("e.unique_key LIKE $%d", idx))
 		args = append(args, "%_"+devEUI+"_%")
 		idx++
 	}
 	if len(displayTypes) > 0 {
-		where += fmt.Sprintf(" AND e.display_type::text[] && $%d::text[]", idx)
+		conditions = append(
+			conditions,
+			fmt.Sprintf("e.display_type::text[] && $%d::text[]", idx),
+		)
 		args = append(args, pq.Array(displayTypes))
 		idx++
 	}
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		where += fmt.Sprintf(" AND (e.name ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx)
+		conditions = append(
+			conditions,
+			fmt.Sprintf("(e.name ILIKE $%[1]d OR e.unique_key ILIKE $%[1]d OR e.category ILIKE $%[1]d OR e.device_id::text ILIKE $%[1]d OR et.name ILIKE $%[1]d OR et.unique_key ILIKE $%[1]d)", idx),
+		)
 		args = append(args, searchPattern)
 		idx++
+	}
+	where := strings.Join(conditions, " AND ")
+	if where == "" {
+		where = "e.id IS NOT NULL"
 	}
 
 	// Count query
