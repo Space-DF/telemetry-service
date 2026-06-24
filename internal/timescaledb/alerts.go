@@ -13,13 +13,13 @@ import (
 )
 
 // GetAlerts retrieves alerts for a device/category within a time range.
-func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
 	}
-	if org == "" || spaceSlug == "" || deviceID == "" {
-		return nil, 0, fmt.Errorf("org, space_slug, and device_id are required")
+	if org == "" || deviceID == "" {
+		return nil, 0, fmt.Errorf("org and device_id are required")
 	}
 
 	if limit <= 0 {
@@ -50,39 +50,38 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		return nil, 0, err
 	}
 
-	args := []interface{}{category, spaceSlug, deviceID, startAt, endAt, limit, offset}
-	countArgs := args[:5]
-
-	statePredicate := processor.StatePredicate()
-	if strings.TrimSpace(statePredicate) == "" {
-		statePredicate = "TRUE"
+	results, totalCount, err := c.queryAlerts(ctx, org, processor, category, deviceID, startAt, endAt, cautionThreshold, warningThreshold, criticalThreshold, limit, offset)
+	if err != nil {
+		return nil, 0, err
 	}
-	whereClause := fmt.Sprintf(`
+
+	return results, totalCount, nil
+}
+
+func (c *Client) queryAlerts(ctx context.Context, org string, processor alertregistry.Processor, category, deviceID string, startAt, endAt time.Time, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
+	args := []interface{}{category, deviceID, startAt, endAt, limit, offset}
+	countArgs := args[:4]
+
+	whereClause := `
 		e.is_enabled = true
 		AND e.category = $1
-		AND sp.space_slug = $2
-		AND e.device_id::text = $3
-		AND %s
-		AND s.reported_at >= $4
-		AND s.reported_at < $5
-	`, statePredicate)
-
-	query := fmt.Sprintf(alertsQueryTemplate, whereClause)
-
-	// Count query
+		AND e.device_id::text = $2
+		AND TRUE
+		AND s.reported_at >= $3
+		AND s.reported_at <= $4
+	`
+	query := fmt.Sprintf(alertsQueryTemplate, whereClause, len(args)-1, len(args))
 	countQuery := fmt.Sprintf(alertsCountQueryTemplate, whereClause)
 
 	var totalCount int
 	var results []interface{}
 
 	if err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		// Get total count
 		row := tx.QueryRowContext(txCtx, countQuery, countArgs...)
 		if err := row.Scan(&totalCount); err != nil {
 			return fmt.Errorf("failed to count alerts: %w", err)
 		}
 
-		// Get alerts
 		rows, err := tx.QueryContext(txCtx, query, args...)
 		if err != nil {
 			return fmt.Errorf("failed to query alerts: %w", err)
@@ -92,8 +91,9 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 		}()
 
 		for rows.Next() {
-			var entityID, entityName, deviceIDVal, spaceSlugVal, state string
+			var entityID, entityName, deviceIDVal, state string
 			var reportedAt time.Time
+			var spaceSlugVal sql.NullString
 			var latitude, longitude sql.NullFloat64
 
 			if err := rows.Scan(&entityID, &entityName, &deviceIDVal, &spaceSlugVal, &state, &reportedAt, &latitude, &longitude); err != nil {
@@ -106,8 +106,6 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 			}
 
 			levelComputed := processor.DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold)
-
-			// Skip safe alerts, only return caution, warning and critical
 			if levelComputed == "safe" {
 				continue
 			}
@@ -131,7 +129,6 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 				"reported_at": reportedAt,
 			}
 
-			// Add location if available
 			if latitude.Valid && longitude.Valid {
 				alert["location"] = map[string]interface{}{
 					"latitude":  latitude.Float64,
@@ -225,7 +222,7 @@ const alertsQueryTemplate = `
 	) loc ON true
 	WHERE %s
 	ORDER BY s.reported_at DESC
-	LIMIT $6 OFFSET $7
+	LIMIT $%d OFFSET $%d
 `
 
 const alertsCountQueryTemplate = `

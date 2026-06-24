@@ -14,7 +14,6 @@ type Processor interface {
 	DefaultCriticalThreshold() float64
 	Unit() string
 	ValueKey() string
-	StatePredicate() string
 	ParseValue(raw string) (float64, error)
 	DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold float64) string
 	DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold float64) string
