@@ -55,11 +55,6 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 
 	h.logger.Info("Getting alerts", zap.String("org", orgSlug))
 
-	// Parse query parameters
-	spaceSlug, spaceErr := common.ResolveSpaceSlugFromRequest(c)
-	if spaceErr != nil {
-		return spaceErr
-	}
 	deviceID := c.QueryParam("device_id")
 	category := c.QueryParam("category")
 
@@ -104,7 +99,6 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		c.Request().Context(),
 		orgSlug,
 		category,
-		spaceSlug,
 		deviceID,
 		startDate,
 		endDate,
