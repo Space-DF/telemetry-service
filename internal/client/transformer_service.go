@@ -14,15 +14,16 @@ import (
 )
 
 type DeviceEntityTemplate struct {
-	Key         string   `json:"key"`
-	UniqueID    string   `json:"unique_id"`
-	ModelKey    string   `json:"model_key"`
-	EntityType  string   `json:"entity_type"`
-	Category    string   `json:"category"`
-	Name        string   `json:"name"`
-	UnitOfMeas  string   `json:"unit_of_measurement"`
-	Icon        string   `json:"icon"`
-	DisplayType []string `json:"display_type"`
+	Key          string   `json:"key"`
+	UniqueID     string   `json:"unique_id"`
+	ModelKey     string   `json:"model_key"`
+	EntityType   string   `json:"entity_type"`
+	Category     string   `json:"category"`
+	Name         string   `json:"name"`
+	Manufacturer string   `json:"manufacturer"`
+	UnitOfMeas   string   `json:"unit_of_measurement"`
+	Icon         string   `json:"icon"`
+	DisplayType  []string `json:"display_type"`
 }
 
 type TransformerServiceClient struct {

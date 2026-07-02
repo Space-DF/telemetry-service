@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/Space-DF/telemetry-service/internal/api/activity_logs"
 	"github.com/Space-DF/telemetry-service/internal/api/alerts"
 	"github.com/Space-DF/telemetry-service/internal/api/automations"
 	"github.com/Space-DF/telemetry-service/internal/api/data"
@@ -19,6 +20,7 @@ import (
 func Setup(cfg *config.Config, e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
 	group := e.Group("/v1")
 	location.RegisterRoutes(group, logger, tsClient)
+	activity_logs.RegisterRoutes(group, logger, tsClient)
 	entities.RegisterRoutes(group, logger, tsClient)
 	alerts.RegisterRoutes(group, logger, tsClient)
 	widget.RegisterRoutes(group, logger, tsClient)

@@ -39,3 +39,14 @@ type TelemetryEntity struct {
 	Timestamp   string         `json:"timestamp"`
 	StateID     uuid.UUID      `json:"state_id,omitempty"`
 }
+
+type EntityTelemetryPayload struct {
+	Organization string          `json:"organization"`
+	DeviceEUI    string          `json:"device_eui"`
+	DeviceID     string          `json:"device_id,omitempty"`
+	SpaceSlug    string          `json:"space_slug,omitempty"`
+	Entity       TelemetryEntity `json:"entity"`
+	Timestamp    string          `json:"timestamp"`
+	Source       string          `json:"source"`
+	Metadata     map[string]any  `json:"metadata,omitempty"`
+}

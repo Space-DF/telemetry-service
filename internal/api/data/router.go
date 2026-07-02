@@ -8,5 +8,5 @@ import (
 
 func RegisterRoutes(e *echo.Group, logger *zap.Logger, tsClient *timescaledb.Client) {
 	group := e.Group("/data")
-	group.GET("/latest", getDeviceProperties(logger, tsClient))
+	group.GET("/entity-properties", getDeviceEntityProperties(logger, tsClient))
 }

@@ -37,7 +37,7 @@ func NewLocationProcessor(tsClient *timescaledb.Client, ruleRegistry *registry.R
 }
 
 // ProcessTelemetryAndTriggerAutomations processes a device telemetry message and triggers any matched automation events
-func (p *LocationProcessor) ProcessTelemetryAndTriggerAutomations(ctx context.Context, msg *models.DeviceLocationMessage) error {
+func (p *LocationProcessor) ProcessDeviceLocation(ctx context.Context, msg *models.DeviceLocationMessage) error {
 	p.logger.Debug("Processing device location message",
 		zap.String("device_id", msg.DeviceID),
 		zap.String("space", msg.Space),
@@ -183,6 +183,13 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 	}
 
 	return nil
+}
+
+func (p *LocationProcessor) ProcessActivityLog(ctx context.Context, orgSlug string, log *models.DeviceActivityLog) error {
+	if log == nil {
+		return nil
+	}
+	return p.tsClient.InsertActivityLog(ctx, orgSlug, *log)
 }
 
 func (p *LocationProcessor) ProcessLNSAlertEvent(ctx context.Context, event *models.Event) error {

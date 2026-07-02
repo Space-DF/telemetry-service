@@ -34,7 +34,7 @@ func isValidP256DHKey(p256dh string) bool {
 // @Tags notifications
 // @Accept json
 // @Produce json
-// @Param request body models.PushSubscriptionRequest true "Subscription details from browser"
+// @Param request body apimodels.PushSubscriptionRequest true "Subscription details from browser"
 // @Failure 400 {object} map[string]string "Invalid request"
 // @Failure 401 {object} map[string]string "Unauthorized"
 // @Failure 500 {object} map[string]string "Internal server error"

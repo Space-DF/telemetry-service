@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Build stage
 FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 
@@ -11,7 +12,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
@@ -21,7 +23,9 @@ ARG TARGETOS
 ARG TARGETARCH
 
 # Build static binary for correct platform
-RUN CGO_ENABLED=0 \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 \
     GOOS=$TARGETOS \
     GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" \
