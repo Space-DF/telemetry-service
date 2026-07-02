@@ -10,7 +10,6 @@ type GenericNumericProcessor struct {
 	CategoryValue   string
 	ValueKeyValue   string
 	UnitValue       string
-	StatePred       string
 	DefaultCaution  float64
 	DefaultWarn     float64
 	DefaultCritical float64
@@ -26,12 +25,6 @@ func (p *GenericNumericProcessor) DefaultCriticalThreshold() float64 {
 }
 func (p *GenericNumericProcessor) Unit() string     { return p.UnitValue }
 func (p *GenericNumericProcessor) ValueKey() string { return p.ValueKeyValue }
-func (p *GenericNumericProcessor) StatePredicate() string {
-	if p.StatePred == "" {
-		return "TRUE"
-	}
-	return p.StatePred
-}
 
 func (p *GenericNumericProcessor) ParseValue(raw string) (float64, error) {
 	return strconv.ParseFloat(raw, 64)
