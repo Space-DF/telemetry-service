@@ -900,3 +900,51 @@ func (c *Client) GetAutomationSummary(ctx context.Context, spaceID uuid.UUID) (*
 
 	return &stats, nil
 }
+
+func (c *Client) BulkDeactivateAutomations(ctx context.Context, org string, maxActive int) (int64, error) {
+	var deactivated int64
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		query := `
+			UPDATE event_rules
+			SET is_active = false
+			WHERE event_rule_id IN (
+				SELECT a.event_rule_id
+				FROM automations a
+				WHERE a.event_rule_id IS NOT NULL
+				ORDER BY a.created_at DESC
+				OFFSET $1
+			)
+		`
+		result, err := tx.ExecContext(txCtx, query, maxActive)
+		if err != nil {
+			return err
+		}
+		deactivated, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to bulk deactivate automations: %w", err)
+	}
+	return deactivated, nil
+}
+
+func (c *Client) BulkReactivateAutomations(ctx context.Context, org string) (int64, error) {
+	var reactivated int64
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		query := `
+			UPDATE event_rules
+			SET is_active = true
+			WHERE is_active = false
+		`
+		result, err := tx.ExecContext(txCtx, query)
+		if err != nil {
+			return err
+		}
+		reactivated, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to bulk reactivate automations: %w", err)
+	}
+	return reactivated, nil
+}

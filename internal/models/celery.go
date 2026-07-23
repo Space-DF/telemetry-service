@@ -152,3 +152,14 @@ type CreateDeviceEntitiesTask struct {
 	DeviceModel          string `json:"device_model"`
 	DevEUI               string `json:"dev_eui"`
 }
+
+// AutomationDowngradeTask represents the Celery task kwargs for automation_downgrade
+type AutomationDowngradeTask struct {
+	OrgSlug string         `json:"org_slug"`
+	Limits  map[string]int `json:"limits"`
+}
+
+// AutomationUpgradeTask represents the Celery task kwargs for automation_upgrade
+type AutomationUpgradeTask struct {
+	OrgSlug string `json:"org_slug"`
+}
