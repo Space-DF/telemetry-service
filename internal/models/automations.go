@@ -17,15 +17,16 @@ type Action struct {
 
 // Automation represents an automation database row
 type Automation struct {
-	ID          string
-	Name        string
-	Title       *string
-	DeviceID    string
-	EventRuleID *string
-	EventRule   *EventRule
-	SpaceID     *uuid.UUID
-	UpdatedAt   time.Time
-	CreatedAt   time.Time
+	ID            string
+	Name          string
+	Title         *string
+	DeviceID      string
+	EventRuleID   *string
+	EventRule     *EventRule
+	SpaceID       *uuid.UUID
+	IsDeactivated bool
+	UpdatedAt     time.Time
+	CreatedAt     time.Time
 }
 
 // AutomationWithActions represents an automation with its associated actions

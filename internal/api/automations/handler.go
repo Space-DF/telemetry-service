@@ -764,12 +764,13 @@ func (h *Handler) convertAutomationToMapWithDeviceSpace(ctx context.Context, a *
 // Helper functions to convert models to maps
 func convertAutomationToMap(a *models.AutomationWithActions) map[string]interface{} {
 	result := map[string]interface{}{
-		"id":         a.ID,
-		"name":       a.Name,
-		"title":      a.Title,
-		"device_id":  a.DeviceID,
-		"updated_at": a.UpdatedAt,
-		"created_at": a.CreatedAt,
+		"id":             a.ID,
+		"name":           a.Name,
+		"title":          a.Title,
+		"device_id":      a.DeviceID,
+		"is_deactivated": a.IsDeactivated,
+		"updated_at":     a.UpdatedAt,
+		"created_at":     a.CreatedAt,
 	}
 
 	if a.EventRule != nil {

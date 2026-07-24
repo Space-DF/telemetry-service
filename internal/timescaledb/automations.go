@@ -19,14 +19,15 @@ import (
 // automationRow represents a database row exactly as returned by SQL
 // Using sql.Null* types directly eliminates manual null checking
 type automationRow struct {
-	ID          sql.NullString `db:"id"`
-	Name        sql.NullString `db:"name"`
-	Title       sql.NullString `db:"title"`
-	DeviceID    sql.NullString `db:"device_id"`
-	EventRuleID sql.NullString `db:"event_rule_id"`
-	SpaceID     sql.NullString `db:"space_id"`
-	UpdatedAt   sql.NullTime   `db:"updated_at"`
-	CreatedAt   sql.NullTime   `db:"created_at"`
+	ID            sql.NullString `db:"id"`
+	Name          sql.NullString `db:"name"`
+	Title         sql.NullString `db:"title"`
+	DeviceID      sql.NullString `db:"device_id"`
+	EventRuleID   sql.NullString `db:"event_rule_id"`
+	SpaceID       sql.NullString `db:"space_id"`
+	UpdatedAt     sql.NullTime   `db:"updated_at"`
+	CreatedAt     sql.NullTime   `db:"created_at"`
+	IsDeactivated sql.NullBool   `db:"is_deactivated"`
 	// Event rule fields
 	EREventRuleID sql.NullString `db:"er_event_rule_id"`
 	ERRuleKey     sql.NullString `db:"er_rule_key"`
@@ -52,13 +53,14 @@ func nullPtr[T any](v T, valid bool) *T {
 // Returns an error if JSON parsing fails for actions or event rule definition.
 func (r *automationRow) toModel() (*models.AutomationWithActions, error) {
 	a := models.Automation{
-		ID:          r.ID.String,
-		Name:        r.Name.String,
-		DeviceID:    r.DeviceID.String,
-		UpdatedAt:   r.UpdatedAt.Time,
-		CreatedAt:   r.CreatedAt.Time,
-		Title:       nullPtr(r.Title.String, r.Title.Valid),
-		EventRuleID: nullPtr(r.EventRuleID.String, r.EventRuleID.Valid),
+		ID:            r.ID.String,
+		Name:          r.Name.String,
+		DeviceID:      r.DeviceID.String,
+		IsDeactivated: r.IsDeactivated.Bool,
+		UpdatedAt:     r.UpdatedAt.Time,
+		CreatedAt:     r.CreatedAt.Time,
+		Title:         nullPtr(r.Title.String, r.Title.Valid),
+		EventRuleID:   nullPtr(r.EventRuleID.String, r.EventRuleID.Valid),
 	}
 
 	// Parse SpaceID as UUID
@@ -143,7 +145,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		// Query automations with actions
 		query := `
 			SELECT a.id, a.name, a.title, a.device_id,
-			       a.event_rule_id, a.space_id, a.updated_at, a.created_at,
+			       a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at,
 			       er.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
 			       COALESCE(
 			         json_agg(
@@ -162,7 +164,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 			LEFT JOIN actions act ON act.id = aa.action_id
 			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
 		` + whereClause + `
-			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 			ORDER BY a.created_at DESC
 			LIMIT $` + fmt.Sprint(qb.argIndex) + ` OFFSET $` + fmt.Sprint(qb.argIndex+1)
 		qb.AddLimitOffset(limit, offset)
@@ -219,7 +221,7 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
 			SELECT a.id, a.name, a.title, a.device_id,
-			       a.event_rule_id, a.space_id, a.updated_at, a.created_at,
+			       a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at,
 			       er.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
 			       COALESCE(
 			         json_agg(
@@ -238,7 +240,7 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			LEFT JOIN actions act ON act.id = aa.action_id
 			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
 			WHERE a.id = $1
-			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 		`
 		var row automationRow
 
@@ -905,13 +907,12 @@ func (c *Client) BulkDeactivateAutomations(ctx context.Context, org string, maxA
 	var deactivated int64
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
-			UPDATE event_rules
-			SET is_active = false
-			WHERE event_rule_id IN (
-				SELECT a.event_rule_id
-				FROM automations a
-				WHERE a.event_rule_id IS NOT NULL
-				ORDER BY a.created_at DESC
+			UPDATE automations
+			SET is_deactivated = true
+			WHERE id IN (
+				SELECT id FROM automations
+				WHERE is_deactivated = false
+				ORDER BY created_at DESC
 				OFFSET $1
 			)
 		`
@@ -931,11 +932,7 @@ func (c *Client) BulkDeactivateAutomations(ctx context.Context, org string, maxA
 func (c *Client) BulkReactivateAutomations(ctx context.Context, org string) (int64, error) {
 	var reactivated int64
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		query := `
-			UPDATE event_rules
-			SET is_active = true
-			WHERE is_active = false
-		`
+		query := `UPDATE automations SET is_deactivated = false WHERE is_deactivated = true`
 		result, err := tx.ExecContext(txCtx, query)
 		if err != nil {
 			return err
