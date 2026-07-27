@@ -28,6 +28,7 @@ type automationRow struct {
 	UpdatedAt     sql.NullTime   `db:"updated_at"`
 	CreatedAt     sql.NullTime   `db:"created_at"`
 	IsDeactivated sql.NullBool   `db:"is_deactivated"`
+	DeactivatedAt sql.NullTime   `db:"deactivated_at"`
 	// Event rule fields
 	EREventRuleID sql.NullString `db:"er_event_rule_id"`
 	ERRuleKey     sql.NullString `db:"er_rule_key"`
@@ -57,6 +58,7 @@ func (r *automationRow) toModel() (*models.AutomationWithActions, error) {
 		Name:          r.Name.String,
 		DeviceID:      r.DeviceID.String,
 		IsDeactivated: r.IsDeactivated.Bool,
+		DeactivatedAt: nullPtr(r.DeactivatedAt.Time, r.DeactivatedAt.Valid),
 		UpdatedAt:     r.UpdatedAt.Time,
 		CreatedAt:     r.CreatedAt.Time,
 		Title:         nullPtr(r.Title.String, r.Title.Valid),
@@ -145,7 +147,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 		// Query automations with actions
 		query := `
 			SELECT a.id, a.name, a.title, a.device_id,
-			       a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at,
+			       a.event_rule_id, a.is_deactivated, a.deactivated_at, a.space_id, a.updated_at, a.created_at,
 			       er.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
 			       COALESCE(
 			         json_agg(
@@ -164,7 +166,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 			LEFT JOIN actions act ON act.id = aa.action_id
 			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
 		` + whereClause + `
-			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.deactivated_at, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 			ORDER BY a.created_at DESC
 			LIMIT $` + fmt.Sprint(qb.argIndex) + ` OFFSET $` + fmt.Sprint(qb.argIndex+1)
 		qb.AddLimitOffset(limit, offset)
@@ -180,7 +182,7 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 			var row automationRow
 			if err := rows.Scan(
 				&row.ID, &row.Name, &row.Title, &row.DeviceID,
-				&row.EventRuleID, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
+				&row.EventRuleID, &row.IsDeactivated, &row.DeactivatedAt, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
 				&row.EREventRuleID, &row.ERRuleKey, &row.ERDefinition, &row.ERIsActive, &row.ERRepeatAble, &row.ERCooldownSec, &row.ERDescription,
 				&row.ActionsJSON,
 			); err != nil {
@@ -240,13 +242,13 @@ func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*m
 			LEFT JOIN actions act ON act.id = aa.action_id
 			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
 			WHERE a.id = $1
-			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.deactivated_at, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
 		`
 		var row automationRow
 
 		err := tx.QueryRowContext(txCtx, query, automationID).Scan(
 			&row.ID, &row.Name, &row.Title, &row.DeviceID,
-			&row.EventRuleID, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
+			&row.EventRuleID, &row.IsDeactivated, &row.DeactivatedAt, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
 			&row.EREventRuleID, &row.ERRuleKey, &row.ERDefinition, &row.ERIsActive, &row.ERRepeatAble, &row.ERCooldownSec, &row.ERDescription,
 			&row.ActionsJSON,
 		)
@@ -908,11 +910,12 @@ func (c *Client) BulkDeactivateAutomations(ctx context.Context, org string, maxA
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
 		query := `
 			UPDATE automations
-			SET is_deactivated = true
+			SET is_deactivated = true,
+			    deactivated_at = NOW()
 			WHERE id IN (
 				SELECT id FROM automations
 				WHERE is_deactivated = false
-				ORDER BY created_at DESC
+				ORDER BY created_at ASC
 				OFFSET $1
 			)
 		`
@@ -932,7 +935,7 @@ func (c *Client) BulkDeactivateAutomations(ctx context.Context, org string, maxA
 func (c *Client) BulkReactivateAutomations(ctx context.Context, org string) (int64, error) {
 	var reactivated int64
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		query := `UPDATE automations SET is_deactivated = false WHERE is_deactivated = true`
+		query := `UPDATE automations SET is_deactivated = false, deactivated_at = NULL WHERE is_deactivated = true`
 		result, err := tx.ExecContext(txCtx, query)
 		if err != nil {
 			return err

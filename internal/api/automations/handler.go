@@ -769,6 +769,7 @@ func convertAutomationToMap(a *models.AutomationWithActions) map[string]interfac
 		"title":          a.Title,
 		"device_id":      a.DeviceID,
 		"is_deactivated": a.IsDeactivated,
+		"deactivated_at": a.DeactivatedAt,
 		"updated_at":     a.UpdatedAt,
 		"created_at":     a.CreatedAt,
 	}

@@ -25,6 +25,7 @@ type Automation struct {
 	EventRule     *EventRule
 	SpaceID       *uuid.UUID
 	IsDeactivated bool
+	DeactivatedAt *time.Time
 	UpdatedAt     time.Time
 	CreatedAt     time.Time
 }
