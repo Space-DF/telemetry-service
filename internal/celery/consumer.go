@@ -21,12 +21,16 @@ const (
 	DeleteSpaceExchange          = "delete_space"
 	DeleteDeviceExchange         = "delete_device"
 	CreateDeviceEntitiesExchange = "create_device_entities"
+	AutomationDowngradeExchange  = "automation_downgrade"
+	AutomationUpgradeExchange    = "automation_upgrade"
 
 	// Task names for message identification
 	UpdateSpaceTaskName          = "spacedf.tasks.update_space"
 	DeleteSpaceTaskName          = "spacedf.tasks.delete_space"
 	DeleteDeviceTaskName         = "spacedf.tasks.delete_device"
 	CreateDeviceEntitiesTaskName = "spacedf.tasks.create_device_entities"
+	AutomationDowngradeTaskName  = "spacedf.tasks.automation_downgrade"
+	AutomationUpgradeTaskName    = "spacedf.tasks.automation_upgrade"
 )
 
 // TaskConsumer consumes Celery tasks from RabbitMQ
@@ -45,6 +49,8 @@ type TaskConsumer struct {
 	deleteQueueName         string
 	deviceQueueName         string
 	createEntitiesQueueName string
+	downgradeQueueName      string
+	upgradeQueueName        string
 }
 
 // SchemaInitializer handles database schema initialization
@@ -64,6 +70,8 @@ func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.L
 		deleteQueueName:         "telemetry_delete_space",
 		deviceQueueName:         "telemetry_delete_device",
 		createEntitiesQueueName: "telemetry_create_device_entities",
+		downgradeQueueName:      "telemetry_automation_downgrade",
+		upgradeQueueName:        "telemetry_automation_upgrade",
 	}
 }
 
@@ -163,6 +171,42 @@ func (c *TaskConsumer) Connect() error {
 			_ = c.conn.Close()
 		}()
 		return fmt.Errorf("failed to declare create_device_entities exchange: %w", err)
+	}
+
+	// Exchange: automation_downgrade (direct type)
+	err = c.channel.ExchangeDeclare(
+		AutomationDowngradeExchange,
+		"direct",
+		true,
+		false,
+		false,
+		true,
+		nil,
+	)
+	if err != nil {
+		defer func() {
+			_ = c.channel.Close()
+			_ = c.conn.Close()
+		}()
+		return fmt.Errorf("failed to declare automation_downgrade exchange: %w", err)
+	}
+
+	// Exchange: automation_upgrade (direct type)
+	err = c.channel.ExchangeDeclare(
+		AutomationUpgradeExchange,
+		"direct",
+		true,
+		false,
+		false,
+		true,
+		nil,
+	)
+	if err != nil {
+		defer func() {
+			_ = c.channel.Close()
+			_ = c.conn.Close()
+		}()
+		return fmt.Errorf("failed to declare automation_upgrade exchange: %w", err)
 	}
 
 	// Declare update queue
@@ -291,11 +335,65 @@ func (c *TaskConsumer) Connect() error {
 		return fmt.Errorf("failed to bind create entities queue: %w", err)
 	}
 
+	// Declare automation downgrade queue
+	_, err = c.channel.QueueDeclare(
+		c.downgradeQueueName,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{"x-single-active-consumer": true},
+	)
+	if err != nil {
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to declare automation downgrade queue: %w", err)
+	}
+	if err := c.channel.QueueBind(
+		c.downgradeQueueName,
+		AutomationDowngradeExchange,
+		AutomationDowngradeTaskName,
+		false,
+		nil,
+	); err != nil {
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to bind automation downgrade queue: %w", err)
+	}
+
+	// Declare automation upgrade queue
+	_, err = c.channel.QueueDeclare(
+		c.upgradeQueueName,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{"x-single-active-consumer": true},
+	)
+	if err != nil {
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to declare automation upgrade queue: %w", err)
+	}
+	if err := c.channel.QueueBind(
+		c.upgradeQueueName,
+		AutomationUpgradeExchange,
+		AutomationUpgradeTaskName,
+		false,
+		nil,
+	); err != nil {
+		_ = c.channel.Close()
+		_ = c.conn.Close()
+		return fmt.Errorf("failed to bind automation upgrade queue: %w", err)
+	}
+
 	c.logger.Info("Celery task consumer connected",
 		zap.String("update_queue", c.updateQueueName),
 		zap.String("delete_queue", c.deleteQueueName),
 		zap.String("device_queue", c.deviceQueueName),
-		zap.String("create_entities_queue", c.createEntitiesQueueName))
+		zap.String("create_entities_queue", c.createEntitiesQueueName),
+		zap.String("downgrade_queue", c.downgradeQueueName),
+		zap.String("upgrade_queue", c.upgradeQueueName))
 
 	return nil
 }
@@ -403,6 +501,34 @@ func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
 		return fmt.Errorf("failed to start consuming create entities queue: %w", err)
 	}
 
+	// Consume from automation downgrade queue
+	downgradeMessages, err := c.channel.Consume(
+		c.downgradeQueueName,
+		"telemetry_downgrade_consumer",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start consuming downgrade queue: %w", err)
+	}
+
+	// Consume from automation upgrade queue
+	upgradeMessages, err := c.channel.Consume(
+		c.upgradeQueueName,
+		"telemetry_upgrade_consumer",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to start consuming upgrade queue: %w", err)
+	}
+
 	c.logger.Info("Celery task consumer started",
 		zap.String("update_queue", c.updateQueueName),
 		zap.String("delete_queue", c.deleteQueueName),
@@ -410,7 +536,7 @@ func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
 		zap.String("create_entities_queue", c.createEntitiesQueueName))
 
 	// Start goroutines for each queue
-	c.wg.Add(4)
+	c.wg.Add(6)
 	go func() {
 		defer c.wg.Done()
 		c.processMessages(ctx, updateMessages, UpdateSpaceTaskName)
@@ -426,6 +552,14 @@ func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
 	go func() {
 		defer c.wg.Done()
 		c.processMessages(ctx, createEntitiesMessages, CreateDeviceEntitiesTaskName)
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.processMessages(ctx, downgradeMessages, AutomationDowngradeTaskName)
+	}()
+	go func() {
+		defer c.wg.Done()
+		c.processMessages(ctx, upgradeMessages, AutomationUpgradeTaskName)
 	}()
 
 	// Wait for all goroutines to finish (they exit when channel closes)
@@ -498,6 +632,12 @@ func (c *TaskConsumer) handleTask(ctx context.Context, taskName string, body []b
 
 	case CreateDeviceEntitiesTaskName, "create_device_entities":
 		return c.handleCreateDeviceEntities(ctx, body)
+
+	case AutomationDowngradeTaskName, "automation_downgrade":
+		return c.handleAutomationDowngrade(ctx, body)
+
+	case AutomationUpgradeTaskName, "automation_upgrade":
+		return c.handleAutomationUpgrade(ctx, body)
 
 	default:
 		c.logger.Debug("Unknown task name, ignoring", zap.String("task", taskName))
@@ -648,6 +788,64 @@ func (c *TaskConsumer) handleCreateDeviceEntities(ctx context.Context, body []by
 		zap.Int64("created_count", createdCount),
 	)
 
+	return nil
+}
+
+func (c *TaskConsumer) handleAutomationDowngrade(ctx context.Context, body []byte) error {
+	var celeryMsg models.CeleryMessage
+	if err := json.Unmarshal(body, &celeryMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal celery message: %w", err)
+	}
+
+	var task models.AutomationDowngradeTask
+	if err := json.Unmarshal(celeryMsg.Kwargs, &task); err != nil {
+		return fmt.Errorf("failed to unmarshal automation_downgrade task kwargs: %w", err)
+	}
+
+	var maxActive int
+	if task.Limits != nil {
+		if v, ok := task.Limits["automation.max_count"]; ok {
+			maxActive = v
+		}
+	}
+
+	c.logger.Info("Processing automation downgrade",
+		zap.String("org", task.OrgSlug),
+		zap.Int("max_active", maxActive))
+
+	deactivated, err := c.dbClient.BulkDeactivateAutomations(ctx, task.OrgSlug, maxActive)
+	if err != nil {
+		return fmt.Errorf("failed to bulk deactivate automations: %w", err)
+	}
+
+	c.logger.Info("Automation downgrade completed",
+		zap.String("org", task.OrgSlug),
+		zap.Int64("deactivated", deactivated))
+	return nil
+}
+
+func (c *TaskConsumer) handleAutomationUpgrade(ctx context.Context, body []byte) error {
+	var celeryMsg models.CeleryMessage
+	if err := json.Unmarshal(body, &celeryMsg); err != nil {
+		return fmt.Errorf("failed to unmarshal celery message: %w", err)
+	}
+
+	var task models.AutomationUpgradeTask
+	if err := json.Unmarshal(celeryMsg.Kwargs, &task); err != nil {
+		return fmt.Errorf("failed to unmarshal automation_upgrade task kwargs: %w", err)
+	}
+
+	c.logger.Info("Processing automation upgrade",
+		zap.String("org", task.OrgSlug))
+
+	reactivated, err := c.dbClient.BulkReactivateAutomations(ctx, task.OrgSlug)
+	if err != nil {
+		return fmt.Errorf("failed to bulk reactivate automations: %w", err)
+	}
+
+	c.logger.Info("Automation upgrade completed",
+		zap.String("org", task.OrgSlug),
+		zap.Int64("reactivated", reactivated))
 	return nil
 }
 
