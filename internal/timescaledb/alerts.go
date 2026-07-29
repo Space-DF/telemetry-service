@@ -13,7 +13,7 @@ import (
 )
 
 // GetAlerts retrieves alerts for a device/category within a time range.
-func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, safeThreshold, cautionThreshold, warningThreshold float64, limit, offset int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
@@ -35,14 +35,16 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 	}
 
 	// Apply processor defaults if not provided
+	if safeThreshold <= 0 {
+		safeThreshold = processor.DefaultSafeThreshold()
+	}
+
 	if cautionThreshold <= 0 {
 		cautionThreshold = processor.DefaultCautionThreshold()
 	}
+
 	if warningThreshold <= 0 {
 		warningThreshold = processor.DefaultWarningThreshold()
-	}
-	if criticalThreshold <= 0 {
-		criticalThreshold = processor.DefaultCriticalThreshold()
 	}
 
 	startAt, endAt, err := buildDateRange(startStr, endStr)
@@ -105,7 +107,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 				value = parsed
 			}
 
-			levelComputed := processor.DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold)
+			levelComputed := processor.DetermineLevel(value, safeThreshold, cautionThreshold, warningThreshold)
 
 			// Skip safe alerts, only return caution, warning and critical
 			if levelComputed == "safe" {
@@ -114,7 +116,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 
 			alert := map[string]interface{}{
 				"id":                 entityID,
-				"type":               processor.DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold),
+				"type":               processor.DetermineType(value, safeThreshold, cautionThreshold, warningThreshold),
 				"level":              levelComputed,
 				"message":            processor.GenerateMessage(levelComputed, value),
 				"entity_id":          entityID,
@@ -124,9 +126,9 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, de
 				processor.ValueKey(): value,
 				"unit":               processor.Unit(),
 				"threshold": map[string]interface{}{
-					"caution":  cautionThreshold,
-					"warning":  warningThreshold,
-					"critical": criticalThreshold,
+					"safe":    safeThreshold,
+					"caution": cautionThreshold,
+					"warning": warningThreshold,
 				},
 				"reported_at": reportedAt,
 			}

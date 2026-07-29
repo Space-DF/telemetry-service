@@ -13,7 +13,7 @@ type AlertsRequest struct {
 	PageSize          int     `query:"page_size"`
 	CautionThreshold  float64 `query:"caution_threshold"`
 	WarningThreshold  float64 `query:"warning_threshold"`
-	CriticalThreshold float64 `query:"critical_threshold"`
+	SafeThreshold     float64 `query:"safe_threshold"`
 }
 
 // Alert represents a single alert

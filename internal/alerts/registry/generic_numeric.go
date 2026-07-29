@@ -7,22 +7,22 @@ import (
 
 // GenericNumericProcessor is a config-driven processor for numeric sensors.
 type GenericNumericProcessor struct {
-	CategoryValue   string
-	ValueKeyValue   string
-	UnitValue       string
-	StatePred       string
-	DefaultCaution  float64
-	DefaultWarn     float64
-	DefaultCritical float64
-	Messages        map[string]string
+	CategoryValue  string
+	ValueKeyValue  string
+	UnitValue      string
+	StatePred      string
+	DefaultCaution float64
+	DefaultWarn    float64
+	DefaultSafe    float64
+	Messages       map[string]string
 }
 
 func (p *GenericNumericProcessor) Category() string { return p.CategoryValue }
 
 func (p *GenericNumericProcessor) DefaultCautionThreshold() float64 { return p.DefaultCaution }
 func (p *GenericNumericProcessor) DefaultWarningThreshold() float64 { return p.DefaultWarn }
-func (p *GenericNumericProcessor) DefaultCriticalThreshold() float64 {
-	return p.DefaultCritical
+func (p *GenericNumericProcessor) DefaultSafeThreshold() float64 {
+	return p.DefaultSafe
 }
 func (p *GenericNumericProcessor) Unit() string     { return p.UnitValue }
 func (p *GenericNumericProcessor) ValueKey() string { return p.ValueKeyValue }
@@ -37,21 +37,21 @@ func (p *GenericNumericProcessor) ParseValue(raw string) (float64, error) {
 	return strconv.ParseFloat(raw, 64)
 }
 
-func (p *GenericNumericProcessor) DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold float64) string {
+func (p *GenericNumericProcessor) DetermineLevel(value, safeThreshold, cautionThreshold, warningThreshold float64) string {
 	switch {
-	case value > criticalThreshold:
+	case value > warningThreshold:
 		return "critical"
-	case value >= warningThreshold:
+	case value >= cautionThreshold:
 		return "warning"
-	case value > cautionThreshold:
+	case value > safeThreshold:
 		return "caution"
 	default:
 		return "safe"
 	}
 }
 
-func (p *GenericNumericProcessor) DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold float64) string {
-	return p.DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold)
+func (p *GenericNumericProcessor) DetermineType(value, safeThreshold, cautionThreshold, warningThreshold float64) string {
+	return p.DetermineLevel(value, safeThreshold, cautionThreshold, warningThreshold)
 }
 
 func (p *GenericNumericProcessor) GenerateMessage(level string, value float64) string {

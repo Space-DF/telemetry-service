@@ -163,8 +163,8 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 	return events, total, nil
 }
 
-// CreateAndPublishAutomationEvent creates a new event from a matched automation and publishes it to AMQP
-func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug, deviceID string) error {
+// CreateAndPublishAutomationEvent creates a new event from a matched automation and publishes it to AMQP.
+func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string, event *models.MatchedEvent, spaceSlug, deviceID string, isPublic bool) error {
 	if event == nil {
 		return fmt.Errorf("nil event")
 	}
@@ -227,6 +227,7 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 			StateID:        event.StateID,
 			DeviceID:       deviceID,
 			SpaceSlug:      spaceSlug,
+			IsPublic:       isPublic,
 			TimeFiredTs:    event.Timestamp,
 			Title:          event.Title,
 			Location:       event.Location,

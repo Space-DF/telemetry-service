@@ -22,7 +22,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -34,6 +33,7 @@ import (
 	"github.com/Space-DF/telemetry-service/internal/events/registry"
 	"github.com/Space-DF/telemetry-service/internal/health"
 	"github.com/Space-DF/telemetry-service/internal/services"
+	notificationservices "github.com/Space-DF/telemetry-service/internal/services/notifications"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/Space-DF/telemetry-service/pkgs/db"
 	"github.com/labstack/echo/v4"
@@ -59,8 +59,24 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		zap.Any("config", appConfig),
 	)
 
-	// Load alert processors from config (if provided)
-	loadAlertProcessors(logger, appConfig.Server.AlertsProcessorsCfg)
+	// Register built-in alert processors without file-based loading.
+	alertregistry.ReplaceAll(map[string]alertregistry.Processor{
+		"water_depth": &alertregistry.GenericNumericProcessor{
+			CategoryValue:  "water_depth",
+			ValueKeyValue:  "water_depth",
+			UnitValue:      "cm",
+			StatePred:      "s.state ~ '^-?[0-9]+(\\.[0-9]+)?$'",
+			DefaultSafe:    10,
+			DefaultCaution: 30,
+			DefaultWarn:    60,
+			Messages: map[string]string{
+				"safe":     "Water level is safe",
+				"caution":  "Water is rising quickly",
+				"warning":  "Flooding",
+				"critical": "Flood risk",
+			},
+		},
+	})
 
 	// Run database migrations
 	logger.Info("Running database migrations...")
@@ -98,7 +114,7 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 
 	// Initialize rule registry
 	ruleRegistry := registry.NewRuleRegistry(tsClient, logger)
-	notificationService := services.NewNotificationService(tsClient, logger, appConfig.Notifications)
+	notificationService := notificationservices.New(tsClient, logger, appConfig.Notifications)
 
 	// Load default rules from YAML
 	if appConfig.Server.EventRulesDir != "" {
@@ -196,12 +212,11 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 		}()
 	}
 
-	// Setup reload signal for alert processors and event rules
+	// Setup reload signal for event rules only
 	reloadChan := make(chan os.Signal, 1)
 	signal.Notify(reloadChan, syscall.SIGHUP)
 	go func() {
 		for range reloadChan {
-			loadAlertProcessors(logger, appConfig.Server.AlertsProcessorsCfg)
 			if appConfig.Server.EventRulesDir != "" {
 				if err := ruleRegistry.ReloadDefaultRules(appConfig.Server.EventRulesDir); err != nil {
 					logger.Warn("Failed to reload default event rules", zap.Error(err))
@@ -262,19 +277,4 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 
 	logger.Info("Service shutdown complete")
 	return nil
-}
-
-func loadAlertProcessors(logger *zap.Logger, path string) {
-	if strings.TrimSpace(path) == "" {
-		return
-	}
-
-	processors, err := alertregistry.LoadFromConfig(path)
-	if err != nil {
-		logger.Warn("Failed to load alert processors from config", zap.Error(err), zap.String("path", path))
-		return
-	}
-
-	alertregistry.ReplaceAll(processors)
-	logger.Info("Loaded alert processors from config", zap.String("path", path), zap.Int("count", len(processors)))
 }

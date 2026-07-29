@@ -31,10 +31,9 @@ type OrgEvents struct {
 
 // Server contains server configuration
 type Server struct {
-	LogLevel            string `mapstructure:"log_level"`
-	APIPort             int    `mapstructure:"api_port"`
-	AlertsProcessorsCfg string `mapstructure:"alerts_processors_path"`
-	EventRulesDir       string `mapstructure:"event_rules_dir"`
+	LogLevel      string `mapstructure:"log_level"`
+	APIPort       int    `mapstructure:"api_port"`
+	EventRulesDir string `mapstructure:"event_rules_dir"`
 }
 
 // Notifications contains web push notification configuration
