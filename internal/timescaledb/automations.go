@@ -948,3 +948,44 @@ func (c *Client) BulkReactivateAutomations(ctx context.Context, org string) (int
 	}
 	return reactivated, nil
 }
+
+func (c *Client) BulkReactivateAutomationsUpToLimit(ctx context.Context, org string, maxActive int) (int64, error) {
+	var reactivated int64
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		var activeCount int
+		if err := tx.QueryRowContext(txCtx, `
+			SELECT COUNT(*)
+			FROM automations
+			WHERE is_deactivated = false
+		`).Scan(&activeCount); err != nil {
+			return err
+		}
+
+		remainingSlots := maxActive - activeCount
+		if remainingSlots <= 0 {
+			return nil
+		}
+
+		result, err := tx.ExecContext(txCtx, `
+			UPDATE automations
+			SET is_deactivated = false,
+			    deactivated_at = NULL
+			WHERE id IN (
+				SELECT id
+				FROM automations
+				WHERE is_deactivated = true
+				ORDER BY created_at ASC
+				LIMIT $1
+			)
+		`, remainingSlots)
+		if err != nil {
+			return err
+		}
+		reactivated, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to bulk reactivate automations up to limit: %w", err)
+	}
+	return reactivated, nil
+}

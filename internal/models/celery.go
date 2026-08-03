@@ -153,13 +153,29 @@ type CreateDeviceEntitiesTask struct {
 	DevEUI               string `json:"dev_eui"`
 }
 
-// AutomationDowngradeTask represents the Celery task kwargs for automation_downgrade
-type AutomationDowngradeTask struct {
-	OrgSlug string         `json:"org_slug"`
-	Limits  map[string]int `json:"limits"`
+type SubscriptionEvent string
+
+const (
+	SubscriptionEventAutomation SubscriptionEvent = "automation"
+	SubscriptionEventEntities   SubscriptionEvent = "entities"
+)
+
+// SubscriptionDowngradeTask represents the Celery task kwargs for
+// telemetry_downgrade.
+type SubscriptionDowngradeTask struct {
+	Event             SubscriptionEvent `json:"event"`
+	OrgSlug           string            `json:"org_slug"`
+	Limits            map[string]int    `json:"limits"`
+	UnlimitedFeatures []string          `json:"unlimited_features"`
+	DeviceIDs         []string          `json:"device_ids"`
 }
 
-// AutomationUpgradeTask represents the Celery task kwargs for automation_upgrade
-type AutomationUpgradeTask struct {
-	OrgSlug string `json:"org_slug"`
+// SubscriptionUpgradeTask represents the Celery task kwargs for
+// telemetry_upgrade.
+type SubscriptionUpgradeTask struct {
+	Event             SubscriptionEvent `json:"event"`
+	OrgSlug           string            `json:"org_slug"`
+	Limits            map[string]int    `json:"limits"`
+	UnlimitedFeatures []string          `json:"unlimited_features"`
+	DeviceIDs         []string          `json:"device_ids"`
 }

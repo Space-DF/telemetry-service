@@ -123,7 +123,10 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	}
 
 	// Initialize Celery task consumer for space synchronization
-	celeryConsumer := celeryconsumer.NewTaskConsumer(appConfig.AMQP.BrokerURL, tsClient, logger)
+	celeryConsumer, err := celeryconsumer.NewTaskConsumer(appConfig.AMQP.BrokerURL, tsClient, logger)
+	if err != nil {
+		return fmt.Errorf("failed to initialize Celery task consumer: %w", err)
+	}
 	if err := celeryConsumer.Connect(); err != nil {
 		logger.Warn("Failed to connect Celery task consumer (space sync will be unavailable)", zap.Error(err))
 		// Don't fail startup - Celery consumer is optional
