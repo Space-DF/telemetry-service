@@ -85,7 +85,7 @@ func (s *Service) notify(ctx context.Context, orgSlug, spaceSlug, deviceID strin
 		targetSpaceSlug = ""
 	}
 
-	userIDs, err := s.authClient.GetUserIDs(ctx, orgSlug, targetSpaceSlug)
+	users, err := s.authClient.GetUsers(ctx, orgSlug, targetSpaceSlug)
 	if err != nil {
 		s.logger.Warn("failed to fetch notification recipients from auth-service",
 			zap.Error(err),
@@ -95,10 +95,20 @@ func (s *Service) notify(ctx context.Context, orgSlug, spaceSlug, deviceID strin
 		return fmt.Errorf("fetch notification recipients: %w", err)
 	}
 
+	userIDs := make([]string, 0, len(users))
+	userSpaceMap := make(map[string]string, len(users))
+	for _, u := range users {
+		if u.ID != "" {
+			userIDs = append(userIDs, u.ID)
+			if u.SlugName != "" {
+				userSpaceMap[u.ID] = u.SlugName
+			}
+		}
+	}
+
 	s.logger.Info("fetched users for notification",
 		zap.Bool("is_public", isPublic),
 		zap.Int("user_count", len(userIDs)),
-		zap.Strings("user_ids", userIDs),
 	)
 
 	if len(userIDs) == 0 {
@@ -127,18 +137,6 @@ func (s *Service) notify(ctx context.Context, orgSlug, spaceSlug, deviceID strin
 		return nil
 	}
 
-	payload, err := json.Marshal(payloadObj)
-	if err != nil {
-		s.logger.Error("failed to marshal notification payload",
-			zap.Error(err),
-		)
-		return fmt.Errorf("marshal notification payload: %w", err)
-	}
-
-	s.logger.Debug("notification payload",
-		zap.ByteString("payload", payload),
-	)
-
 	var sendErrs []string
 
 	for _, sub := range subscriptions {
@@ -147,7 +145,42 @@ func (s *Service) notify(ctx context.Context, orgSlug, spaceSlug, deviceID strin
 			continue
 		}
 
-		resp, err := s.sender.SendNotification(payload, &webpush.Subscription{
+		// determine per-user space slug name if available
+		spaceName := ""
+		if sub.UserID != "" {
+			if v, ok := userSpaceMap[sub.UserID]; ok && v != "" {
+				// public API returns per-user slug_name
+				spaceName = v
+			} else if !isPublic && spaceSlug != "" {
+				// private API returns only user_ids — use provided spaceSlug for private notifications
+				spaceName = spaceSlug
+			}
+		}
+
+		// create a copy of the payload and ensure Data map is copied
+		personalized := *payloadObj
+		if personalized.Data == nil {
+			personalized.Data = make(map[string]interface{})
+		} else {
+			newData := make(map[string]interface{}, len(personalized.Data)+1)
+			for k, v := range personalized.Data {
+				newData[k] = v
+			}
+			personalized.Data = newData
+		}
+		personalized.Data["space_slug"] = spaceName
+
+		payloadBytes, err := json.Marshal(&personalized)
+		if err != nil {
+			s.logger.Error("failed to marshal personalized notification payload",
+				zap.Error(err),
+				zap.String("subscription_id", sub.ID),
+			)
+			sendErrs = append(sendErrs, fmt.Sprintf("subscription %s: marshal error: %v", sub.ID, err))
+			continue
+		}
+
+		resp, err := s.sender.SendNotification(payloadBytes, &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys: webpush.Keys{
 				P256dh: sub.P256DH,

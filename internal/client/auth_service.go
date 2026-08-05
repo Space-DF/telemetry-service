@@ -121,21 +121,3 @@ func (c *AuthServiceClient) GetUsers(ctx context.Context, orgSlug, spaceSlug str
 	}
 	return users, nil
 }
-
-func (c *AuthServiceClient) GetUserIDs(ctx context.Context, orgSlug, spaceSlug string) ([]string, error) {
-	users, err := c.GetUsers(ctx, orgSlug, spaceSlug)
-	if err != nil {
-		return nil, err
-	}
-	if len(users) == 0 {
-		return nil, nil
-	}
-
-	userIDs := make([]string, 0, len(users))
-	for _, user := range users {
-		if user.ID != "" {
-			userIDs = append(userIDs, user.ID)
-		}
-	}
-	return userIDs, nil
-}
