@@ -26,12 +26,6 @@ func (p *GenericNumericProcessor) DefaultSafeThreshold() float64 {
 }
 func (p *GenericNumericProcessor) Unit() string     { return p.UnitValue }
 func (p *GenericNumericProcessor) ValueKey() string { return p.ValueKeyValue }
-func (p *GenericNumericProcessor) StatePredicate() string {
-	if p.StatePred == "" {
-		return "TRUE"
-	}
-	return p.StatePred
-}
 
 func (p *GenericNumericProcessor) ParseValue(raw string) (float64, error) {
 	return strconv.ParseFloat(raw, 64)

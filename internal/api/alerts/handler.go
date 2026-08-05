@@ -58,11 +58,6 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 
 	h.logger.Info("Getting alerts", zap.String("org", orgSlug))
 
-	// Parse query parameters
-	spaceSlug, spaceErr := common.ResolveSpaceSlugFromRequest(c)
-	if spaceErr != nil {
-		return spaceErr
-	}
 	deviceID := c.QueryParam("device_id")
 	category := c.QueryParam("category")
 
@@ -80,6 +75,14 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 			"error": "device_id is required",
 		})
 	}
+
+	spaceSlug := strings.TrimSpace(c.QueryParam("space_slug"))
+	if spaceSlug == "" {
+		if slug, err := common.ResolveSpaceSlugFromRequest(c); err == nil {
+			spaceSlug = slug
+		}
+	}
+
 	// Pagination
 	p := common.ParsePagination(c)
 
