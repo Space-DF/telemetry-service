@@ -160,22 +160,11 @@ const (
 	SubscriptionEventEntities   SubscriptionEvent = "entities"
 )
 
-// SubscriptionDowngradeTask represents the Celery task kwargs for
-// telemetry_downgrade.
-type SubscriptionDowngradeTask struct {
-	Event             SubscriptionEvent `json:"event"`
-	OrgSlug           string            `json:"org_slug"`
-	Limits            map[string]int    `json:"limits"`
-	UnlimitedFeatures []string          `json:"unlimited_features"`
-	DeviceIDs         []string          `json:"device_ids"`
-}
-
-// SubscriptionUpgradeTask represents the Celery task kwargs for
-// telemetry_upgrade.
-type SubscriptionUpgradeTask struct {
-	Event             SubscriptionEvent `json:"event"`
-	OrgSlug           string            `json:"org_slug"`
-	Limits            map[string]int    `json:"limits"`
-	UnlimitedFeatures []string          `json:"unlimited_features"`
-	DeviceIDs         []string          `json:"device_ids"`
+// SubscriptionTask represents the Celery task kwargs for both
+// telemetry_downgrade and telemetry_upgrade.
+type SubscriptionTask struct {
+	OrgSlug           string         `json:"org_slug"`
+	Limits            map[string]int `json:"limits,omitempty"`
+	UnlimitedFeatures []string       `json:"unlimited_features,omitempty"`
+	DeviceIDs         []string       `json:"device_ids,omitempty"`
 }

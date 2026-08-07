@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"context"
+	"sync"
 
 	"github.com/Space-DF/telemetry-service/internal/celery/taskerrors"
 	"github.com/Space-DF/telemetry-service/internal/celery/topology"
@@ -11,8 +12,8 @@ import (
 )
 
 type lifecycleHandler interface {
-	HandleDowngrade(context.Context, models.SubscriptionDowngradeTask) error
-	HandleUpgrade(context.Context, models.SubscriptionUpgradeTask) error
+	HandleDowngrade(context.Context, models.SubscriptionTask) error
+	HandleUpgrade(context.Context, models.SubscriptionTask) error
 }
 
 const (
@@ -27,17 +28,26 @@ const (
 
 type Handler struct {
 	logger   *zap.Logger
-	handlers map[models.SubscriptionEvent]lifecycleHandler
+	handlers []lifecycleHandler
+	mu       sync.RWMutex
 }
 
 func NewHandler(dbClient *timescaledb.Client, logger *zap.Logger) *Handler {
-	return &Handler{
+	h := &Handler{
 		logger: logger,
-		handlers: map[models.SubscriptionEvent]lifecycleHandler{
-			models.SubscriptionEventAutomation: newAutomationLifecycleHandler(dbClient, logger),
-			models.SubscriptionEventEntities:   newEntityLifecycleHandler(dbClient, logger),
-		},
 	}
+
+	h.RegisterHandler(newAutomationLifecycleHandler(dbClient, logger))
+	h.RegisterHandler(newEntityLifecycleHandler(dbClient, logger))
+
+	return h
+}
+
+// RegisterHandler adds a new handler to the dispatcher. Thread-safe.
+func (h *Handler) RegisterHandler(handler lifecycleHandler) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.handlers = append(h.handlers, handler)
 }
 
 func (h *Handler) TaskNames() []string {

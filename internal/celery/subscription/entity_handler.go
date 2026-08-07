@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Space-DF/telemetry-service/internal/celery/taskerrors"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"go.uber.org/zap"
@@ -19,14 +18,17 @@ func newEntityLifecycleHandler(dbClient *timescaledb.Client, logger *zap.Logger)
 	return entityLifecycleHandler{dbClient: dbClient, logger: logger}
 }
 
-func (h entityLifecycleHandler) HandleDowngrade(ctx context.Context, task models.SubscriptionDowngradeTask) error {
+func (h entityLifecycleHandler) HandleDowngrade(ctx context.Context, task models.SubscriptionTask) error {
 	if len(task.DeviceIDs) == 0 {
-		return taskerrors.NewPermanentf("entities event requires device_ids for downgrade")
+		// Need optimization later
+		return nil
 	}
+
 	deactivated, err := h.dbClient.BulkDeactivateEntities(ctx, task.OrgSlug, task.DeviceIDs)
 	if err != nil {
 		return fmt.Errorf("failed to bulk deactivate entities: %w", err)
 	}
+
 	h.logger.Info("Entity downgrade completed",
 		zap.String("org", task.OrgSlug),
 		zap.Int("device_count", len(task.DeviceIDs)),
@@ -34,14 +36,17 @@ func (h entityLifecycleHandler) HandleDowngrade(ctx context.Context, task models
 	return nil
 }
 
-func (h entityLifecycleHandler) HandleUpgrade(ctx context.Context, task models.SubscriptionUpgradeTask) error {
+func (h entityLifecycleHandler) HandleUpgrade(ctx context.Context, task models.SubscriptionTask) error {
 	if len(task.DeviceIDs) == 0 {
-		return taskerrors.NewPermanentf("entities event requires device_ids for upgrade")
+		// Need optimization later
+		return nil
 	}
+
 	reactivated, err := h.dbClient.BulkReactivateEntitiesByDeviceIDs(ctx, task.OrgSlug, task.DeviceIDs)
 	if err != nil {
 		return fmt.Errorf("failed to bulk reactivate entities: %w", err)
 	}
+
 	h.logger.Info("Entity upgrade completed",
 		zap.String("org", task.OrgSlug),
 		zap.Int("device_count", len(task.DeviceIDs)),
