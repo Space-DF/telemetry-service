@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Space-DF/telemetry-service/internal/celery/subscription"
+	"github.com/Space-DF/telemetry-service/internal/celery/taskerrors"
+	"github.com/Space-DF/telemetry-service/internal/celery/topology"
 	"github.com/Space-DF/telemetry-service/internal/client"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
@@ -16,21 +19,11 @@ import (
 )
 
 const (
-	// Exchange names as defined in common/celery/routing.py
-	UpdateSpaceExchange          = "update_space"
-	DeleteSpaceExchange          = "delete_space"
-	DeleteDeviceExchange         = "delete_device"
-	CreateDeviceEntitiesExchange = "create_device_entities"
-	AutomationDowngradeExchange  = "automation_downgrade"
-	AutomationUpgradeExchange    = "automation_upgrade"
-
 	// Task names for message identification
-	UpdateSpaceTaskName          = "spacedf.tasks.update_space"
-	DeleteSpaceTaskName          = "spacedf.tasks.delete_space"
-	DeleteDeviceTaskName         = "spacedf.tasks.delete_device"
-	CreateDeviceEntitiesTaskName = "spacedf.tasks.create_device_entities"
-	AutomationDowngradeTaskName  = "spacedf.tasks.automation_downgrade"
-	AutomationUpgradeTaskName    = "spacedf.tasks.automation_upgrade"
+	UpdateSpaceTask          = "update_space"
+	DeleteSpaceTask          = "delete_space"
+	DeleteDeviceTask         = "delete_device"
+	CreateDeviceEntitiesTask = "create_device_entities"
 )
 
 // TaskConsumer consumes Celery tasks from RabbitMQ
@@ -44,34 +37,68 @@ type TaskConsumer struct {
 	done              chan bool
 	wg                sync.WaitGroup
 	stopOnce          sync.Once
-
-	updateQueueName         string
-	deleteQueueName         string
-	deviceQueueName         string
-	createEntitiesQueueName string
-	downgradeQueueName      string
-	upgradeQueueName        string
-}
-
-// SchemaInitializer handles database schema initialization
-type SchemaInitializer interface {
-	CreateSchemaAndTables(ctx context.Context, orgSlug string) error
+	taskHandlers      map[string]TaskHandler
+	specs             []topology.Spec
 }
 
 // NewTaskConsumer creates a new Celery task consumer
-func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.Logger) *TaskConsumer {
-	return &TaskConsumer{
-		amqpURL:                 amqpURL,
-		dbClient:                dbClient,
-		logger:                  logger,
-		transformerClient:       client.NewTransformerServiceClient(logger),
-		done:                    make(chan bool, 1),
-		updateQueueName:         "telemetry_update_space",
-		deleteQueueName:         "telemetry_delete_space",
-		deviceQueueName:         "telemetry_delete_device",
-		createEntitiesQueueName: "telemetry_create_device_entities",
-		downgradeQueueName:      "telemetry_automation_downgrade",
-		upgradeQueueName:        "telemetry_automation_upgrade",
+func NewTaskConsumer(amqpURL string, dbClient *timescaledb.Client, logger *zap.Logger) (*TaskConsumer, error) {
+	subscriptionHandler := subscription.NewHandler(dbClient, logger)
+	consumer := &TaskConsumer{
+		amqpURL:           amqpURL,
+		dbClient:          dbClient,
+		logger:            logger,
+		transformerClient: client.NewTransformerServiceClient(logger),
+		done:              make(chan bool, 1),
+	}
+
+	handlers := []QueueBoundHandler{
+		newFanoutTaskHandler(
+			UpdateSpaceTask,
+			consumer.handleUpdateSpace,
+		),
+		newFanoutTaskHandler(
+			DeleteSpaceTask,
+			consumer.handleDeleteSpace,
+		),
+		newFanoutTaskHandler(
+			DeleteDeviceTask,
+			consumer.handleDeleteDevice,
+		),
+		newFanoutTaskHandler(
+			CreateDeviceEntitiesTask,
+			consumer.handleCreateDeviceEntities,
+		),
+		subscriptionHandler,
+	}
+
+	taskHandlers, err := buildTaskHandlerRegistry(handlers...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build celery task handler registry: %w", err)
+	}
+	consumer.taskHandlers = taskHandlers
+	consumer.specs = collectQueueSpecs(handlers...)
+	return consumer, nil
+}
+
+func newFanoutTaskHandler(task string, handle func(context.Context, []byte) error) taskFuncHandler {
+	taskName := "spacedf.tasks." + task
+	queueName := "telemetry_" + task
+	return taskFuncHandler{
+		taskNames: []string{taskName, task},
+		specs: []topology.Spec{
+			{
+				Exchange:     task,
+				ExchangeType: "fanout",
+				Queue:        queueName,
+				RoutingKey:   task,
+				ConsumerTag:  queueName + "_consumer",
+				TaskName:     taskName,
+			},
+		},
+		handle: func(ctx context.Context, _ string, body []byte) error {
+			return handle(ctx, body)
+		},
 	}
 }
 
@@ -94,306 +121,19 @@ func (c *TaskConsumer) Connect() error {
 
 	// Set QoS
 	if err := c.channel.Qos(10, 0, false); err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
+		c.tearDown()
 		return fmt.Errorf("failed to set QoS: %w", err)
 	}
 
-	// Declare exchanges (following common/celery/routing.py pattern)
-	// Exchange: update_space (fanout type)
-	err = c.channel.ExchangeDeclare(
-		UpdateSpaceExchange,
-		"fanout", // fanout type for broadcasting to all services
-		true,     // durable
-		false,
-		false,
-		false, // wait
-		nil,
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare update_space exchange: %w", err)
-	}
-
-	// Exchange: delete_space (fanout type)
-	err = c.channel.ExchangeDeclare(
-		DeleteSpaceExchange,
-		"fanout",
-		true,
-		false,
-		false,
-		true, // wait
-		nil,
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare delete_space exchange: %w", err)
-	}
-
-	// Exchange: delete_device (fanout type)
-	err = c.channel.ExchangeDeclare(
-		DeleteDeviceExchange,
-		"fanout",
-		true,
-		false,
-		false,
-		true,
-		nil,
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare delete_device exchange: %w", err)
-	}
-
-	err = c.channel.ExchangeDeclare(
-		CreateDeviceEntitiesExchange,
-		"fanout",
-		true,
-		false,
-		false,
-		true,
-		nil,
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare create_device_entities exchange: %w", err)
-	}
-
-	// Exchange: automation_downgrade (direct type)
-	err = c.channel.ExchangeDeclare(
-		AutomationDowngradeExchange,
-		"direct",
-		true,
-		false,
-		false,
-		true,
-		nil,
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare automation_downgrade exchange: %w", err)
-	}
-
-	// Exchange: automation_upgrade (direct type)
-	err = c.channel.ExchangeDeclare(
-		AutomationUpgradeExchange,
-		"direct",
-		true,
-		false,
-		false,
-		true,
-		nil,
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare automation_upgrade exchange: %w", err)
-	}
-
-	// Declare update queue
-	_, err = c.channel.QueueDeclare(
-		c.updateQueueName,
-		true,  // durable
-		false, // auto-delete when unused
-		false, // non-exclusive
-		false, // no-wait
-		amqp.Table{
-			"x-single-active-consumer": true,
-		},
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare update queue: %w", err)
-	}
-
-	// Declare delete queue
-	_, err = c.channel.QueueDeclare(
-		c.deleteQueueName,
-		true,  // durable
-		false, // auto-delete when unused
-		false, // non-exclusive
-		false, // no-wait
-		amqp.Table{
-			"x-single-active-consumer": true,
-		},
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare delete queue: %w", err)
-	}
-
-	// Declare device queue
-	_, err = c.channel.QueueDeclare(
-		c.deviceQueueName,
-		true,
-		false,
-		false,
-		false,
-		amqp.Table{
-			"x-single-active-consumer": true,
-		},
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare device queue: %w", err)
-	}
-
-	_, err = c.channel.QueueDeclare(
-		c.createEntitiesQueueName,
-		true,
-		false,
-		false,
-		false,
-		amqp.Table{
-			"x-single-active-consumer": true,
-		},
-	)
-	if err != nil {
-		defer func() {
-			_ = c.channel.Close()
-			_ = c.conn.Close()
-		}()
-		return fmt.Errorf("failed to declare create entities queue: %w", err)
-	}
-
-	// Bind update queue to update_space exchange
-	if err := c.channel.QueueBind(
-		c.updateQueueName,
-		UpdateSpaceExchange,
-		UpdateSpaceExchange,
-		false,
-		nil,
-	); err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to bind update queue: %w", err)
-	}
-
-	// Bind delete queue to delete_space exchange
-	if err := c.channel.QueueBind(
-		c.deleteQueueName,
-		DeleteSpaceExchange,
-		DeleteSpaceExchange,
-		false,
-		nil,
-	); err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to bind delete queue: %w", err)
-	}
-
-	// Bind device queue to delete_device exchange
-	if err := c.channel.QueueBind(
-		c.deviceQueueName,
-		DeleteDeviceExchange,
-		DeleteDeviceExchange,
-		false,
-		nil,
-	); err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to bind device queue: %w", err)
-	}
-
-	if err := c.channel.QueueBind(
-		c.createEntitiesQueueName,
-		CreateDeviceEntitiesExchange,
-		CreateDeviceEntitiesExchange,
-		false,
-		nil,
-	); err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to bind create entities queue: %w", err)
-	}
-
-	// Declare automation downgrade queue
-	_, err = c.channel.QueueDeclare(
-		c.downgradeQueueName,
-		true,
-		false,
-		false,
-		false,
-		amqp.Table{"x-single-active-consumer": true},
-	)
-	if err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to declare automation downgrade queue: %w", err)
-	}
-	if err := c.channel.QueueBind(
-		c.downgradeQueueName,
-		AutomationDowngradeExchange,
-		AutomationDowngradeTaskName,
-		false,
-		nil,
-	); err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to bind automation downgrade queue: %w", err)
-	}
-
-	// Declare automation upgrade queue
-	_, err = c.channel.QueueDeclare(
-		c.upgradeQueueName,
-		true,
-		false,
-		false,
-		false,
-		amqp.Table{"x-single-active-consumer": true},
-	)
-	if err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to declare automation upgrade queue: %w", err)
-	}
-	if err := c.channel.QueueBind(
-		c.upgradeQueueName,
-		AutomationUpgradeExchange,
-		AutomationUpgradeTaskName,
-		false,
-		nil,
-	); err != nil {
-		_ = c.channel.Close()
-		_ = c.conn.Close()
-		return fmt.Errorf("failed to bind automation upgrade queue: %w", err)
+	// Declare exchanges, queues and bindings from the topology table.
+	for _, s := range c.specs {
+		if err := c.declareTopology(s); err != nil {
+			return err
+		}
 	}
 
 	c.logger.Info("Celery task consumer connected",
-		zap.String("update_queue", c.updateQueueName),
-		zap.String("delete_queue", c.deleteQueueName),
-		zap.String("device_queue", c.deviceQueueName),
-		zap.String("create_entities_queue", c.createEntitiesQueueName),
-		zap.String("downgrade_queue", c.downgradeQueueName),
-		zap.String("upgrade_queue", c.upgradeQueueName))
+		zap.Int("queues", len(c.specs)))
 
 	return nil
 }
@@ -444,125 +184,48 @@ func (c *TaskConsumer) Start(ctx context.Context) error {
 	}
 }
 
-// connectAndConsume sets up consumption on the current connection
+// connectAndConsume sets up consumption on the current connection.
+//
+// All Consume calls are issued first, then goroutines are spawned. If a
+// Consume fails midway, the function returns and Start()'s reconnect path
+// tears down the channel; the broker drops any consumers registered before
+// the failure, so the state self-heals on the next connect cycle.
 func (c *TaskConsumer) connectAndConsume(ctx context.Context) error {
-	// Consume from update queue
-	updateMessages, err := c.channel.Consume(
-		c.updateQueueName,
-		"telemetry_update_consumer",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consuming update queue: %w", err)
+	type queueConsumer struct {
+		messages <-chan amqp.Delivery
+		spec     topology.Spec
+	}
+	consumers := make([]queueConsumer, 0, len(c.specs))
+
+	for _, s := range c.specs {
+		messages, err := c.channel.Consume(
+			s.Queue,
+			s.ConsumerTag,
+			false, // autoAck
+			false, // exclusive
+			false, // noLocal
+			false, // noWait
+			nil,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to start consuming queue %s: %w", s.Queue, err)
+		}
+		consumers = append(consumers, queueConsumer{messages: messages, spec: s})
 	}
 
-	// Consume from delete queue
-	deleteMessages, err := c.channel.Consume(
-		c.deleteQueueName,
-		"telemetry_delete_consumer",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consuming delete queue: %w", err)
+	c.logger.Info("Celery task consumer started", zap.Int("queues", len(c.specs)))
+
+	// Spawn goroutines only after every Consume succeeded, so the WaitGroup
+	// count always matches the number of running goroutines
+	c.wg.Add(len(consumers))
+	for _, qc := range consumers {
+		go func(qc queueConsumer) {
+			defer c.wg.Done()
+			c.processMessages(ctx, qc.messages, qc.spec.TaskName)
+		}(qc)
 	}
 
-	// Consume from device queue
-	deviceMessages, err := c.channel.Consume(
-		c.deviceQueueName,
-		"telemetry_device_consumer",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consuming device queue: %w", err)
-	}
-
-	createEntitiesMessages, err := c.channel.Consume(
-		c.createEntitiesQueueName,
-		"telemetry_create_entities_consumer",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consuming create entities queue: %w", err)
-	}
-
-	// Consume from automation downgrade queue
-	downgradeMessages, err := c.channel.Consume(
-		c.downgradeQueueName,
-		"telemetry_downgrade_consumer",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consuming downgrade queue: %w", err)
-	}
-
-	// Consume from automation upgrade queue
-	upgradeMessages, err := c.channel.Consume(
-		c.upgradeQueueName,
-		"telemetry_upgrade_consumer",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to start consuming upgrade queue: %w", err)
-	}
-
-	c.logger.Info("Celery task consumer started",
-		zap.String("update_queue", c.updateQueueName),
-		zap.String("delete_queue", c.deleteQueueName),
-		zap.String("device_queue", c.deviceQueueName),
-		zap.String("create_entities_queue", c.createEntitiesQueueName))
-
-	// Start goroutines for each queue
-	c.wg.Add(6)
-	go func() {
-		defer c.wg.Done()
-		c.processMessages(ctx, updateMessages, UpdateSpaceTaskName)
-	}()
-	go func() {
-		defer c.wg.Done()
-		c.processMessages(ctx, deleteMessages, DeleteSpaceTaskName)
-	}()
-	go func() {
-		defer c.wg.Done()
-		c.processMessages(ctx, deviceMessages, DeleteDeviceTaskName)
-	}()
-	go func() {
-		defer c.wg.Done()
-		c.processMessages(ctx, createEntitiesMessages, CreateDeviceEntitiesTaskName)
-	}()
-	go func() {
-		defer c.wg.Done()
-		c.processMessages(ctx, downgradeMessages, AutomationDowngradeTaskName)
-	}()
-	go func() {
-		defer c.wg.Done()
-		c.processMessages(ctx, upgradeMessages, AutomationUpgradeTaskName)
-	}()
-
-	// Wait for all goroutines to finish (they exit when channel closes)
+	// Wait for all goroutines to finish (they exit when their channel closes)
 	c.wg.Wait()
 
 	return nil
@@ -609,7 +272,14 @@ func (c *TaskConsumer) processMessages(ctx context.Context, messages <-chan amqp
 				c.logger.Error("Failed to handle Celery task",
 					zap.String("task", expectedTaskName),
 					zap.Error(err))
-				// Negative ack - requeue so the message is retried
+				if taskerrors.IsPermanent(err) {
+					c.logger.Warn("Rejecting Celery task without requeue",
+						zap.String("task", expectedTaskName),
+						zap.Error(err))
+					_ = msg.Reject(false)
+					continue
+				}
+				// Negative ack - requeue so transient failures are retried.
 				_ = msg.Nack(false, true)
 			} else {
 				_ = msg.Ack(false)
@@ -620,29 +290,11 @@ func (c *TaskConsumer) processMessages(ctx context.Context, messages <-chan amqp
 
 // handleTask processes a single Celery task
 func (c *TaskConsumer) handleTask(ctx context.Context, taskName string, body []byte) error {
-	switch taskName {
-	case UpdateSpaceTaskName, "update_space":
-		return c.handleUpdateSpace(ctx, body)
-
-	case DeleteSpaceTaskName, "delete_space":
-		return c.handleDeleteSpace(ctx, body)
-
-	case DeleteDeviceTaskName, "delete_device":
-		return c.handleDeleteDevice(ctx, body)
-
-	case CreateDeviceEntitiesTaskName, "create_device_entities":
-		return c.handleCreateDeviceEntities(ctx, body)
-
-	case AutomationDowngradeTaskName, "automation_downgrade":
-		return c.handleAutomationDowngrade(ctx, body)
-
-	case AutomationUpgradeTaskName, "automation_upgrade":
-		return c.handleAutomationUpgrade(ctx, body)
-
-	default:
-		c.logger.Debug("Unknown task name, ignoring", zap.String("task", taskName))
-		return nil
+	handler, ok := c.taskHandlers[taskName]
+	if !ok {
+		return taskerrors.NewPermanentf("unsupported celery task: %s", taskName)
 	}
+	return handler.Handle(ctx, taskName, body)
 }
 
 // handleUpdateSpace handles the update_space Celery task
@@ -788,64 +440,6 @@ func (c *TaskConsumer) handleCreateDeviceEntities(ctx context.Context, body []by
 		zap.Int64("created_count", createdCount),
 	)
 
-	return nil
-}
-
-func (c *TaskConsumer) handleAutomationDowngrade(ctx context.Context, body []byte) error {
-	var celeryMsg models.CeleryMessage
-	if err := json.Unmarshal(body, &celeryMsg); err != nil {
-		return fmt.Errorf("failed to unmarshal celery message: %w", err)
-	}
-
-	var task models.AutomationDowngradeTask
-	if err := json.Unmarshal(celeryMsg.Kwargs, &task); err != nil {
-		return fmt.Errorf("failed to unmarshal automation_downgrade task kwargs: %w", err)
-	}
-
-	var maxActive int
-	if task.Limits != nil {
-		if v, ok := task.Limits["automation.max_count"]; ok {
-			maxActive = v
-		}
-	}
-
-	c.logger.Info("Processing automation downgrade",
-		zap.String("org", task.OrgSlug),
-		zap.Int("max_active", maxActive))
-
-	deactivated, err := c.dbClient.BulkDeactivateAutomations(ctx, task.OrgSlug, maxActive)
-	if err != nil {
-		return fmt.Errorf("failed to bulk deactivate automations: %w", err)
-	}
-
-	c.logger.Info("Automation downgrade completed",
-		zap.String("org", task.OrgSlug),
-		zap.Int64("deactivated", deactivated))
-	return nil
-}
-
-func (c *TaskConsumer) handleAutomationUpgrade(ctx context.Context, body []byte) error {
-	var celeryMsg models.CeleryMessage
-	if err := json.Unmarshal(body, &celeryMsg); err != nil {
-		return fmt.Errorf("failed to unmarshal celery message: %w", err)
-	}
-
-	var task models.AutomationUpgradeTask
-	if err := json.Unmarshal(celeryMsg.Kwargs, &task); err != nil {
-		return fmt.Errorf("failed to unmarshal automation_upgrade task kwargs: %w", err)
-	}
-
-	c.logger.Info("Processing automation upgrade",
-		zap.String("org", task.OrgSlug))
-
-	reactivated, err := c.dbClient.BulkReactivateAutomations(ctx, task.OrgSlug)
-	if err != nil {
-		return fmt.Errorf("failed to bulk reactivate automations: %w", err)
-	}
-
-	c.logger.Info("Automation upgrade completed",
-		zap.String("org", task.OrgSlug),
-		zap.Int64("reactivated", reactivated))
 	return nil
 }
 
