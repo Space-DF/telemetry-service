@@ -13,7 +13,7 @@ import (
 )
 
 // GetAlerts retrieves alerts for a device/category within a time range.
-func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, deviceID, startStr, endStr string, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
+func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, spaceSlug, deviceID, startStr, endStr string, safeThreshold, cautionThreshold, warningThreshold float64, limit, offset int) ([]interface{}, int, error) {
 	org := orgSlug
 	if org == "" {
 		org = orgFromContext(ctx)
@@ -35,14 +35,16 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, deviceID, sta
 	}
 
 	// Apply processor defaults if not provided
+	if safeThreshold <= 0 {
+		safeThreshold = processor.DefaultSafeThreshold()
+	}
+
 	if cautionThreshold <= 0 {
 		cautionThreshold = processor.DefaultCautionThreshold()
 	}
+
 	if warningThreshold <= 0 {
 		warningThreshold = processor.DefaultWarningThreshold()
-	}
-	if criticalThreshold <= 0 {
-		criticalThreshold = processor.DefaultCriticalThreshold()
 	}
 
 	startAt, endAt, err := buildDateRange(startStr, endStr)
@@ -50,7 +52,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, deviceID, sta
 		return nil, 0, err
 	}
 
-	results, totalCount, err := c.queryAlerts(ctx, org, processor, category, deviceID, startAt, endAt, cautionThreshold, warningThreshold, criticalThreshold, limit, offset)
+	results, totalCount, err := c.queryAlerts(ctx, org, processor, category, deviceID, startAt, endAt, safeThreshold, cautionThreshold, warningThreshold, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -58,7 +60,7 @@ func (c *Client) GetAlerts(ctx context.Context, orgSlug, category, deviceID, sta
 	return results, totalCount, nil
 }
 
-func (c *Client) queryAlerts(ctx context.Context, org string, processor alertregistry.Processor, category, deviceID string, startAt, endAt time.Time, cautionThreshold, warningThreshold, criticalThreshold float64, limit, offset int) ([]interface{}, int, error) {
+func (c *Client) queryAlerts(ctx context.Context, org string, processor alertregistry.Processor, category, deviceID string, startAt, endAt time.Time, safeThreshold, cautionThreshold, warningThreshold float64, limit, offset int) ([]interface{}, int, error) {
 	args := []interface{}{category, deviceID, startAt, endAt, limit, offset}
 	countArgs := args[:4]
 
@@ -105,14 +107,16 @@ func (c *Client) queryAlerts(ctx context.Context, org string, processor alertreg
 				value = parsed
 			}
 
-			levelComputed := processor.DetermineLevel(value, cautionThreshold, warningThreshold, criticalThreshold)
+			levelComputed := processor.DetermineLevel(value, safeThreshold, cautionThreshold, warningThreshold)
+
+			// Skip safe alerts, only return caution, warning and critical
 			if levelComputed == "safe" {
 				continue
 			}
 
 			alert := map[string]interface{}{
 				"id":                 entityID,
-				"type":               processor.DetermineType(value, cautionThreshold, warningThreshold, criticalThreshold),
+				"type":               processor.DetermineType(value, safeThreshold, cautionThreshold, warningThreshold),
 				"level":              levelComputed,
 				"message":            processor.GenerateMessage(levelComputed, value),
 				"entity_id":          entityID,
@@ -122,9 +126,9 @@ func (c *Client) queryAlerts(ctx context.Context, org string, processor alertreg
 				processor.ValueKey(): value,
 				"unit":               processor.Unit(),
 				"threshold": map[string]interface{}{
-					"caution":  cautionThreshold,
-					"warning":  warningThreshold,
-					"critical": criticalThreshold,
+					"safe":    safeThreshold,
+					"caution": cautionThreshold,
+					"warning": warningThreshold,
 				},
 				"reported_at": reportedAt,
 			}

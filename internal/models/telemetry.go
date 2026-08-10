@@ -13,6 +13,7 @@ type TelemetryPayload struct {
 	Timestamp    string            `json:"timestamp"`
 	Source       string            `json:"source"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
+	IsPublic     bool              `json:"is_public,omitempty"`
 }
 
 // TelemetryDevice holds basic device metadata.

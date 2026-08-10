@@ -16,8 +16,8 @@ type PushSubscription struct {
 	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
-// DeviceEventNotification represents a web push notification for a device event
-type DeviceEventNotification struct {
+// PushNotificationPayload represents the outbound web push notification payload.
+type PushNotificationPayload struct {
 	ID         string                 `json:"id"`
 	Title      string                 `json:"title"`
 	EventType  string                 `json:"event_type"`

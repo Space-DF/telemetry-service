@@ -8,20 +8,23 @@ import (
 
 	alertregistry "github.com/Space-DF/telemetry-service/internal/alerts/registry"
 	"github.com/Space-DF/telemetry-service/internal/api/common"
+	consoleclient "github.com/Space-DF/telemetry-service/internal/client"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 )
 
 type Handler struct {
-	logger   *zap.Logger
-	tsClient *timescaledb.Client
+	logger        *zap.Logger
+	tsClient      *timescaledb.Client
+	consoleClient *consoleclient.ConsoleServiceClient
 }
 
 func NewHandler(logger *zap.Logger, tsClient *timescaledb.Client) *Handler {
 	return &Handler{
-		logger:   logger,
-		tsClient: tsClient,
+		logger:        logger,
+		tsClient:      tsClient,
+		consoleClient: consoleclient.NewConsoleServiceClient(logger),
 	}
 }
 
@@ -72,12 +75,31 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 			"error": "device_id is required",
 		})
 	}
+
+	spaceSlug := strings.TrimSpace(c.QueryParam("space_slug"))
+	if spaceSlug == "" {
+		if slug, err := common.ResolveSpaceSlugFromRequest(c); err == nil {
+			spaceSlug = slug
+		}
+	}
+
 	// Pagination
 	p := common.ParsePagination(c)
 
+	safeThreshold := processor.DefaultSafeThreshold()
 	cautionThreshold := processor.DefaultCautionThreshold()
 	warningThreshold := processor.DefaultWarningThreshold()
-	criticalThreshold := processor.DefaultCriticalThreshold()
+
+	if h.consoleClient != nil {
+		monitoring, err := h.consoleClient.GetOrganizationMonitoring(c.Request().Context(), orgSlug)
+		if err != nil {
+			h.logger.Warn("Failed to load monitoring thresholds from console service, falling back to defaults",
+				zap.String("org", orgSlug),
+				zap.Error(err))
+		} else {
+			safeThreshold, cautionThreshold, warningThreshold = consoleclient.ResolveThresholds(safeThreshold, cautionThreshold, warningThreshold, monitoring)
+		}
+	}
 
 	if ct := c.QueryParam("caution_threshold"); ct != "" {
 		if val, err := strconv.ParseFloat(ct, 64); err == nil {
@@ -89,9 +111,9 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 			warningThreshold = val
 		}
 	}
-	if crt := c.QueryParam("critical_threshold"); crt != "" {
-		if val, err := strconv.ParseFloat(crt, 64); err == nil {
-			criticalThreshold = val
+	if st := c.QueryParam("safe_threshold"); st != "" {
+		if val, err := strconv.ParseFloat(st, 64); err == nil {
+			safeThreshold = val
 		}
 	}
 
@@ -99,12 +121,13 @@ func (h *Handler) GetAlerts(c echo.Context) error {
 		c.Request().Context(),
 		orgSlug,
 		category,
+		spaceSlug,
 		deviceID,
 		startDate,
 		endDate,
+		safeThreshold,
 		cautionThreshold,
 		warningThreshold,
-		criticalThreshold,
 		p.Limit,
 		p.Offset,
 	)

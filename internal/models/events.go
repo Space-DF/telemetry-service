@@ -60,6 +60,7 @@ type Event struct {
 	Organization string    `json:"organization,omitempty" db:"organization"`
 	SpaceSlug    string    `json:"space_slug,omitempty" db:"space_slug"`
 	DeviceID     string    `json:"device_id,omitempty" db:"device_id"`
+	IsPublic     bool      `json:"is_public,omitempty"`
 	EntityID     *string   `json:"entity_id,omitempty" db:"entity_id"`
 	StateID      uuid.UUID `json:"state_id,omitempty" db:"state_id"`
 	Title        string    `json:"title,omitempty" db:"title"`

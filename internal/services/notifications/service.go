@@ -1,4 +1,4 @@
-package services
+package notifications
 
 import (
 	"context"
@@ -37,8 +37,8 @@ func (webPushClient) SendNotification(payload []byte, subscription *webpush.Subs
 	return webpush.SendNotification(payload, subscription, options)
 }
 
-// NotificationService delivers device event notifications via web push.
-type NotificationService struct {
+// Service delivers device event notifications via web push.
+type Service struct {
 	store         SubscriptionStore
 	logger        *zap.Logger
 	cfg           config.Notifications
@@ -48,9 +48,9 @@ type NotificationService struct {
 	deleteBackoff map[string]time.Time
 }
 
-// NewNotificationService creates a notification service.
-func NewNotificationService(store SubscriptionStore, logger *zap.Logger, cfg config.Notifications) *NotificationService {
-	return &NotificationService{
+// New creates a notification service.
+func New(store SubscriptionStore, logger *zap.Logger, cfg config.Notifications) *Service {
+	return &Service{
 		store:         store,
 		logger:        logger,
 		cfg:           cfg,
@@ -61,75 +61,60 @@ func NewNotificationService(store SubscriptionStore, logger *zap.Logger, cfg con
 }
 
 // SetSender overrides the web push sender, mainly for tests.
-func (s *NotificationService) SetSender(sender PushSender) {
+func (s *Service) SetSender(sender PushSender) {
 	if sender != nil {
 		s.sender = sender
 	}
 }
 
 // Enabled reports whether delivery is fully configured.
-func (s *NotificationService) Enabled() bool {
+func (s *Service) Enabled() bool {
 	return s != nil &&
 		s.cfg.VAPIDPublicKey != "" &&
 		s.cfg.VAPIDPrivateKey != "" &&
 		s.cfg.VAPIDSubject != ""
 }
 
-// NewDeviceEventNotification creates a new notification from an event.
-func NewDeviceEventNotification(event *models.Event) *models.DeviceEventNotification {
-	return &models.DeviceEventNotification{
-		ID:         fmt.Sprintf("%d", event.EventID),
-		Title:      event.Title,
-		EventType:  event.EventType,
-		DeviceID:   event.DeviceID,
-		EventLevel: event.EventLevel,
-		Message:    event.Title,
-		Timestamp:  event.TimeFiredTs,
-		Data: map[string]interface{}{
-			"event_id":   event.EventID,
-			"device_id":  event.DeviceID,
-			"event_type": event.EventType,
-			"space_slug": event.SpaceSlug,
-			"automation": event.AutomationName,
-			"geofence":   event.GeofenceName,
-			"rule_id":    event.EventRuleID,
-		},
-	}
-}
-
-func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error {
-	if s == nil || !s.Enabled() || event == nil || strings.TrimSpace(event.SpaceSlug) == "" {
-		return nil
-	}
-
+func (s *Service) notify(ctx context.Context, orgSlug, spaceSlug, deviceID string, isPublic bool, payloadObj *models.PushNotificationPayload) error {
 	if s.store == nil {
 		return fmt.Errorf("notification store is not configured")
 	}
 
-	s.logger.Info("starting event notification",
-		zap.String("org_slug", orgSlug),
-		zap.String("space_slug", event.SpaceSlug),
-		zap.String("device_id", event.DeviceID),
-	)
+	targetSpaceSlug := spaceSlug
+	if isPublic {
+		targetSpaceSlug = ""
+	}
 
-	userIDs, err := s.authClient.GetSpaceUserIDs(ctx, orgSlug, event.SpaceSlug)
+	users, err := s.authClient.GetUsers(ctx, orgSlug, targetSpaceSlug)
 	if err != nil {
-		s.logger.Warn("failed to fetch space users from auth-service",
+		s.logger.Warn("failed to fetch notification recipients from auth-service",
 			zap.Error(err),
-			zap.String("space_slug", event.SpaceSlug),
+			zap.String("space_slug", spaceSlug),
 			zap.String("org_slug", orgSlug),
 		)
-		return fmt.Errorf("fetch space users: %w", err)
+		return fmt.Errorf("fetch notification recipients: %w", err)
+	}
+
+	userIDs := make([]string, 0, len(users))
+	userSpaceMap := make(map[string]string, len(users))
+	for _, u := range users {
+		if u.ID != "" {
+			userIDs = append(userIDs, u.ID)
+			if u.SlugName != "" {
+				userSpaceMap[u.ID] = u.SlugName
+			}
+		}
 	}
 
 	s.logger.Info("fetched users for notification",
+		zap.Bool("is_public", isPublic),
 		zap.Int("user_count", len(userIDs)),
-		zap.Strings("user_ids", userIDs),
 	)
 
 	if len(userIDs) == 0 {
-		s.logger.Info("no users found for space",
-			zap.String("space_slug", event.SpaceSlug),
+		s.logger.Info("no users found for notification",
+			zap.Bool("is_public", isPublic),
+			zap.String("space_slug", spaceSlug),
 		)
 		return nil
 	}
@@ -152,20 +137,6 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 		return nil
 	}
 
-	payloadObj := NewDeviceEventNotification(event)
-
-	payload, err := json.Marshal(payloadObj)
-	if err != nil {
-		s.logger.Error("failed to marshal notification payload",
-			zap.Error(err),
-		)
-		return fmt.Errorf("marshal notification payload: %w", err)
-	}
-
-	s.logger.Debug("notification payload",
-		zap.ByteString("payload", payload),
-	)
-
 	var sendErrs []string
 
 	for _, sub := range subscriptions {
@@ -174,7 +145,42 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 			continue
 		}
 
-		resp, err := s.sender.SendNotification(payload, &webpush.Subscription{
+		// determine per-user space slug name if available
+		spaceName := ""
+		if sub.UserID != "" {
+			if v, ok := userSpaceMap[sub.UserID]; ok && v != "" {
+				// public API returns per-user slug_name
+				spaceName = v
+			} else if !isPublic && spaceSlug != "" {
+				// private API returns only user_ids — use provided spaceSlug for private notifications
+				spaceName = spaceSlug
+			}
+		}
+
+		// create a copy of the payload and ensure Data map is copied
+		personalized := *payloadObj
+		if personalized.Data == nil {
+			personalized.Data = make(map[string]interface{})
+		} else {
+			newData := make(map[string]interface{}, len(personalized.Data)+1)
+			for k, v := range personalized.Data {
+				newData[k] = v
+			}
+			personalized.Data = newData
+		}
+		personalized.Data["space_slug"] = spaceName
+
+		payloadBytes, err := json.Marshal(&personalized)
+		if err != nil {
+			s.logger.Error("failed to marshal personalized notification payload",
+				zap.Error(err),
+				zap.String("subscription_id", sub.ID),
+			)
+			sendErrs = append(sendErrs, fmt.Sprintf("subscription %s: marshal error: %v", sub.ID, err))
+			continue
+		}
+
+		resp, err := s.sender.SendNotification(payloadBytes, &webpush.Subscription{
 			Endpoint: sub.Endpoint,
 			Keys: webpush.Keys{
 				P256dh: sub.P256DH,
@@ -194,19 +200,14 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 				zap.String("endpoint", sub.Endpoint),
 			)
 
-			sendErrs = append(sendErrs,
-				fmt.Sprintf("subscription %s: %v", sub.ID, err),
-			)
-
+			sendErrs = append(sendErrs, fmt.Sprintf("subscription %s: %v", sub.ID, err))
 			continue
 		}
 
 		_, _ = io.Copy(io.Discard, resp.Body)
 		_ = resp.Body.Close()
 
-		if resp.StatusCode == http.StatusGone ||
-			resp.StatusCode == http.StatusNotFound {
-
+		if resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound {
 			s.logger.Warn("subscription is stale, deleting",
 				zap.String("subscription_id", sub.ID),
 				zap.Int("status_code", resp.StatusCode),
@@ -221,13 +222,7 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 				zap.Int("status_code", resp.StatusCode),
 			)
 
-			sendErrs = append(sendErrs,
-				fmt.Sprintf("subscription %s returned status %d",
-					sub.ID,
-					resp.StatusCode,
-				),
-			)
-
+			sendErrs = append(sendErrs, fmt.Sprintf("subscription %s returned status %d", sub.ID, resp.StatusCode))
 			continue
 		}
 
@@ -238,7 +233,8 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 
 	if len(sendErrs) == 0 {
 		s.logger.Info("all notifications delivered successfully",
-			zap.Any("event_id", event),
+			zap.String("device_id", deviceID),
+			zap.String("space_slug", spaceSlug),
 		)
 		return nil
 	}
@@ -250,7 +246,7 @@ func (s *NotificationService) NotifyEvent(ctx context.Context, event *models.Eve
 	return errors.New(strings.Join(sendErrs, "; "))
 }
 
-func (s *NotificationService) tryDeleteSubscription(ctx context.Context, orgSlug, userID, subscriptionID, reason string) {
+func (s *Service) tryDeleteSubscription(ctx context.Context, orgSlug, userID, subscriptionID, reason string) {
 	if s == nil || s.store == nil || strings.TrimSpace(subscriptionID) == "" {
 		return
 	}
@@ -279,7 +275,7 @@ func (s *NotificationService) tryDeleteSubscription(ctx context.Context, orgSlug
 	s.clearDeleteFailure(subscriptionID)
 }
 
-func (s *NotificationService) shouldAttemptDelete(subscriptionID string) bool {
+func (s *Service) shouldAttemptDelete(subscriptionID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -287,14 +283,14 @@ func (s *NotificationService) shouldAttemptDelete(subscriptionID string) bool {
 	return !ok || time.Now().After(nextAllowed)
 }
 
-func (s *NotificationService) recordDeleteFailure(subscriptionID string) {
+func (s *Service) recordDeleteFailure(subscriptionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.deleteBackoff[subscriptionID] = time.Now().Add(failedDeletionRetryDelay)
 }
 
-func (s *NotificationService) clearDeleteFailure(subscriptionID string) {
+func (s *Service) clearDeleteFailure(subscriptionID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
