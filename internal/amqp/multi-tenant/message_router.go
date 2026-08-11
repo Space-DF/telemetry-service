@@ -77,6 +77,7 @@ func (r *MessageRouter) handleEntityTelemetry(ctx context.Context, orgSlug strin
 		DeviceEUI:    entityPayload.DeviceEUI,
 		DeviceID:     entityPayload.DeviceID,
 		SpaceSlug:    entityPayload.SpaceSlug,
+		IsPublished:  entityPayload.IsPublished,
 		Entities:     []models.TelemetryEntity{entityPayload.Entity},
 		Timestamp:    entityPayload.Timestamp,
 		Source:       entityPayload.Source,
@@ -236,7 +237,7 @@ func (r *MessageRouter) resolvePublicTelemetrySpace(ctx context.Context, orgSlug
 		return
 	}
 
-	telemetry.IsPublic = true
+	telemetry.IsPublished = true
 	if r.auth == nil {
 		return
 	}

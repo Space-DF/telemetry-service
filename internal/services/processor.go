@@ -177,7 +177,7 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 			if event.Timestamp == 0 {
 				event.Timestamp = time.Now().UnixMilli()
 			}
-			if err := p.tsClient.CreateAndPublishAutomationEvent(ctx, payload.Organization, &event, payload.SpaceSlug, payload.DeviceID, payload.IsPublic); err != nil {
+			if err := p.tsClient.CreateAndPublishAutomationEvent(ctx, payload.Organization, &event, payload.SpaceSlug, payload.DeviceID, payload.IsPublished); err != nil {
 				p.logger.Error("Failed to create event",
 					zap.Error(err),
 					zap.String("device_id", event.DeviceID),
@@ -280,7 +280,7 @@ func (p *LocationProcessor) processWaterLevelAlerts(ctx context.Context, payload
 			Title:     message,
 			DeviceID:  payload.DeviceID,
 			SpaceSlug: payload.SpaceSlug,
-			IsPublic:  payload.IsPublic,
+			IsPublic:  payload.IsPublished,
 			Level:     level,
 			Message:   message,
 			Timestamp: time.Now().UnixMilli(),
@@ -299,7 +299,7 @@ func (p *LocationProcessor) processWaterLevelAlerts(ctx context.Context, payload
 			Level:        &level,
 			Organization: payload.Organization,
 			SpaceSlug:    payload.SpaceSlug,
-			IsPublic:     payload.IsPublic,
+			IsPublic:     payload.IsPublished,
 			DeviceID:     payload.DeviceID,
 			EntityID:     &entity.EntityID,
 			Message:      message,

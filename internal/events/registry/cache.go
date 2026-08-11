@@ -96,18 +96,11 @@ func (c *DeviceRulesCache) Get(ctx context.Context, deviceID string) []evaluator
 		spacesSeen[sid] = true
 	}
 
-	// Fetch automations for this device for each spaceID
-	var automations []models.AutomationWithActions
-	for _, spaceID := range deviceSpaceIDs {
-		autos, _, err := c.db.GetAutomations(ctx, spaceID, &deviceID, []bool{}, "", 1000, 0)
-		if err != nil {
-			c.logger.Error("Failed to fetch automations for device in space",
-				zap.String("device_id", deviceID),
-				zap.String("space_id", spaceID.String()),
-				zap.Error(err))
-			continue
-		}
-		automations = append(automations, autos...)
+	automations, err := c.db.GetAutomationsByDeviceID(ctx, deviceID)
+	if err != nil {
+		c.logger.Error("Failed to fetch automations for device",
+			zap.String("device_id", deviceID),
+			zap.Error(err))
 	}
 
 	// Also collect space IDs from automations (in case they differ)
@@ -242,6 +235,7 @@ func (c *DeviceRulesCache) convertAutomationsToRules(automations []models.Automa
 			EventRuleID:    eventRule.EventRuleID, // actual event_rule UUID
 			AutomationID:   auto.ID,               // automation UUID
 			AutomationName: auto.Name,             // automation name used as event title
+			SpaceID:        auto.SpaceID,
 			Title:          auto.Title,
 			RuleKey:        &ruleKey,
 			Definition:     eventRule.Definition,
@@ -288,6 +282,7 @@ func (c *DeviceRulesCache) convertGeofencesToRules(geofences []models.GeofenceWi
 			Description:  eventRule.Description,
 			GeofenceID:   &geofenceID,
 			GeofenceName: gf.Name, // Include geofence name for event title
+			SpaceID:      gf.SpaceID,
 			IsAutomation: false,
 		}
 

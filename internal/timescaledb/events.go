@@ -10,12 +10,13 @@ import (
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	"github.com/Space-DF/telemetry-service/internal/models"
+	"github.com/google/uuid"
 	"github.com/stephenafamo/bob"
 	"go.uber.org/zap"
 )
 
 // GetEventsByDevice retrieves events for a specific device with pagination.
-func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, limit, offset int, startTime, endTime *int64, titleSearch *string) ([]models.Event, int, error) {
+func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID, spaceSlug string, limit, offset int, startTime, endTime *int64, titleSearch *string) ([]models.Event, int, error) {
 	if org == "" {
 		return nil, 0, fmt.Errorf("organization is required")
 	}
@@ -52,9 +53,19 @@ func (c *Client) GetEventsByDevice(ctx context.Context, org, deviceID string, li
 			args = append(args, "%"+*titleSearch+"%")
 			argIndex++
 		}
+		if spaceSlug != "" {
+			whereClause += fmt.Sprintf(" AND sp.space_slug = $%d", argIndex)
+			args = append(args, spaceSlug)
+			argIndex++
+		}
 
 		// Count total matching events
-		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM events e WHERE %s`, whereClause)
+		countQuery := fmt.Sprintf(`
+			SELECT COUNT(*)
+			FROM events e
+			LEFT JOIN spaces sp ON e.space_id = sp.space_id
+			WHERE %s
+		`, whereClause)
 		if err := tx.QueryRowContext(txCtx, countQuery, args...).Scan(&total); err != nil {
 			return fmt.Errorf("failed to count events: %w", err)
 		}
@@ -175,6 +186,28 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 	var createdEvent *models.Event
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		eventSpaceSlug := spaceSlug
+		eventIsPublic := isPublic
+		var eventSpaceID interface{}
+
+		if event.SpaceID != nil {
+			eventSpaceID = *event.SpaceID
+			eventIsPublic = false
+			if err := tx.QueryRowContext(txCtx, `
+				SELECT space_slug FROM spaces WHERE space_id = $1 LIMIT 1
+			`, *event.SpaceID).Scan(&eventSpaceSlug); err != nil {
+				return fmt.Errorf("failed to resolve event space '%s': %w", event.SpaceID.String(), err)
+			}
+		} else if spaceSlug != "" {
+			var resolvedSpaceID uuid.UUID
+			if err := tx.QueryRowContext(txCtx, `
+				SELECT space_id FROM spaces WHERE space_slug = $1 LIMIT 1
+			`, spaceSlug).Scan(&resolvedSpaceID); err != nil {
+				return fmt.Errorf("failed to resolve event space slug '%s': %w", spaceSlug, err)
+			}
+			eventSpaceID = resolvedSpaceID
+		}
+
 		// Get event_type
 		var eventTypeID int
 		err := tx.QueryRowContext(txCtx, `
@@ -202,11 +235,11 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 				space_id, device_id, state_id, location, time_fired_ts, title
 			) VALUES (
 				$1, $2, $3, $4, $5,
-				(SELECT space_id FROM spaces WHERE space_slug = $6 LIMIT 1),
+				$6,
 				$7::uuid, $8, $9::jsonb, $10, $11
 			)
 			RETURNING event_id
-		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, spaceSlug, deviceID, event.StateID, locationJSON, event.Timestamp, event.Title).Scan(&eventID)
+		`, eventTypeID, event.EventLevel, event.EventRuleID, event.AutomationID, event.GeofenceID, eventSpaceID, deviceID, event.StateID, locationJSON, event.Timestamp, event.Title).Scan(&eventID)
 
 		if err != nil {
 			return fmt.Errorf("failed to create event: %w", err)
@@ -226,8 +259,8 @@ func (c *Client) CreateAndPublishAutomationEvent(ctx context.Context, org string
 			GeofenceName:   event.GeofenceName,
 			StateID:        event.StateID,
 			DeviceID:       deviceID,
-			SpaceSlug:      spaceSlug,
-			IsPublic:       isPublic,
+			SpaceSlug:      eventSpaceSlug,
+			IsPublic:       eventIsPublic,
 			TimeFiredTs:    event.Timestamp,
 			Title:          event.Title,
 			Location:       event.Location,

@@ -207,6 +207,79 @@ func (c *Client) GetAutomations(ctx context.Context, spaceID uuid.UUID, deviceID
 	return results, total, nil
 }
 
+func (c *Client) GetAutomationsByDeviceID(ctx context.Context, deviceID string) ([]models.AutomationWithActions, error) {
+	if deviceID == "" {
+		return nil, fmt.Errorf("device_id is required")
+	}
+
+	org := orgFromContext(ctx)
+	if org == "" {
+		return nil, fmt.Errorf("organization not found in context")
+	}
+
+	var results []models.AutomationWithActions
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		query := `
+			SELECT a.id, a.name, a.title, a.device_id,
+			       a.event_rule_id, a.is_deactivated, a.deactivated_at, a.space_id, a.updated_at, a.created_at,
+			       er.event_rule_id, er.rule_key, er.definition, er.is_active, er.repeat_able, er.cooldown_sec, er.description,
+			       COALESCE(
+			         json_agg(
+			           json_build_object(
+			             'id', act.id,
+			             'name', act.name,
+			             'key', act.key,
+			             'data', act.data::text,
+			             'created_at', act.created_at
+			           )
+			         ) FILTER (WHERE act.id IS NOT NULL),
+			         '[]'::json
+			       ) as actions
+			FROM automations a
+			LEFT JOIN automation_actions aa ON aa.automation_id = a.id
+			LEFT JOIN actions act ON act.id = aa.action_id
+			LEFT JOIN event_rules er ON er.event_rule_id = a.event_rule_id
+			WHERE a.device_id = $1
+			  AND a.is_deactivated = false
+			  AND er.is_active = true
+			GROUP BY a.id, a.name, a.title, a.device_id, a.event_rule_id, a.is_deactivated, a.deactivated_at, a.space_id, a.updated_at, a.created_at, er.event_rule_id, er.rule_key, er.definition::text, er.is_active, er.repeat_able, er.cooldown_sec, er.description
+			ORDER BY a.created_at DESC
+		`
+
+		rows, err := tx.QueryContext(txCtx, query, deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to query automations by device: %w", err)
+		}
+		defer func() { _ = rows.Close() }()
+
+		for rows.Next() {
+			var row automationRow
+			if err := rows.Scan(
+				&row.ID, &row.Name, &row.Title, &row.DeviceID,
+				&row.EventRuleID, &row.IsDeactivated, &row.DeactivatedAt, &row.SpaceID, &row.UpdatedAt, &row.CreatedAt,
+				&row.EREventRuleID, &row.ERRuleKey, &row.ERDefinition, &row.ERIsActive, &row.ERRepeatAble, &row.ERCooldownSec, &row.ERDescription,
+				&row.ActionsJSON,
+			); err != nil {
+				return err
+			}
+
+			model, err := row.toModel()
+			if err != nil {
+				c.Logger.Warn("skipping automation with invalid data", zap.String("automation_id", row.ID.String), zap.Error(err))
+				continue
+			}
+			results = append(results, *model)
+		}
+
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
 // GetAutomationByID retrieves a single automation by ID
 func (c *Client) GetAutomationByID(ctx context.Context, automationID string) (*models.AutomationWithActions, error) {
 	if automationID == "" {
