@@ -10,50 +10,52 @@ import (
 	"go.uber.org/zap"
 )
 
-// GetDeviceEntityProperties godoc
-// @Summary Get device entity properties
-// @Description Retrieve device entities with each entity's latest value in a single response. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// GetDeviceEntityPropertiesBatch godoc
+// @Summary Get device entity properties in batch
+// @Description Retrieve entities with latest values for multiple devices in one response.
 // @Tags data
 // @Accept json
 // @Produce json
-// @Param device_id query string true "Device ID"
-// @Success 200 {array} map[string]interface{}
-// @Failure 400 {object} map[string]string "Invalid request parameters"
+// @Param request body models.GetDevicePropertiesBatchRequest true "Device IDs"
+// @Success 200 {object} map[string][]map[string]interface{}
+// @Failure 400 {object} map[string]string "Invalid request body"
 // @Failure 500 {object} map[string]string "Internal server error"
-// @Router /telemetry/v1/data/entity-properties [get]
-func getDeviceEntityProperties(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
+// @Router /telemetry/v1/data/entity-properties/batch [post]
+func getDeviceEntityPropertiesBatch(logger *zap.Logger, tsClient *timescaledb.Client) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		var r models.GetDevicePropertiesRequest
+		var r models.GetDevicePropertiesBatchRequest
 
 		if err := c.Bind(&r); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "invalid query parameters",
-			})
-		}
-
-		if r.DeviceID == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{
-				"error": "device_id is required",
+				"error": "invalid request body",
 			})
 		}
 
 		orgToUse := common.ResolveOrgFromRequest(c)
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
-		logger.Info("Fetching device entity properties",
-			zap.String("org_used", orgToUse),
-			zap.String("device_id", r.DeviceID),
-		)
+		result := make(map[string][]map[string]interface{}, len(r.DeviceIDs))
+		seen := make(map[string]struct{}, len(r.DeviceIDs))
+		for _, deviceID := range r.DeviceIDs {
+			if deviceID == "" {
+				continue
+			}
+			if _, ok := seen[deviceID]; ok {
+				continue
+			}
+			seen[deviceID] = struct{}{}
 
-		result, err := tsClient.GetDeviceEntityProperties(ctx, r.DeviceID)
-		if err != nil {
-			logger.Error("Failed to query device entity properties",
-				zap.Error(err),
-				zap.String("device_id", r.DeviceID),
-			)
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": "failed to retrieve device entity properties",
-			})
+			entities, err := tsClient.GetDeviceEntityProperties(ctx, deviceID)
+			if err != nil {
+				logger.Error("Failed to query device entity properties",
+					zap.Error(err),
+					zap.String("device_id", deviceID),
+				)
+				return c.JSON(http.StatusInternalServerError, map[string]string{
+					"error": "failed to retrieve device entity properties",
+				})
+			}
+			result[deviceID] = entities
 		}
 
 		return c.JSON(http.StatusOK, result)
