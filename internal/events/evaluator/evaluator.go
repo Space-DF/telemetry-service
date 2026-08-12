@@ -16,9 +16,10 @@ import (
 // EventRuleForEvaluation represents an event rule from automation or geofence
 // This is used for evaluation purposes, combining automation and geofence event rules
 type EventRuleForEvaluation struct {
-	EventRuleID    string  // UUID of the event_rule row in event_rules table
-	AutomationID   string  // UUID of the automation (empty for geofence rules)
-	AutomationName string  // Name of the automation (used as event title)
+	EventRuleID    string // UUID of the event_rule row in event_rules table
+	AutomationID   string // UUID of the automation (empty for geofence rules)
+	AutomationName string // Name of the automation (used as event title)
+	SpaceID        *uuid.UUID
 	Title          *string // Optional title for the rule, used as event title if automation name is not set
 	RuleKey        *string
 	Definition     json.RawMessage
@@ -181,6 +182,7 @@ func (e *Evaluator) EvaluateRuleDB(rule EventRuleForEvaluation, deviceID string,
 		EventRuleID:    eventRuleID,
 		AutomationID:   automationID,
 		AutomationName: automationName,
+		SpaceID:        rule.SpaceID,
 		GeofenceID:     geofenceID,
 		StateID:        entity.StateID,
 	}
@@ -295,6 +297,7 @@ func (e *Evaluator) EvaluateRuleDBWithEntities(rule EventRuleForEvaluation, devi
 		EventRuleID:    eventRuleID,
 		AutomationID:   automationID,
 		AutomationName: automationName,
+		SpaceID:        rule.SpaceID,
 		GeofenceID:     nil,
 		GeofenceName:   nil,
 		StateID:        stateID,

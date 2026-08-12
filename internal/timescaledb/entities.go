@@ -74,7 +74,7 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 	// Exclude deactivated entities
 	conditions = append(conditions, "e.is_deactivated = false")
 	if spaceSlug != "" {
-		conditions = append(conditions, fmt.Sprintf("s.space_slug = $%d", idx))
+		conditions = append(conditions, fmt.Sprintf("(e.space_id IS NULL OR s.space_slug = $%d)", idx))
 		args = append(args, spaceSlug)
 		idx++
 	}
@@ -442,7 +442,17 @@ func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, 
 				name, manufacturer, unit_of_measurement, display_type, icon, is_enabled, created_at, updated_at
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, now(), now())
-			ON CONFLICT (unique_key) DO NOTHING
+			ON CONFLICT (unique_key) DO UPDATE SET
+				space_id = EXCLUDED.space_id,
+				device_id = EXCLUDED.device_id,
+				category = EXCLUDED.category,
+				entity_type_id = EXCLUDED.entity_type_id,
+				name = EXCLUDED.name,
+				manufacturer = EXCLUDED.manufacturer,
+				unit_of_measurement = EXCLUDED.unit_of_measurement,
+				display_type = EXCLUDED.display_type,
+				icon = COALESCE(EXCLUDED.icon, entities.icon),
+				updated_at = now()
 		`,
 				uuid.New(),
 				spaceID,
