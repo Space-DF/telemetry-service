@@ -44,6 +44,11 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 				"error": "device_id is required",
 			})
 		}
+		// Resolve space_id from X-Space header
+		spaceSlug, err := common.ResolveSpaceSlugFromRequest(c)
+		if err != nil {
+			return err
+		}
 
 		// Parse pagination
 		p := common.ParsePagination(c)
@@ -68,7 +73,7 @@ func getEventsByDevice(logger *zap.Logger, tsClient *timescaledb.Client) echo.Ha
 		}
 
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
-		events, totalCount, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, p.Limit, p.Offset, startTime, endTime, titleSearch)
+		events, totalCount, err := tsClient.GetEventsByDevice(ctx, orgToUse, deviceID, spaceSlug, p.Limit, p.Offset, startTime, endTime, titleSearch)
 		if err != nil {
 			logger.Error("failed to get events by device",
 				zap.String("device_id", deviceID),

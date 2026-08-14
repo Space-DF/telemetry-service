@@ -60,6 +60,7 @@ type Event struct {
 	Organization string    `json:"organization,omitempty" db:"organization"`
 	SpaceSlug    string    `json:"space_slug,omitempty" db:"space_slug"`
 	DeviceID     string    `json:"device_id,omitempty" db:"device_id"`
+	IsPublic     bool      `json:"is_public,omitempty"`
 	EntityID     *string   `json:"entity_id,omitempty" db:"entity_id"`
 	StateID      uuid.UUID `json:"state_id,omitempty" db:"state_id"`
 	Title        string    `json:"title,omitempty" db:"title"`
@@ -222,22 +223,23 @@ func (s *StateAttributes) SetSharedAttrs(attrs map[string]interface{}) error {
 
 // MatchedEvent represents an event rule that matched evaluation
 type MatchedEvent struct {
-	DeviceID       string    `json:"device_id"`
-	EntityType     string    `json:"entity_type"`
-	RuleKey        string    `json:"rule_key"`
-	EventType      string    `json:"event_type"`
-	EventLevel     string    `json:"event_level"`
-	Title          string    `json:"title"`
-	Description    string    `json:"description"`
-	Value          float64   `json:"value"`
-	Threshold      float64   `json:"threshold"`
-	Operator       string    `json:"operator"`
-	Timestamp      int64     `json:"timestamp"`               // Unix timestamp in milliseconds
-	EventRuleID    *string   `json:"event_rule_id,omitempty"` // Rule that triggered this event
-	AutomationID   *string   `json:"automation_id,omitempty"` // Automation that triggered this event
-	AutomationName *string   `json:"automation_name,omitempty"`
-	GeofenceID     *string   `json:"geofence_id,omitempty"` // Geofence that triggered this event
-	GeofenceName   *string   `json:"geofence_name,omitempty"`
-	StateID        uuid.UUID `json:"state_id"`
-	Location       *Location `json:"location,omitempty"`
+	DeviceID       string     `json:"device_id"`
+	EntityType     string     `json:"entity_type"`
+	RuleKey        string     `json:"rule_key"`
+	EventType      string     `json:"event_type"`
+	EventLevel     string     `json:"event_level"`
+	Title          string     `json:"title"`
+	Description    string     `json:"description"`
+	Value          float64    `json:"value"`
+	Threshold      float64    `json:"threshold"`
+	Operator       string     `json:"operator"`
+	Timestamp      int64      `json:"timestamp"`               // Unix timestamp in milliseconds
+	EventRuleID    *string    `json:"event_rule_id,omitempty"` // Rule that triggered this event
+	AutomationID   *string    `json:"automation_id,omitempty"` // Automation that triggered this event
+	AutomationName *string    `json:"automation_name,omitempty"`
+	SpaceID        *uuid.UUID `json:"space_id,omitempty"`
+	GeofenceID     *string    `json:"geofence_id,omitempty"` // Geofence that triggered this event
+	GeofenceName   *string    `json:"geofence_name,omitempty"`
+	StateID        uuid.UUID  `json:"state_id"`
+	Location       *Location  `json:"location,omitempty"`
 }

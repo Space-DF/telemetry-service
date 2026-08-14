@@ -20,6 +20,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const maxDeviceSpaceLookupConcurrency = 8
+
 type Handler struct {
 	logger              *zap.Logger
 	tsClient            *timescaledb.Client
@@ -122,20 +124,26 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 		}
 	}
 
-	deviceSpaceCache := make(map[string]*client.DeviceSpaceInfo, len(uniqueKeys))
+	deviceSpaceCache := make(map[deviceKey]*client.DeviceSpaceInfo, len(uniqueKeys))
 	var cacheMu sync.Mutex
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxDeviceSpaceLookupConcurrency)
 	for dk := range uniqueKeys {
 		wg.Add(1)
 		go func(deviceID, spaceID string) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() {
+				<-sem
+			}()
+
 			info, err := h.deviceServiceClient.GetDeviceSpaceByDeviceID(c.Request().Context(), deviceID, org, spaceID)
 			if err != nil {
 				h.logger.Warn("failed to fetch device space info", zap.String("device_id", deviceID), zap.Error(err))
 				return
 			}
 			cacheMu.Lock()
-			deviceSpaceCache[deviceID] = info
+			deviceSpaceCache[deviceKey{deviceID: deviceID, spaceID: spaceID}] = info
 			cacheMu.Unlock()
 		}(dk.deviceID, dk.spaceID)
 	}
@@ -151,7 +159,7 @@ func (h *Handler) GetAutomations(c echo.Context) error {
 			continue
 		}
 
-		info, ok := deviceSpaceCache[a.DeviceID]
+		info, ok := deviceSpaceCache[deviceKey{deviceID: a.DeviceID, spaceID: a.SpaceID.String()}]
 		if !ok || info == nil {
 			results[i] = result
 			continue

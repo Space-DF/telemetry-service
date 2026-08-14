@@ -16,9 +16,9 @@ import (
 
 func buildEntityRowMap(c *Client, id, deviceIDCol, name, manufacturer, uniqueKey sql.NullString, etID, etName, etUnique, etImage sql.NullString, categoryCol, unit, icon sql.NullString, displayType pq.StringArray, isEnabled bool, createdAt, updatedAt, timeStart, timeEnd sql.NullTime) map[string]interface{} {
 	return map[string]interface{}{
-		"id":          id.String,
-		"device_id":   deviceIDCol.String,
-		"device_name": name.String,
+		"id":           id.String,
+		"device_id":    deviceIDCol.String,
+		"device_name":  name.String,
 		"manufacturer": manufacturer.String,
 		"unique_key":   uniqueKey.String,
 		"entity_type": map[string]interface{}{
@@ -71,8 +71,10 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 	args := []interface{}{}
 	conditions := make([]string, 0, 6)
 	idx := 1
+	// Exclude deactivated entities
+	conditions = append(conditions, "e.is_deactivated = false")
 	if spaceSlug != "" {
-		conditions = append(conditions, fmt.Sprintf("s.space_slug = $%d", idx))
+		conditions = append(conditions, fmt.Sprintf("(e.space_id IS NULL OR s.space_slug = $%d)", idx))
 		args = append(args, spaceSlug)
 		idx++
 	}
@@ -156,26 +158,26 @@ func (c *Client) GetEntities(ctx context.Context, spaceSlug, category, deviceID,
 				_ = rows.Close()
 			}()
 
-		for rows.Next() {
-			var id, deviceIDCol, name, manufacturer, uniqueKey sql.NullString
-			var etID, etName, etUnique, etImage sql.NullString
-			var categoryCol, unit, icon sql.NullString
-			var displayType pq.StringArray
-			var isEnabled bool
-			var createdAt, updatedAt sql.NullTime
-			var timeStart, timeEnd sql.NullTime
+			for rows.Next() {
+				var id, deviceIDCol, name, manufacturer, uniqueKey sql.NullString
+				var etID, etName, etUnique, etImage sql.NullString
+				var categoryCol, unit, icon sql.NullString
+				var displayType pq.StringArray
+				var isEnabled bool
+				var createdAt, updatedAt sql.NullTime
+				var timeStart, timeEnd sql.NullTime
 
-			if err := rows.Scan(&id, &deviceIDCol, &name, &manufacturer, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
-				return err
+				if err := rows.Scan(&id, &deviceIDCol, &name, &manufacturer, &uniqueKey, &etID, &etName, &etUnique, &etImage, &categoryCol, &unit, &displayType, &icon, &isEnabled, &createdAt, &updatedAt, &timeStart, &timeEnd); err != nil {
+					return err
+				}
+
+				rowMap := buildEntityRowMap(c, id, deviceIDCol, name, manufacturer, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
+				results = append(results, rowMap)
 			}
-
-			rowMap := buildEntityRowMap(c, id, deviceIDCol, name, manufacturer, uniqueKey, etID, etName, etUnique, etImage, categoryCol, unit, icon, displayType, isEnabled, createdAt, updatedAt, timeStart, timeEnd)
-			results = append(results, rowMap)
+			return nil
+		}); err != nil {
+			return nil, 0, err
 		}
-		return nil
-	}); err != nil {
-		return nil, 0, err
-	}
 	} else {
 		rows, err := c.DB.QueryContext(ctx, selectQuery, args...)
 		if err != nil {
@@ -434,26 +436,36 @@ func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, 
 				return fmt.Errorf("upsert entity type '%s': %w", entityTypeKey, err)
 			}
 
-		result, err := tx.ExecContext(txCtx, `
+			result, err := tx.ExecContext(txCtx, `
 			INSERT INTO entities (
 				id, space_id, device_id, unique_key, category, entity_type_id,
 				name, manufacturer, unit_of_measurement, display_type, icon, is_enabled, created_at, updated_at
 			)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true, now(), now())
-			ON CONFLICT (unique_key) DO NOTHING
+			ON CONFLICT (unique_key) DO UPDATE SET
+				space_id = EXCLUDED.space_id,
+				device_id = EXCLUDED.device_id,
+				category = EXCLUDED.category,
+				entity_type_id = EXCLUDED.entity_type_id,
+				name = EXCLUDED.name,
+				manufacturer = EXCLUDED.manufacturer,
+				unit_of_measurement = EXCLUDED.unit_of_measurement,
+				display_type = EXCLUDED.display_type,
+				icon = COALESCE(EXCLUDED.icon, entities.icon),
+				updated_at = now()
 		`,
-			uuid.New(),
-			spaceID,
-			deviceUUID,
-			entityUniqueKey,
-			tpl.Category,
-			entityTypeID,
-			tpl.Name,
-			tpl.Manufacturer,
-			nullString(tpl.UnitOfMeas),
-			pq.Array(displayType),
-			nullString(tpl.Icon),
-		)
+				uuid.New(),
+				spaceID,
+				deviceUUID,
+				entityUniqueKey,
+				tpl.Category,
+				entityTypeID,
+				tpl.Name,
+				tpl.Manufacturer,
+				nullString(tpl.UnitOfMeas),
+				pq.Array(displayType),
+				nullString(tpl.Icon),
+			)
 			if err != nil {
 				return fmt.Errorf("insert entity '%s': %w", entityUniqueKey, err)
 			}
@@ -472,4 +484,46 @@ func (c *Client) CreateDeviceEntities(ctx context.Context, deviceID, spaceSlug, 
 	}
 
 	return createdCount, nil
+}
+
+// BulkDeactivateEntities marks entities as deactivated for the given device IDs.
+func (c *Client) BulkDeactivateEntities(ctx context.Context, org string, deviceIDs []string) (int64, error) {
+	var deactivated int64
+	query := `UPDATE entities SET is_deactivated = true WHERE is_deactivated = false AND device_id = ANY($1)`
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		result, err := tx.ExecContext(txCtx, query, pq.Array(deviceIDs))
+		if err != nil {
+			return err
+		}
+
+		deactivated, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return deactivated, nil
+}
+
+// BulkReactivateEntitiesByDeviceIDs reactivates deactivated entities for the provided device IDs.
+func (c *Client) BulkReactivateEntitiesByDeviceIDs(ctx context.Context, org string, deviceIDs []string) (int64, error) {
+	var reactivated int64
+	query := `UPDATE entities SET is_deactivated = false WHERE is_deactivated = true AND device_id = ANY($1)`
+
+	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
+		result, err := tx.ExecContext(txCtx, query, pq.Array(deviceIDs))
+		if err != nil {
+			return err
+		}
+
+		reactivated, err = result.RowsAffected()
+		return err
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return reactivated, nil
 }

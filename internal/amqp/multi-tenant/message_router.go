@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
+	"github.com/Space-DF/telemetry-service/internal/client"
 	"github.com/Space-DF/telemetry-service/internal/models"
 	"github.com/Space-DF/telemetry-service/internal/timescaledb"
 	"github.com/google/uuid"
@@ -15,10 +17,15 @@ import (
 type MessageRouter struct {
 	processor MessageProcessor
 	logger    *zap.Logger
+	auth      *client.AuthServiceClient
 }
 
 func NewMessageRouter(processor MessageProcessor, logger *zap.Logger) *MessageRouter {
-	return &MessageRouter{processor: processor, logger: logger}
+	return &MessageRouter{
+		processor: processor,
+		logger:    logger,
+		auth:      client.NewAuthServiceClient(logger),
+	}
 }
 
 func (r *MessageRouter) RouteMessage(ctx context.Context, orgSlug string, tenant *TenantConsumer, msg amqp.Delivery) {
@@ -38,6 +45,8 @@ func (r *MessageRouter) RouteMessage(ctx context.Context, orgSlug string, tenant
 	switch kind {
 	case "entity_telemetry":
 		r.handleEntityTelemetry(ctx, orgSlug, msg)
+	case "alert":
+		r.handleAlert(ctx, orgSlug, msg)
 	case "event":
 		r.handleEvent(ctx, orgSlug, msg)
 	case "location_update":
@@ -68,6 +77,7 @@ func (r *MessageRouter) handleEntityTelemetry(ctx context.Context, orgSlug strin
 		DeviceEUI:    entityPayload.DeviceEUI,
 		DeviceID:     entityPayload.DeviceID,
 		SpaceSlug:    entityPayload.SpaceSlug,
+		IsPublished:  entityPayload.IsPublished,
 		Entities:     []models.TelemetryEntity{entityPayload.Entity},
 		Timestamp:    entityPayload.Timestamp,
 		Source:       entityPayload.Source,
@@ -76,6 +86,7 @@ func (r *MessageRouter) handleEntityTelemetry(ctx context.Context, orgSlug strin
 	if telemetry.Organization == "" {
 		telemetry.Organization = orgSlug
 	}
+	r.resolvePublicTelemetrySpace(ctx, orgSlug, telemetry)
 
 	if err := r.processor.ProcessTelemetry(ctx, telemetry); err != nil {
 		r.logger.Error("Failed to process entity telemetry",
@@ -86,6 +97,31 @@ func (r *MessageRouter) handleEntityTelemetry(ctx context.Context, orgSlug strin
 
 	if ackErr := msg.Ack(false); ackErr != nil {
 		r.logger.Error("Failed to ack entity telemetry", zap.Error(ackErr))
+	}
+}
+
+func (r *MessageRouter) handleAlert(ctx context.Context, orgSlug string, msg amqp.Delivery) {
+	var event models.Event
+	if err := json.Unmarshal(msg.Body, &event); err != nil {
+		r.logger.Error("Failed to unmarshal event",
+			zap.Error(err), zap.String("org", orgSlug))
+		_ = msg.Nack(false, false)
+		return
+	}
+
+	if event.Organization == "" {
+		event.Organization = orgSlug
+	}
+
+	if err := r.processor.ProcessLNSAlertEvent(ctx, &event); err != nil {
+		r.logger.Error("Failed to process event",
+			zap.Error(err), zap.String("org", orgSlug))
+		_ = msg.Nack(false, true)
+		return
+	}
+
+	if ackErr := msg.Ack(false); ackErr != nil {
+		r.logger.Error("Failed to ack event", zap.Error(ackErr))
 	}
 }
 
@@ -152,9 +188,7 @@ func (r *MessageRouter) handleLocationMessage(ctx context.Context, orgSlug strin
 		if telemetry.Organization == "" {
 			telemetry.Organization = orgSlug
 		}
-		if telemetry.SpaceSlug == "" {
-			telemetry.SpaceSlug = orgSlug
-		}
+		r.resolvePublicTelemetrySpace(ctx, orgSlug, &telemetry)
 
 		if err := r.processor.ProcessTelemetry(ctx, &telemetry); err != nil {
 			r.logger.Error("Failed to process telemetry payload",
@@ -194,6 +228,34 @@ func (r *MessageRouter) handleLocationMessage(ctx context.Context, orgSlug strin
 	} else {
 		if ackErr := msg.Ack(false); ackErr != nil {
 			r.logger.Error("Failed to ack message", zap.Error(ackErr))
+		}
+	}
+}
+
+func (r *MessageRouter) resolvePublicTelemetrySpace(ctx context.Context, orgSlug string, telemetry *models.TelemetryPayload) {
+	if telemetry == nil || strings.TrimSpace(telemetry.SpaceSlug) != "" && telemetry.SpaceSlug != "unknown" {
+		return
+	}
+
+	telemetry.IsPublished = true
+	if r.auth == nil {
+		return
+	}
+
+	users, err := r.auth.GetUsers(ctx, orgSlug, "")
+	if err != nil {
+		r.logger.Warn("failed to resolve default space for public telemetry",
+			zap.Error(err),
+			zap.String("org", orgSlug),
+			zap.String("device_id", telemetry.DeviceID),
+		)
+		return
+	}
+
+	for _, user := range users {
+		if strings.TrimSpace(user.SlugName) != "" {
+			telemetry.SpaceSlug = user.SlugName
+			return
 		}
 	}
 }

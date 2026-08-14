@@ -66,6 +66,8 @@ func messageKindFromRoutingKey(routingKey string) string {
 		return "entity_telemetry"
 	case strings.HasSuffix(routingKey, ".event"):
 		return "event"
+	case strings.HasSuffix(routingKey, ".alert"):
+		return "alert"
 	case strings.HasSuffix(routingKey, ".location"):
 		return "location_update"
 	case strings.HasSuffix(routingKey, ".activity_log"):

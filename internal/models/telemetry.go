@@ -13,6 +13,7 @@ type TelemetryPayload struct {
 	Timestamp    string            `json:"timestamp"`
 	Source       string            `json:"source"`
 	Metadata     map[string]any    `json:"metadata,omitempty"`
+	IsPublished  bool              `json:"is_published"`
 }
 
 // TelemetryDevice holds basic device metadata.
@@ -45,6 +46,7 @@ type EntityTelemetryPayload struct {
 	DeviceEUI    string          `json:"device_eui"`
 	DeviceID     string          `json:"device_id,omitempty"`
 	SpaceSlug    string          `json:"space_slug,omitempty"`
+	IsPublished  bool            `json:"is_published"`
 	Entity       TelemetryEntity `json:"entity"`
 	Timestamp    string          `json:"timestamp"`
 	Source       string          `json:"source"`

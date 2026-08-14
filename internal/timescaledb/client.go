@@ -11,16 +11,19 @@ import (
 	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/models"
+	notificationservices "github.com/Space-DF/telemetry-service/internal/services/notifications"
 	"github.com/stephenafamo/bob"
 	"go.uber.org/zap"
 )
 
 type EventPublisher interface {
 	PublishEventToDevice(ctx context.Context, event *models.Event, orgSlug string) error
+	PublishAlertToDevice(ctx context.Context, alert *models.Alert, orgSlug string) error
 }
 
 type EventNotifier interface {
 	NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error
+	NotifyAlert(ctx context.Context, alert *notificationservices.Alert, orgSlug string) error
 }
 
 // Client represents a TimescaleDB client with basic lifecycle helpers.
@@ -129,12 +132,28 @@ func (c *Client) PublishEventToDevice(ctx context.Context, event *models.Event, 
 	return c.publisher.PublishEventToDevice(ctx, event, orgSlug)
 }
 
+func (c *Client) PublishAlertToDevice(ctx context.Context, alert *models.Alert, orgSlug string) error {
+	if c.publisher == nil {
+		return nil
+	}
+
+	return c.publisher.PublishAlertToDevice(ctx, alert, orgSlug)
+}
+
 func (c *Client) NotifyEvent(ctx context.Context, event *models.Event, orgSlug string) error {
 	if c.notifier == nil {
 		return nil
 	}
 
 	return c.notifier.NotifyEvent(ctx, event, orgSlug)
+}
+
+func (c *Client) NotifyAlert(ctx context.Context, alert *notificationservices.Alert, orgSlug string) error {
+	if c.notifier == nil {
+		return nil
+	}
+
+	return c.notifier.NotifyAlert(ctx, alert, orgSlug)
 }
 
 // SetPublisher sets the event publisher for real-time events.

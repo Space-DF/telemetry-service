@@ -80,6 +80,11 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 	}
 
 	// Upsert entity row.
+	spaceSlug := payload.SpaceSlug
+	if payload.IsPublished {
+		spaceSlug = ""
+	}
+
 	var entityID uuid.UUID
 	if err := tx.QueryRowContext(ctx, `
 		INSERT INTO entities (
@@ -99,7 +104,7 @@ func (c *Client) upsertTelemetryEntity(ctx context.Context, tx bob.Tx, ent *mode
 			updated_at = now()
 		RETURNING id`,
 		uuid.New(),
-		payload.SpaceSlug,
+		spaceSlug,
 		deviceUUID,
 		ent.UniqueID,
 		ent.EntityType,

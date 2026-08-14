@@ -124,7 +124,25 @@ func (c *MultiTenantConsumer) IsHealthy() bool {
 	return c.connManager.IsConnected()
 }
 
-// PublishEventToDevice publishes an event to the tenant's device queue
+// PublishEventToDevice publishes an event to the tenant's device queue.
+func buildEventRoutingKey(orgSlug, spaceSlug, deviceID string, event *models.Event) string {
+	suffix := ".event"
+	if event != nil && event.LNSAlert != nil {
+		suffix = ".alert"
+	}
+	if event != nil && event.IsPublic {
+		return fmt.Sprintf("tenant.%s.broker.device.%s%s", orgSlug, deviceID, suffix)
+	}
+	return fmt.Sprintf("tenant.%s.broker.space.%s.device.%s%s", orgSlug, spaceSlug, deviceID, suffix)
+}
+
+func buildAlertRoutingKey(orgSlug, spaceSlug, deviceID string) string {
+	if spaceSlug == "" {
+		return fmt.Sprintf("tenant.%s.broker.device.%s.alert", orgSlug, deviceID)
+	}
+	return fmt.Sprintf("tenant.%s.broker.space.%s.device.%s.alert", orgSlug, spaceSlug, deviceID)
+}
+
 func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *models.Event, orgSlug string) error {
 	tenant, exists := c.registry.Get(orgSlug)
 	if !exists {
@@ -140,7 +158,7 @@ func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *m
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	routingKey := fmt.Sprintf("tenant.%s.broker.space.%s.device.%s.event", orgSlug, event.SpaceSlug, event.DeviceID)
+	routingKey := buildEventRoutingKey(orgSlug, event.SpaceSlug, event.DeviceID, event)
 
 	err = tenant.Channel.PublishWithContext(
 		ctx,
@@ -156,6 +174,46 @@ func (c *MultiTenantConsumer) PublishEventToDevice(ctx context.Context, event *m
 	)
 	if err != nil {
 		return fmt.Errorf("failed to publish event: %w", err)
+	}
+
+	return nil
+}
+
+func (c *MultiTenantConsumer) PublishAlertToDevice(ctx context.Context, alert *models.Alert, orgSlug string) error {
+	tenant, exists := c.registry.Get(orgSlug)
+	if !exists {
+		return fmt.Errorf("tenant %s not found", orgSlug)
+	}
+
+	if tenant.Channel == nil || tenant.Channel.IsClosed() {
+		return fmt.Errorf("channel closed for tenant %s", orgSlug)
+	}
+
+	body, err := json.Marshal(alert)
+	if err != nil {
+		return fmt.Errorf("failed to marshal alert: %w", err)
+	}
+
+	spaceSlug := alert.SpaceSlug
+	if alert.IsPublic {
+		spaceSlug = ""
+	}
+	routingKey := buildAlertRoutingKey(orgSlug, spaceSlug, alert.DeviceID)
+
+	err = tenant.Channel.PublishWithContext(
+		ctx,
+		tenant.Exchange,
+		routingKey,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			DeliveryMode: amqp.Persistent,
+			Body:         body,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to publish alert: %w", err)
 	}
 
 	return nil

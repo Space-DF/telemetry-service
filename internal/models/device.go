@@ -36,6 +36,7 @@ func (m *DeviceLocationMessage) ToTelemetryPayload() *TelemetryPayload {
 		DeviceID:     m.DeviceID,
 		Organization: m.Organization,
 		SpaceSlug:    m.Space,
+		IsPublished:  m.IsPublished,
 		Entities:     []TelemetryEntity{},
 		Timestamp:    m.Timestamp,
 		Source:       m.Source,
