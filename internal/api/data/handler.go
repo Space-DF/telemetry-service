@@ -2,6 +2,7 @@ package data
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/Space-DF/telemetry-service/internal/api/common"
 	models "github.com/Space-DF/telemetry-service/internal/api/data/models"
@@ -45,7 +46,18 @@ func getDeviceEntityPropertiesBatch(logger *zap.Logger, tsClient *timescaledb.Cl
 			}
 			seen[deviceID] = struct{}{}
 
-			entities, err := tsClient.GetDeviceEntityProperties(ctx, deviceID)
+			var endDate *time.Time
+			if r.EndDates != nil {
+				if rawEndDate := r.EndDates[deviceID]; rawEndDate != "" {
+					parsed, parseErr := time.Parse(time.RFC3339Nano, rawEndDate)
+					if parseErr == nil {
+						parsed = parsed.UTC()
+						endDate = &parsed
+					}
+				}
+			}
+
+			entities, err := tsClient.GetDeviceEntityProperties(ctx, deviceID, endDate)
 			if err != nil {
 				logger.Error("Failed to query device entity properties",
 					zap.Error(err),

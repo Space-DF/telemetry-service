@@ -73,15 +73,16 @@ func (r *MessageRouter) handleEntityTelemetry(ctx context.Context, orgSlug strin
 	}
 
 	telemetry := &models.TelemetryPayload{
-		Organization: entityPayload.Organization,
-		DeviceEUI:    entityPayload.DeviceEUI,
-		DeviceID:     entityPayload.DeviceID,
-		SpaceSlug:    entityPayload.SpaceSlug,
-		IsPublished:  entityPayload.IsPublished,
-		Entities:     []models.TelemetryEntity{entityPayload.Entity},
-		Timestamp:    entityPayload.Timestamp,
-		Source:       entityPayload.Source,
-		Metadata:     entityPayload.Metadata,
+		Organization:  entityPayload.Organization,
+		DeviceEUI:     entityPayload.DeviceEUI,
+		DeviceID:      entityPayload.DeviceID,
+		SpaceSlug:     entityPayload.SpaceSlug,
+		IsPublished:   entityPayload.IsPublished,
+		IsDeactivated: entityPayload.IsDeactivated,
+		Entities:      []models.TelemetryEntity{entityPayload.Entity},
+		Timestamp:     entityPayload.Timestamp,
+		Source:        entityPayload.Source,
+		Metadata:      entityPayload.Metadata,
 	}
 	if telemetry.Organization == "" {
 		telemetry.Organization = orgSlug
