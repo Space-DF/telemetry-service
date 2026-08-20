@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/lib/pq"
 	"github.com/stephenafamo/bob"
@@ -57,7 +58,8 @@ func normalizeLocationValue(rawAttrs []byte) interface{} {
 }
 
 // GetDeviceEntityProperties returns device entities from a single DB query.
-func (c *Client) GetDeviceEntityProperties(ctx context.Context, deviceID string) ([]map[string]interface{}, error) {
+// When endDate is provided, latest values are capped to states reported at or before it.
+func (c *Client) GetDeviceEntityProperties(ctx context.Context, deviceID string, endDate *time.Time) ([]map[string]interface{}, error) {
 	org := orgFromContext(ctx)
 	if org == "" {
 		return nil, fmt.Errorf("organization not found in context")
@@ -96,6 +98,7 @@ func (c *Client) GetDeviceEntityProperties(ctx context.Context, deviceID string)
 				MAX(es.reported_at) AS time_end
 			FROM entity_states es
 			WHERE es.entity_id = e.id
+			  AND ($2::timestamptz IS NULL OR es.reported_at < $2)
 		) state_range ON true
 		LEFT JOIN LATERAL (
 			SELECT
@@ -104,6 +107,7 @@ func (c *Client) GetDeviceEntityProperties(ctx context.Context, deviceID string)
 				es.attributes_id
 			FROM entity_states es
 			WHERE es.entity_id = e.id
+			  AND ($2::timestamptz IS NULL OR es.reported_at < $2)
 			ORDER BY es.reported_at DESC
 			LIMIT 1
 		) latest_state ON true
@@ -113,7 +117,7 @@ func (c *Client) GetDeviceEntityProperties(ctx context.Context, deviceID string)
 	`
 
 	err := c.WithOrgTx(ctx, org, func(txCtx context.Context, tx bob.Tx) error {
-		rows, err := tx.QueryContext(txCtx, query, deviceID)
+		rows, err := tx.QueryContext(txCtx, query, deviceID, endDate)
 		if err != nil {
 			return err
 		}
