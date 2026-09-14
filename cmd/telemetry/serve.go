@@ -157,7 +157,7 @@ func cmdServe(ctx *cli.Context, logger *zap.Logger) error {
 	e.HidePort = true
 
 	// Middleware
-	e.Use(middleware.Logger())
+	e.Use(middleware.RequestLogger())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORS())
 
