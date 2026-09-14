@@ -11,7 +11,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/lib/pq v1.11.2
-	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/rabbitmq/amqp091-go v1.13.0
 	github.com/spf13/viper v1.21.0
 	github.com/stephenafamo/bob v0.41.1
 	github.com/swaggo/echo-swagger v1.4.1
