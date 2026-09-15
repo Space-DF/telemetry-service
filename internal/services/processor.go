@@ -164,6 +164,13 @@ func (p *LocationProcessor) ProcessTelemetry(ctx context.Context, payload *model
 		return err
 	}
 
+	if payload.IsDeactivated {
+		p.logger.Info("Skipping broker publishing for deactivated device telemetry",
+			zap.String("org", payload.Organization),
+			zap.String("device_id", payload.DeviceID))
+		return nil
+	}
+
 	// Match automation rules and create events for matched rules
 	if p.ruleRegistry != nil {
 		matchedEvents := p.ruleRegistry.MatchAutomationEvents(ctx,

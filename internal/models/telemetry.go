@@ -4,16 +4,17 @@ import "github.com/google/uuid"
 
 // TelemetryPayload represents the entity-centric telemetry emitted by transformer-service.
 type TelemetryPayload struct {
-	Organization string            `json:"organization"`
-	DeviceEUI    string            `json:"device_eui"`
-	DeviceID     string            `json:"device_id,omitempty"`
-	SpaceSlug    string            `json:"space_slug,omitempty"`
-	DeviceInfo   TelemetryDevice   `json:"device_info"`
-	Entities     []TelemetryEntity `json:"entities"`
-	Timestamp    string            `json:"timestamp"`
-	Source       string            `json:"source"`
-	Metadata     map[string]any    `json:"metadata,omitempty"`
-	IsPublished  bool              `json:"is_published"`
+	Organization  string            `json:"organization"`
+	DeviceEUI     string            `json:"device_eui"`
+	DeviceID      string            `json:"device_id,omitempty"`
+	SpaceSlug     string            `json:"space_slug,omitempty"`
+	DeviceInfo    TelemetryDevice   `json:"device_info"`
+	Entities      []TelemetryEntity `json:"entities"`
+	Timestamp     string            `json:"timestamp"`
+	Source        string            `json:"source"`
+	Metadata      map[string]any    `json:"metadata,omitempty"`
+	IsPublished   bool              `json:"is_published"`
+	IsDeactivated bool              `json:"is_deactivated"`
 }
 
 // TelemetryDevice holds basic device metadata.
@@ -42,13 +43,14 @@ type TelemetryEntity struct {
 }
 
 type EntityTelemetryPayload struct {
-	Organization string          `json:"organization"`
-	DeviceEUI    string          `json:"device_eui"`
-	DeviceID     string          `json:"device_id,omitempty"`
-	SpaceSlug    string          `json:"space_slug,omitempty"`
-	IsPublished  bool            `json:"is_published"`
-	Entity       TelemetryEntity `json:"entity"`
-	Timestamp    string          `json:"timestamp"`
-	Source       string          `json:"source"`
-	Metadata     map[string]any  `json:"metadata,omitempty"`
+	Organization  string          `json:"organization"`
+	DeviceEUI     string          `json:"device_eui"`
+	DeviceID      string          `json:"device_id,omitempty"`
+	SpaceSlug     string          `json:"space_slug,omitempty"`
+	IsPublished   bool            `json:"is_published"`
+	IsDeactivated bool            `json:"is_deactivated"`
+	Entity        TelemetryEntity `json:"entity"`
+	Timestamp     string          `json:"timestamp"`
+	Source        string          `json:"source"`
+	Metadata      map[string]any  `json:"metadata,omitempty"`
 }
