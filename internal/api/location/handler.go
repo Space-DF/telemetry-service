@@ -17,12 +17,11 @@ const (
 
 // GetLocationHistory godoc
 // @Summary Get device location history
-// @Description Retrieve paginated historical location data for a specific device within a space. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
+// @Description Retrieve paginated historical location data for a specific device. Organization is resolved from X-Organization header or hostname (e.g., {org}.localhost)
 // @Tags location
 // @Accept json
 // @Produce json
 // @Param device_id query string true "Device ID"
-// @Param space_slug query string true "Space slug"
 // @Param start query string true "Start time (RFC3339 format)"
 // @Param end query string false "End time (RFC3339 format, defaults to now)"
 // @Param limit query int false "Number of results per page (default 100)"
@@ -54,19 +53,17 @@ func getLocationHistory(logger *zap.Logger, tsClient *timescaledb.Client) echo.H
 		// Log which org will be used for DB scoping
 		logger.Info("Selecting DB schema for request",
 			zap.String("org_used", orgToUse),
-			zap.String("space_slug", req.SpaceSlug),
 		)
 
 		// Build context with org for DB search_path
 		ctx := timescaledb.ContextWithOrg(c.Request().Context(), orgToUse)
 
 		// Fetch all matching locations (DB uses a hard limit of MaxLimit)
-		allLocations, err := tsClient.GetLocationHistory(ctx, req.DeviceID, req.SpaceSlug, req.Start, req.End, MaxLimit)
+		allLocations, err := tsClient.GetLocationHistory(ctx, req.DeviceID, req.Start, req.End, MaxLimit)
 		if err != nil {
 			logger.Error("Failed to query location history",
 				zap.Error(err),
 				zap.String("device_id", req.DeviceID),
-				zap.String("space_slug", req.SpaceSlug),
 			)
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "failed to retrieve location history",

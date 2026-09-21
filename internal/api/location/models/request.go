@@ -7,10 +7,9 @@ import (
 
 // LocationHistoryRequest represents query parameters for location history
 type LocationHistoryRequest struct {
-	DeviceID  string    `query:"device_id" validate:"required"`
-	SpaceSlug string    `query:"space_slug" validate:"required"`
-	Start     time.Time `query:"start"`
-	End       time.Time `query:"end"`
+	DeviceID string    `query:"device_id" validate:"required"`
+	Start    time.Time `query:"start"`
+	End      time.Time `query:"end"`
 }
 
 func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
@@ -18,9 +17,6 @@ func (r LocationHistoryRequest) Validate() (*LocationHistoryRequest, error) {
 		return nil, fmt.Errorf("device_id is required")
 	}
 
-	if r.SpaceSlug == "" {
-		return nil, fmt.Errorf("space_slug is required")
-	}
 	if r.Start.IsZero() {
 		return nil, fmt.Errorf("start time is required")
 	}
