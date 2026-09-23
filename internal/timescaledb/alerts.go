@@ -123,7 +123,7 @@ func (c *Client) queryAlerts(ctx context.Context, org string, processor alertreg
 				"entity_id":          entityID,
 				"entity_name":        entityName,
 				"device_id":          deviceIDVal,
-				"space_slug":         spaceSlugVal,
+				"space_slug":         nullStringValue(spaceSlugVal),
 				processor.ValueKey(): value,
 				"unit":               processor.Unit(),
 				"threshold": map[string]interface{}{
@@ -154,6 +154,13 @@ func (c *Client) queryAlerts(ctx context.Context, org string, processor alertreg
 	}
 
 	return results, totalCount, nil
+}
+
+func nullStringValue(value sql.NullString) string {
+	if value.Valid {
+		return value.String
+	}
+	return ""
 }
 
 func buildDateRange(startStr, endStr string) (time.Time, time.Time, error) {

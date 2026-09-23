@@ -32,14 +32,36 @@ func (m *DeviceLocationMessage) ToTelemetryPayload() *TelemetryPayload {
 		return nil
 	}
 
+	attributes := map[string]any{
+		"latitude":  m.Location.Latitude,
+		"longitude": m.Location.Longitude,
+		"accuracy":  m.Location.Accuracy,
+		"source":    m.Source,
+	}
+	if m.Location.Direction != nil {
+		attributes["direction"] = *m.Location.Direction
+	}
+
 	return &TelemetryPayload{
 		DeviceID:     m.DeviceID,
 		Organization: m.Organization,
 		SpaceSlug:    m.Space,
 		IsPublished:  m.IsPublished,
-		Entities:     []TelemetryEntity{},
-		Timestamp:    m.Timestamp,
-		Source:       m.Source,
-		Metadata:     m.Metadata,
+		Entities: []TelemetryEntity{
+			{
+				UniqueID:    m.DeviceID + "_location",
+				EntityID:    m.DeviceID + "_location",
+				EntityType:  "location",
+				DeviceClass: "location",
+				Name:        "Location",
+				State:       "home",
+				DisplayType: []string{"map"},
+				Attributes:  attributes,
+				Timestamp:   m.Timestamp,
+			},
+		},
+		Timestamp: m.Timestamp,
+		Source:    m.Source,
+		Metadata:  m.Metadata,
 	}
 }
