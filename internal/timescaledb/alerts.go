@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -104,7 +105,7 @@ func (c *Client) queryAlerts(ctx context.Context, org string, processor alertreg
 
 			value := 0.0
 			if parsed, err := processor.ParseValue(state); err == nil {
-				value = parsed
+				value = math.Round(parsed*100) / 100
 			}
 
 			levelComputed := processor.DetermineLevel(value, safeThreshold, cautionThreshold, warningThreshold)
